@@ -37,12 +37,14 @@ type CreateLangfuseTraceOutput struct {
 
 // ReportLangfusePhaseInput is the input for the ReportLangfusePhase activity.
 type ReportLangfusePhaseInput struct {
-	PhaseID      string    `json:"phase_id"`
-	TraceID      string    `json:"trace_id"`
-	PhaseName    string    `json:"phase_name"`
-	StartTime    time.Time `json:"start_time"`
-	EndTime      time.Time `json:"end_time"`
-	ParentSpanID string    `json:"parent_span_id,omitempty"` // Root span ID; nests phase under pipeline root
+	PhaseID       string    `json:"phase_id"`
+	TraceID       string    `json:"trace_id"`
+	PhaseName     string    `json:"phase_name"`
+	StartTime     time.Time `json:"start_time"`
+	EndTime       time.Time `json:"end_time"`
+	ParentSpanID  string    `json:"parent_span_id,omitempty"`  // Root span ID; nests phase under pipeline root
+	StatusMessage string    `json:"status_message,omitempty"` // Human-readable error message for failed phases
+	Level         string    `json:"level,omitempty"`          // DEFAULT, ERROR; empty means success
 }
 
 // ReportLangfuseGenerationInput was the input for the ReportLangfuseGeneration activity.

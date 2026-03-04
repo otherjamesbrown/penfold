@@ -64,6 +64,8 @@ type spanCreateBody struct {
 	StartTime           string         `json:"startTime"`
 	EndTime             string         `json:"endTime,omitempty"`
 	Metadata            map[string]any `json:"metadata,omitempty"`
+	Level               string         `json:"level,omitempty"`
+	StatusMessage       string         `json:"statusMessage,omitempty"`
 }
 
 // generationUsage holds token counts for a generation event.
@@ -133,6 +135,8 @@ func (i *Ingestion) CreateSpan(e SpanEvent) {
 		Input:               e.Input,
 		StartTime:           e.StartTime.UTC().Format(time.RFC3339Nano),
 		Metadata:            e.Metadata,
+		Level:               e.Level,
+		StatusMessage:       e.StatusMessage,
 	}
 	if !e.EndTime.IsZero() {
 		body.EndTime = e.EndTime.UTC().Format(time.RFC3339Nano)

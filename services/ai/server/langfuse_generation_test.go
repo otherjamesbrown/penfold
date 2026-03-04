@@ -555,13 +555,14 @@ func TestExtractLangfuseMetadata_EmptyValues(t *testing.T) {
 }
 
 // =============================================================================
-// TestTriageContent_BackendError_NoGeneration
+// TestTriageContent_BackendError_CreatesErrorGeneration
 //
 // When:  the backend returns an error
-// Then:  no generation is created (there is no result to record)
+// Then:  a generation with Level="ERROR" is created so the failure is visible
+//        in Langfuse (pf-73ed30 fix: error path now reports generation).
 // =============================================================================
 
-func TestTriageContent_BackendError_NoGeneration(t *testing.T) {
+func TestTriageContent_BackendError_CreatesErrorGeneration(t *testing.T) {
 	be := &mockBackend{
 		chatCompletionFunc: func(ctx context.Context, messages []backend.Message, opts backend.CompletionOptions) (*backend.CompletionResult, error) {
 			return nil, backend.ErrServiceUnavailable
@@ -582,10 +583,11 @@ func TestTriageContent_BackendError_NoGeneration(t *testing.T) {
 		t.Fatal("expected error from TriageContent when backend fails, got nil")
 	}
 
-	// No generation should be created when the LLM call itself failed.
+	// pf-73ed30: a generation with ERROR level must be created so the failure
+	// is visible in Langfuse even when the LLM call fails.
 	gens := findGenerationEvents(ing.PendingEvents())
-	if len(gens) > 0 {
-		t.Errorf("expected no generation events on backend error, got %d", len(gens))
+	if len(gens) == 0 {
+		t.Error("expected a generation-create event with ERROR level on backend error, got none")
 	}
 }
 

@@ -586,6 +586,8 @@ func TestBuildEmailHeaderBlock_FullHeaders(t *testing.T) {
 		SenderName:  "Ponec, Miroslav",
 		SenderEmail: "mponec@akamai.com",
 		Subject:     "Immediate CLIC Action Required on Juniper Router Issues Impacting MTC Revenue",
+		// Content must be >= shortBodyThreshold (50) to include To/CC participants.
+		Content: "We need to take immediate action on the Juniper router issues impacting MTC revenue.",
 		Participants: []workflows.Participant{
 			{Email: "tdunn@akamai.com", DisplayName: "Dunn, Tim", HeaderRole: "to"},
 			{Email: "jdement@akamai.com", DisplayName: "DeMent, James", HeaderRole: "to"},
@@ -610,6 +612,8 @@ func TestBuildEmailHeaderBlock_NoCC(t *testing.T) {
 		SenderName:  "Alice",
 		SenderEmail: "alice@example.com",
 		Subject:     "Hello",
+		// Content must be >= shortBodyThreshold (50) to include To/CC participants.
+		Content: "Please see my note below regarding the outstanding tasks we discussed.",
 		Participants: []workflows.Participant{
 			{Email: "bob@example.com", DisplayName: "Bob", HeaderRole: "to"},
 		},
@@ -626,6 +630,8 @@ func TestBuildEmailHeaderBlock_NoDisplayName(t *testing.T) {
 	input := ExtractEntitiesInput{
 		ContentType: "email",
 		SenderEmail: "alice@example.com",
+		// Content must be >= shortBodyThreshold (50) to include To/CC participants.
+		Content: "Please see my note below regarding the outstanding tasks we discussed.",
 		Participants: []workflows.Participant{
 			{Email: "bob@example.com", HeaderRole: "to"},
 		},
@@ -667,6 +673,8 @@ func TestBuildEmailHeaderBlock_DefaultToRole(t *testing.T) {
 	input := ExtractEntitiesInput{
 		ContentType: "email",
 		SenderEmail: "alice@example.com",
+		// Content must be >= shortBodyThreshold (50) to include To/CC participants.
+		Content: "Please see my note below regarding the outstanding tasks we discussed.",
 		Participants: []workflows.Participant{
 			{Email: "bob@example.com", DisplayName: "Bob"},
 		},
@@ -700,10 +708,11 @@ func TestExtractEntities_EmailHeadersPrepended(t *testing.T) {
 	activities := NewExtractionActivities(logger, mockClient, &mockAssertionRepository{}, &mockEntityRepository{}, nil)
 
 	input := ExtractEntitiesInput{
-		TenantID:    "test-tenant",
-		SourceID:    123,
-		JobID:       "job-123",
-		Content:     "Please review the router issues.",
+		TenantID: "test-tenant",
+		SourceID: 123,
+		JobID:    "job-123",
+		// Content must be >= shortBodyThreshold (50) to include To/CC participants (pf-2e6663).
+		Content:     "Please review the router issues and provide your feedback by end of day.",
 		ContentType: "email",
 		SenderName:  "Ponec, Miroslav",
 		SenderEmail: "mponec@akamai.com",
@@ -724,7 +733,7 @@ func TestExtractEntities_EmailHeadersPrepended(t *testing.T) {
 	require.Contains(t, capturedContent, "To: Dunn, Tim <tdunn@akamai.com>")
 	require.Contains(t, capturedContent, "CC: Weisman, Sara <sweisman@akamai.com>")
 	require.Contains(t, capturedContent, "Subject: Router Issues")
-	require.Contains(t, capturedContent, "---\nBODY:\nPlease review the router issues.")
+	require.Contains(t, capturedContent, "---\nBODY:\nPlease review the router issues and provide your feedback by end of day.")
 }
 
 func TestExtractEntities_NonEmailNoHeaders(t *testing.T) {
@@ -823,8 +832,8 @@ func TestEnrichHeaderParticipants_WithMatches(t *testing.T) {
 		context.Background(), "tenant1", "hvarma@example.com", "Varma, Hrishikesh", participants, logger,
 	)
 
-	// Sender should be enriched with canonical name, title, and aliases
-	require.Equal(t, "Hrishikesh Varma [VP Engineering] (also known as: Rishi, Varma)", enrichedSender)
+	// Sender should be enriched with canonical name and title only (no alias annotation — pf-0e4d69)
+	require.Equal(t, "Hrishikesh Varma [VP Engineering]", enrichedSender)
 
 	// alice@example.com participant should be enriched with title (no aliases)
 	require.Equal(t, "Alice Smith [Senior Director, Hardware Engineering]", enrichedParticipants[0].DisplayName)
@@ -888,10 +897,11 @@ func TestEnrichHeaderParticipants_NilPersonLookup(t *testing.T) {
 	acts := NewExtractionActivities(logger, mockClient, &mockAssertionRepository{}, &mockEntityRepository{}, nil)
 
 	input := ExtractEntitiesInput{
-		TenantID:    "tenant1",
-		SourceID:    1,
-		JobID:       "job-1",
-		Content:     "Please review the attached document.",
+		TenantID: "tenant1",
+		SourceID: 1,
+		JobID:    "job-1",
+		// Content must be >= shortBodyThreshold (50) to include To/CC participants (pf-2e6663).
+		Content:     "Please review the attached document and send me your feedback by Friday.",
 		ContentType: "email",
 		SenderName:  "Varma, Hrishikesh",
 		SenderEmail: "hvarma@example.com",
@@ -999,12 +1009,14 @@ func TestExtractAssertions_EmailNotSkipped(t *testing.T) {
 
 func TestBuildEmailHeaderBlock_EnrichedParticipants(t *testing.T) {
 	// Full flow test: enriched participants -> buildEmailHeaderBlock
-	// Simulates the "Varma, Hrishikesh" -> "Hrishikesh Varma [VP Engineering] (also known as: Rishi)" case
+	// Simulates the "Varma, Hrishikesh" -> "Hrishikesh Varma [VP Engineering]" case (no alias annotation — pf-0e4d69)
 	input := ExtractEntitiesInput{
 		ContentType: "email",
-		SenderName:  "Hrishikesh Varma [VP Engineering] (also known as: Rishi)",
+		SenderName:  "Hrishikesh Varma [VP Engineering]",
 		SenderEmail: "hvarma@example.com",
 		Subject:     "Q3 Planning",
+		// Content must be >= shortBodyThreshold (50) to include To/CC participants.
+		Content: "Please review the attached Q3 planning document and send me your feedback.",
 		Participants: []workflows.Participant{
 			{Email: "alice@example.com", DisplayName: "Alice Smith [Senior Director, Hardware Engineering]", HeaderRole: "to"},
 		},
@@ -1012,7 +1024,7 @@ func TestBuildEmailHeaderBlock_EnrichedParticipants(t *testing.T) {
 
 	result := buildEmailHeaderBlock(input)
 
-	require.Contains(t, result, "From: Hrishikesh Varma [VP Engineering] (also known as: Rishi) <hvarma@example.com>")
+	require.Contains(t, result, "From: Hrishikesh Varma [VP Engineering] <hvarma@example.com>")
 	require.Contains(t, result, "To: Alice Smith [Senior Director, Hardware Engineering] <alice@example.com>")
 	require.Contains(t, result, "Subject: Q3 Planning")
 }
@@ -1082,7 +1094,7 @@ func TestFormatEnrichedName_MetadataWhitelist(t *testing.T) {
 }
 
 func TestFormatEnrichedName_NoMetadata(t *testing.T) {
-	// No metadata — same behavior as before
+	// Aliases are no longer included in the formatted name (pf-0e4d69)
 	person := &PersonInfo{
 		ID:            1,
 		CanonicalName: "Alice",
@@ -1091,7 +1103,9 @@ func TestFormatEnrichedName_NoMetadata(t *testing.T) {
 
 	aliases := map[int64][]string{1: {"Ali"}}
 	result := formatEnrichedName(person, aliases)
-	require.Equal(t, "Alice [Director] (also known as: Ali)", result)
+	// Alias annotation must NOT appear — it caused NER to extract aliases as separate entities
+	require.Equal(t, "Alice [Director]", result)
+	require.NotContains(t, result, "(also known as:")
 }
 
 func TestFormatEnrichedName_MetadataNoTitle(t *testing.T) {
@@ -1234,4 +1248,159 @@ func TestExtractChunkSize_QwenModel(t *testing.T) {
 	ctx := context.Background()
 	// Qwen: threshold=~104K, chunk_size=~52K, capped at 50K
 	require.Equal(t, 50000, extractChunkSize(ctx, nil, "qwen3:8b"))
+}
+
+// TestFormatEnrichedName_AliasNotIncluded is a reproduction test for pf-0e4d69.
+//
+// Bug: formatEnrichedName appends " (also known as: JB)" to the canonical name.
+// When this enriched name flows into buildEmailHeaderBlock and then to the NER
+// model, the model extracts both "James Brown" and "JB" as separate person
+// entities, creating duplicate/spurious entity records.
+//
+// The fix should strip alias annotations from formatEnrichedName so that only
+// the canonical name (and bracket metadata) reaches the NER input.
+//
+// This test FAILS against the current code because formatEnrichedName currently
+// appends the "(also known as: ...)" suffix.
+func TestFormatEnrichedName_AliasNotIncluded(t *testing.T) {
+	person := &PersonInfo{
+		ID:            42,
+		CanonicalName: "James Brown",
+		Title:         "Director",
+	}
+	aliases := map[int64][]string{
+		42: {"JB"},
+	}
+
+	result := formatEnrichedName(person, aliases)
+
+	// The canonical name must still be present.
+	require.Contains(t, result, "James Brown")
+
+	// The alias annotation must NOT appear — it causes the NER model to extract
+	// "JB" as a separate person entity, duplicating "James Brown".
+	require.NotContains(t, result, "(also known as:")
+}
+
+// TestEnrichHeaderParticipants_AliasNotInOutput is a reproduction test for pf-0e4d69
+// at the enrichHeaderParticipants level, confirming the alias text is absent from
+// the full enrichment pipeline and not just from the leaf formatEnrichedName helper.
+//
+// This test FAILS against the current code.
+func TestEnrichHeaderParticipants_AliasNotInOutput(t *testing.T) {
+	logger := logging.NewNopLogger()
+
+	pl := &mockPersonLookup{
+		getPeopleByEmailsFn: func(ctx context.Context, tenantID string, emails []string) (map[string]*PersonInfo, error) {
+			return map[string]*PersonInfo{
+				"james@example.com": {ID: 42, CanonicalName: "James Brown", PrimaryEmail: "james@example.com", Title: "Director"},
+			}, nil
+		},
+		getNameAliasesByPersonIDsFn: func(ctx context.Context, personIDs []int64) (map[int64][]string, error) {
+			return map[int64][]string{
+				42: {"JB"},
+			}, nil
+		},
+		getMetadataByPersonIDsFn: func(ctx context.Context, personIDs []int64) (map[int64]map[string]string, error) {
+			return map[int64]map[string]string{}, nil
+		},
+	}
+
+	acts := NewExtractionActivities(logger, &mockAIClient{}, &mockAssertionRepository{}, &mockEntityRepository{}, nil)
+	acts.WithPersonLookup(pl)
+
+	enrichedSender, _ := acts.enrichHeaderParticipants(
+		context.Background(), "tenant1", "james@example.com", "Brown, James", []workflows.Participant{}, logger,
+	)
+
+	// Canonical name must be present.
+	require.Contains(t, enrichedSender, "James Brown")
+
+	// The alias annotation must NOT be present in the string that will be fed
+	// to the NER model as part of the email header block.
+	require.NotContains(t, enrichedSender, "(also known as:")
+}
+
+// TestBuildEmailHeaderBlock_ShortBodyHeaderDomination is a reproduction test for pf-2e6663.
+//
+// Bug: For short emails (e.g. "+Kyle"), buildEmailHeaderBlock includes the full To/CC
+// participant list unconditionally. When this header block is prepended to a one-line body
+// and sent to the NER model, the header recipients dominate the extraction output.
+// A "+Kyle" email produces 23 "people" — all from headers, none from the body.
+//
+// Root cause: buildEmailHeaderBlock has no awareness of body length. It always emits
+// every participant in To/CC regardless of whether the body is 5 chars or 5000.
+// Additionally, the NER prompt template contains no instruction to distinguish
+// body mentions from header recipients, and PersonEntity.Source is never set.
+//
+// This test FAILS against the current code because buildEmailHeaderBlock does NOT
+// suppress or reduce the participant list when the body is very short (< 50 chars).
+// The fix should either suppress the participant list for short bodies, or add a
+// prompt instruction to prioritise body mentions.
+func TestBuildEmailHeaderBlock_ShortBodyHeaderDomination(t *testing.T) {
+	// Simulate the "+Kyle" scenario: 20 participants in To/CC but a 6-char body.
+	manyParticipants := []workflows.Participant{
+		{Email: "alice@example.com", DisplayName: "Alice Anderson", HeaderRole: "to"},
+		{Email: "bob@example.com", DisplayName: "Bob Baker", HeaderRole: "to"},
+		{Email: "carol@example.com", DisplayName: "Carol Chen", HeaderRole: "to"},
+		{Email: "david@example.com", DisplayName: "David Diaz", HeaderRole: "to"},
+		{Email: "eve@example.com", DisplayName: "Eve Evans", HeaderRole: "to"},
+		{Email: "frank@example.com", DisplayName: "Frank Foster", HeaderRole: "cc"},
+		{Email: "grace@example.com", DisplayName: "Grace Green", HeaderRole: "cc"},
+		{Email: "henry@example.com", DisplayName: "Henry Hall", HeaderRole: "cc"},
+		{Email: "isla@example.com", DisplayName: "Isla Irving", HeaderRole: "cc"},
+		{Email: "jack@example.com", DisplayName: "Jack Jones", HeaderRole: "cc"},
+		{Email: "karen@example.com", DisplayName: "Karen King", HeaderRole: "cc"},
+		{Email: "liam@example.com", DisplayName: "Liam Lee", HeaderRole: "cc"},
+		{Email: "mia@example.com", DisplayName: "Mia Moore", HeaderRole: "cc"},
+		{Email: "noah@example.com", DisplayName: "Noah Nelson", HeaderRole: "cc"},
+		{Email: "olivia@example.com", DisplayName: "Olivia Owen", HeaderRole: "cc"},
+		{Email: "peter@example.com", DisplayName: "Peter Park", HeaderRole: "cc"},
+		{Email: "quinn@example.com", DisplayName: "Quinn Quinn", HeaderRole: "cc"},
+		{Email: "rachel@example.com", DisplayName: "Rachel Reed", HeaderRole: "cc"},
+		{Email: "sam@example.com", DisplayName: "Sam Scott", HeaderRole: "cc"},
+		{Email: "tina@example.com", DisplayName: "Tina Taylor", HeaderRole: "cc"},
+	}
+
+	shortBody := "+Kyle" // 5 chars — the real-world "+Kyle" email case
+
+	input := ExtractEntitiesInput{
+		ContentType:  "email",
+		SenderName:   "James Brown",
+		SenderEmail:  "james@example.com",
+		Subject:      "Re: Project update",
+		Participants: manyParticipants,
+		Content:      shortBody,
+	}
+
+	require.Less(t, len(shortBody), 50, "body must be short for this test to be meaningful")
+	require.Equal(t, 20, len(manyParticipants), "test requires many header participants")
+
+	headerBlock := buildEmailHeaderBlock(input)
+
+	// Count how many of the 20 participant names appear in the header block.
+	// In the bug state, all 20 are present because the function emits them unconditionally.
+	participantNamesInHeader := 0
+	for _, p := range manyParticipants {
+		if strings.Contains(headerBlock, p.DisplayName) {
+			participantNamesInHeader++
+		}
+	}
+
+	// The fix should suppress or significantly reduce participants for short bodies.
+	// This assertion FAILS against the current code, which always emits all 20.
+	//
+	// Acceptable post-fix behaviours:
+	//   a) No participant list at all when body < 50 chars
+	//   b) Participant list capped (e.g. only sender kept)
+	//
+	// The assertion documents the desired constraint: a short-body NER input must
+	// not be dominated by header recipients.
+	require.Less(t, participantNamesInHeader, len(manyParticipants),
+		"buildEmailHeaderBlock should suppress or reduce the participant list "+
+			"for short bodies (body=%q, len=%d), but all %d header recipients "+
+			"were included unconditionally — this causes NER output to be "+
+			"dominated by header participants rather than body mentions (pf-2e6663)",
+		shortBody, len(shortBody), len(manyParticipants),
+	)
 }

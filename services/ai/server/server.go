@@ -425,6 +425,27 @@ func (s *AIServer) GenerateSummary(ctx context.Context, req *aiv1.SummaryRequest
 			logging.Err(err),
 		)
 		tracing.SetError(span, err)
+		if s.langfuse != nil {
+			lfTraceID, lfPhaseID := extractLangfuseMetadata(ctx)
+			if lfTraceID != "" {
+				s.langfuse.CreateGeneration(langfuse.GenerationEvent{
+					ID:            uuid.New().String(),
+					TraceID:       lfTraceID,
+					ParentID:      lfPhaseID,
+					Name:          "ai.summarize",
+					Model:         model,
+					Input:         messages,
+					Output:        err.Error(),
+					StartTime:     startTime,
+					EndTime:       time.Now(),
+					Level:         "ERROR",
+					StatusMessage: err.Error(),
+				})
+				if flushErr := s.langfuse.Flush(ctx); flushErr != nil {
+					s.logger.Warn("Langfuse generation flush failed", logging.Err(flushErr))
+				}
+			}
+		}
 		return nil, s.convertError(err)
 	}
 
@@ -554,6 +575,27 @@ func (s *AIServer) ExtractAssertions(ctx context.Context, req *aiv1.AssertionReq
 			logging.Err(err),
 		)
 		tracing.SetError(span, err)
+		if s.langfuse != nil {
+			lfTraceID, lfPhaseID := extractLangfuseMetadata(ctx)
+			if lfTraceID != "" {
+				s.langfuse.CreateGeneration(langfuse.GenerationEvent{
+					ID:            uuid.New().String(),
+					TraceID:       lfTraceID,
+					ParentID:      lfPhaseID,
+					Name:          "ai.extract_assertions",
+					Model:         model,
+					Input:         messages,
+					Output:        err.Error(),
+					StartTime:     startTime,
+					EndTime:       time.Now(),
+					Level:         "ERROR",
+					StatusMessage: err.Error(),
+				})
+				if flushErr := s.langfuse.Flush(ctx); flushErr != nil {
+					s.logger.Warn("Langfuse generation flush failed", logging.Err(flushErr))
+				}
+			}
+		}
 		return nil, s.convertError(err)
 	}
 
@@ -852,6 +894,27 @@ func (s *AIServer) TriageContent(ctx context.Context, req *aiv1.TriageContentReq
 				logging.Err(lastErr),
 			)
 			tracing.SetError(span, lastErr)
+			if s.langfuse != nil {
+				lfTraceID, lfPhaseID := extractLangfuseMetadata(ctx)
+				if lfTraceID != "" {
+					s.langfuse.CreateGeneration(langfuse.GenerationEvent{
+						ID:            uuid.New().String(),
+						TraceID:       lfTraceID,
+						ParentID:      lfPhaseID,
+						Name:          "ai.triage",
+						Model:         model,
+						Input:         messages,
+						Output:        lastErr.Error(),
+						StartTime:     startTime,
+						EndTime:       time.Now(),
+						Level:         "ERROR",
+						StatusMessage: lastErr.Error(),
+					})
+					if flushErr := s.langfuse.Flush(ctx); flushErr != nil {
+						s.logger.Warn("Langfuse generation flush failed", logging.Err(flushErr))
+					}
+				}
+			}
 			return nil, s.convertError(lastErr)
 		}
 

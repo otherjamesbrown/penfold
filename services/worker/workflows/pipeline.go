@@ -224,8 +224,9 @@ type SLMPipelineExtractEntitiesOutput struct {
 
 // PersonResult represents a person extracted from content.
 type PersonResult struct {
-	Name string `json:"name"`
-	Role string `json:"role,omitempty"`
+	Name   string `json:"name"`
+	Role   string `json:"role,omitempty"`
+	Source string `json:"source,omitempty"` // "header" or "body" — set from PersonEntity.Source (pf-2e6663)
 }
 
 // DateResult represents a date or deadline extracted from content.
@@ -1229,14 +1230,40 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		return state.result, nil
 	}
 
+	// Pre-classification for first-time ingestion (pf-1c083d).
+	// When input.Pipeline is empty, triage hasn't run yet so the pipeline name is
+	// unknown. For email content we can detect notification sources deterministically
+	// from the sender address — no AI call needed. If the sender matches a known
+	// notification domain pattern, pre-set the pipeline to "notification" so the
+	// early pipeline definition fetch (below) fires and prompt_override=2 reaches
+	// the triage stage on first ingestion.
+	//
+	// This mirrors what triage's rule engine does internally, but without waiting
+	// for triage to complete. If triage later disagrees (edge case), the post-triage
+	// pipeline re-fetch corrects it.
+	var preclassifiedPipeline string
+	if input.Pipeline == "" && strings.EqualFold(input.ContentType, "email") && input.SenderEmail != "" {
+		if looksLikeNotificationSender(input.SenderEmail) {
+			preclassifiedPipeline = "notification"
+			logger.Info("Pre-classified as notification pipeline from sender address",
+				"sender_email", input.SenderEmail,
+				"pipeline", preclassifiedPipeline,
+			)
+		}
+	}
+
 	// Early pipeline definition fetch: when the pipeline is known before triage
 	// (e.g. notification, newsletter), load the definition so prompt_override
 	// reaches the triage stage via stageConfigMap.
 	// If triage routes to a different pipeline, we re-fetch after triage.
 	var earlyPipelineName string
 	var earlyPipelineDef *FetchPipelineDefinitionOutput
-	if input.Pipeline != "" {
-		earlyPipelineName = input.Pipeline
+	resolvedEarlyPipeline := input.Pipeline
+	if resolvedEarlyPipeline == "" {
+		resolvedEarlyPipeline = preclassifiedPipeline
+	}
+	if resolvedEarlyPipeline != "" {
+		earlyPipelineName = resolvedEarlyPipeline
 		ctxDef := workflow.WithActivityOptions(ctx, fastOpts)
 		var defOut FetchPipelineDefinitionOutput
 		defErr := workflow.ExecuteActivity(ctxDef, pkgtemporal.ActivityFetchPipelineDefinition, FetchPipelineDefinitionInput{
@@ -1563,9 +1590,11 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 	// Compute content contribution for gating (used by summarize + extract/analyze gates).
 	contribution := triageOutput.ContentContribution
-	// Default to HIGH if field is missing (never skip by accident)
+	// Default to MEDIUM if field is missing — a missing value should not trigger
+	// the most expensive processing path. MEDIUM is a safe middle ground that runs
+	// extraction but skips nothing, without silently enabling full HIGH processing.
 	if contribution == "" {
-		contribution = "HIGH"
+		contribution = "MEDIUM"
 	}
 
 	// ==================== Stage 1.5: Summarize (non-blocking) ====================
@@ -1620,24 +1649,29 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			LangfusePhaseID: summarizePhaseID,
 		}).Get(ctx, &summaryID)
 		if summarizeErr != nil {
-			logger.Warn("Stage 1.5 GenerateSummary failed (non-blocking)", "error", summarizeErr)
+			logger.Error("Stage 1.5 GenerateSummary failed (non-blocking)", "error", summarizeErr)
 		} else {
 			logger.Debug("Summary generated", "summary_id", summaryID)
 		}
 		// Langfuse: report Summarize phase span (best-effort, non-blocking).
 		// Generation is reported by the AI coordinator via gRPC metadata.
 		summarizeEnd := workflow.Now(ctx)
+		summarizePhaseInput := ReportLangfusePhaseInput{
+			PhaseID:      summarizePhaseID,
+			TraceID:      langfuseTraceID,
+			PhaseName:    "Summarize",
+			StartTime:    summarizeStart,
+			EndTime:      summarizeEnd,
+			ParentSpanID: rootSpanID,
+		}
+		if summarizeErr != nil {
+			summarizePhaseInput.Level = "ERROR"
+			summarizePhaseInput.StatusMessage = summarizeErr.Error()
+		}
 		_ = workflow.ExecuteActivity(
 			workflow.WithActivityOptions(ctx, fastOpts),
 			pkgtemporal.ActivityReportLangfusePhase,
-			ReportLangfusePhaseInput{
-				PhaseID:   summarizePhaseID,
-				TraceID:   langfuseTraceID,
-				PhaseName: "Summarize",
-				StartTime: summarizeStart,
-				EndTime:      summarizeEnd,
-				ParentSpanID: rootSpanID,
-			},
+			summarizePhaseInput,
 		).Get(ctx, nil)
 	}
 
@@ -1656,8 +1690,9 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			"reason", triageOutput.ContributionReason,
 		)
 	case "LOW":
-		skipAnalyze = true // Skip stage 4 only
-		logger.Info("contribution-based gating: LOW - skipping analyze",
+		skipExtract = true // Skip stages 2, 2b, 3, 3.5 — trivial content produces empty outputs
+		skipAnalyze = true // Skip stage 4, 4.5
+		logger.Info("contribution-based gating: LOW - skipping extract and analyze",
 			"source_id", input.SourceID,
 			"contribution", contribution,
 			"reason", triageOutput.ContributionReason,
@@ -2118,12 +2153,12 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		
 			}).Get(ctx, &assertionCount)
 			if err2 != nil {
-				logger.Warn("pipeline stage span error",
+				logger.Error("pipeline stage span error",
 					"stage.name", "extract_assertions",
 					"error.type", classifyTemporalError(err2),
 					"error.detail", err2.Error(),
 				)
-				logger.Warn("Stage 2b ExtractAssertions failed, continuing", "error", err2)
+				logger.Error("Stage 2b ExtractAssertions failed, continuing", "error", err2)
 				assertionCount = 0
 			} else {
 				logger.Info("pipeline stage span completed",
@@ -2414,13 +2449,13 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		}).Get(ctx, analyzeOutput)
 		if err != nil {
 			durationMs := workflow.Now(ctx).Sub(analyzeStart).Milliseconds()
-			logger.Warn("pipeline stage span error",
+			logger.Error("pipeline stage span error",
 				"stage.name", "analyze",
 				"error.type", classifyTemporalError(err),
 				"error.detail", err.Error(),
 				"stage.duration_ms", durationMs,
 			)
-			logger.Warn("pipeline stage failed (non-blocking)",
+			logger.Error("pipeline stage failed (non-blocking)",
 				"source_id", input.SourceID,
 				"stage", analyzeStage.Name,
 				"stage_number", analyzeStage.Number,
@@ -2456,23 +2491,26 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			)
 		}
 
-		// Langfuse: report Analyze phase span (only if it ran, best-effort).
+		// Langfuse: report Analyze phase span (always, even on failure, best-effort).
 		// Generation is now reported by the AI coordinator via gRPC metadata.
-		if analyzeOutput != nil {
-			analyzeEnd := workflow.Now(ctx)
-			_ = workflow.ExecuteActivity(
-				workflow.WithActivityOptions(ctx, fastOpts),
-				pkgtemporal.ActivityReportLangfusePhase,
-				ReportLangfusePhaseInput{
-					PhaseID:   analyzePhaseID,
-					TraceID:   langfuseTraceID,
-					PhaseName: "Analyze",
-					StartTime:    analyzeStart,
-					ParentSpanID: rootSpanID,
-					EndTime:   analyzeEnd,
-				},
-			).Get(ctx, nil)
+		analyzeEnd := workflow.Now(ctx)
+		analyzePhaseInput := ReportLangfusePhaseInput{
+			PhaseID:      analyzePhaseID,
+			TraceID:      langfuseTraceID,
+			PhaseName:    "Analyze",
+			StartTime:    analyzeStart,
+			EndTime:      analyzeEnd,
+			ParentSpanID: rootSpanID,
 		}
+		if analyzeFailed && err != nil {
+			analyzePhaseInput.Level = "ERROR"
+			analyzePhaseInput.StatusMessage = err.Error()
+		}
+		_ = workflow.ExecuteActivity(
+			workflow.WithActivityOptions(ctx, fastOpts),
+			pkgtemporal.ActivityReportLangfusePhase,
+			analyzePhaseInput,
+		).Get(ctx, nil)
 
 		state.status.StepsCompleted = 5
 
@@ -3260,6 +3298,48 @@ func promptOverrideForStage(stageConfigMap map[string]PipelineStageConfig, stage
 		return 0
 	}
 	return cfg.PromptOverride
+}
+
+// looksLikeNotificationSender returns true when the sender address is a known
+// automated notification domain. This is a deterministic pre-classification check
+// used before triage to enable the early pipeline definition fetch (pf-1c083d).
+//
+// The patterns mirror the classification rule engine's seed rules but are evaluated
+// without a DB call, so they can fire before triage. If this function returns true
+// and triage later routes to a different pipeline, the post-triage re-fetch corrects
+// it. False negatives are safe — the prompt override is a tuning hint, not a hard
+// requirement.
+func looksLikeNotificationSender(senderEmail string) bool {
+	lower := strings.ToLower(senderEmail)
+	notificationDomainPatterns := []string{
+		// Google Docs / Sheets / Slides comment notifications
+		"noreply@docs.google.com",
+		"-noreply@docs.google.com",
+		// GitHub (issues, PRs, reviews)
+		"@github.com",
+		// Jira / Atlassian
+		"jira@",
+		"@atlassian.net",
+		// Aha!
+		"@mailer.aha.io",
+		// Slack
+		"@slack.com",
+		// Confluence
+		"confluence@",
+		// Generic noreply patterns typical of notification services
+		"noreply@",
+		"no-reply@",
+		"notifications@",
+		"notification@",
+		"do-not-reply@",
+		"donotreply@",
+	}
+	for _, pattern := range notificationDomainPatterns {
+		if strings.Contains(lower, pattern) {
+			return true
+		}
+	}
+	return false
 }
 
 // Ensure temporal package is used to avoid import errors during development.

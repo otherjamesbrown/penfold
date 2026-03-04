@@ -14,14 +14,16 @@ type TraceEvent struct {
 
 // SpanEvent holds the data for creating a span (observation) in Langfuse.
 type SpanEvent struct {
-	ID        string
-	TraceID   string
-	ParentID  string // parent observation ID; empty means root of trace
-	Name      string
-	Input     any    // optional input data displayed in the Langfuse UI
-	StartTime time.Time
-	EndTime   time.Time
-	Metadata  map[string]any
+	ID            string
+	TraceID       string
+	ParentID      string // parent observation ID; empty means root of trace
+	Name          string
+	Input         any    // optional input data displayed in the Langfuse UI
+	StartTime     time.Time
+	EndTime       time.Time
+	Metadata      map[string]any
+	Level         string // DEFAULT, ERROR; empty means success (omitted from JSON)
+	StatusMessage string // human-readable error message for failed spans
 }
 
 // GenerationEvent holds the data for creating a generation (LLM call) in Langfuse.

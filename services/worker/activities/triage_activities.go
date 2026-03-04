@@ -510,14 +510,21 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 	}
 
 	// Cap ContentContribution for notification subtypes (pf-bcb565).
-	// Notifications (Jira, Google Docs, Aha, Slack, etc.) don't need deep_analyze —
-	// extraction captures entity names, but deep analysis wastes expensive model capacity.
-	// Cap at LOW so extraction runs but deep_analyze is skipped.
-	if subtype.IsNotification() && contributionAbove(output.ContentContribution, "LOW") {
+	// Pure system notifications (Jira, Aha, Slack state changes, etc.) don't need
+	// deep_analyze — extraction captures entity names, but deep analysis wastes
+	// expensive model capacity. Cap at LOW so extraction runs but deep_analyze is
+	// skipped.
+	//
+	// Carve-out (pf-1c083d): hybrid notification sources embed human-written content
+	// (Google Docs comments contain the commenter's words; GitHub PR reviews contain
+	// the reviewer's analysis). For these, the LLM's ContentContribution assessment
+	// is reliable and must not be overridden. Only cap pure system notification sources.
+	if subtype.IsNotification() && !isHybridNotificationSource(sourceSystem) && contributionAbove(output.ContentContribution, "LOW") {
 		logger.Info("Capping contribution for notification content",
 			logging.F("original_contribution", output.ContentContribution),
 			logging.F("capped_to", "LOW"),
 			logging.F("content_subtype", string(subtype)),
+			logging.F("source_system", sourceSystem),
 		)
 		output.ContentContribution = "LOW"
 		output.ContributionReason = fmt.Sprintf("Notification content capped from %s to LOW (pf-bcb565)", contentContribution)
@@ -597,6 +604,26 @@ func shouldSkipDeep(category, importance string) bool {
 func contributionAbove(contribution, threshold string) bool {
 	order := map[string]int{"NONE": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3}
 	return order[contribution] > order[threshold]
+}
+
+// isHybridNotificationSource returns true for notification sources that embed
+// human-written content and should not have ContentContribution capped to LOW.
+//
+// Hybrid sources: the notification is a wrapper around content authored by a person.
+// Examples:
+//   - google_docs: the notification body contains the commenter's comment verbatim
+//   - github: PR review comments and issue comments are human-written
+//
+// Pure system sources (jira, aha, confluence, slack joins, etc.) produce machine-
+// generated state-change events with no substantive human content — those remain
+// subject to the pf-bcb565 cap.
+func isHybridNotificationSource(sourceSystem string) bool {
+	switch sourceSystem {
+	case "google_docs", "github":
+		return true
+	default:
+		return false
+	}
 }
 
 // mapToSourceSystem converts a ClassificationResult to the legacy SourceSystem string.

@@ -22,6 +22,14 @@ import (
 // Matches the spec in specs/020-slm-llm-architecture/design.md lines 232-252.
 const nerPromptTemplate = `Extract the following from this content. Only include information that is explicitly stated - do not infer or guess.
 
+IMPORTANT: The "Background Context" section below (if present) is provided for disambiguation ONLY.
+Do NOT extract entities, topics, or themes from the Background Context section.
+Extract ONLY from the actual email content that follows the "---" separator.
+
+When extracting people: prioritize people mentioned by name IN THE EMAIL BODY over
+people listed only in the To/CC email headers. People in headers who are not mentioned
+in the body text should be tagged as header-only contacts, not as people "mentioned" in the content.
+
 1. People mentioned (name, role/title if stated — pay special attention to email signature blocks after sign-offs like Regards/Best/Thanks. Extract job title and department from signatures. Do not extract non-title text from meeting invitations or automated blocks like 'Tap to call in', 'Join my meeting', 'attendees only', 'dial in', or 'conference call'. Do NOT extract tool or software names as people — e.g. "Aha!", "Jira", "Slack", "ServiceNow" are products, not people. Do NOT extract publication titles, newsletter names, or service desk names as people — e.g. "Emea Newsletter", "Akamai Solution Center" are not people. When you encounter short abbreviations like "AK", "JB", "TL" that appear to be initials for a person, extract them as-is rather than guessing the full name.)
 2. Dates and deadlines mentioned
 3. Projects, products, or codenames mentioned
@@ -43,6 +51,10 @@ If a field has no matches, use an empty array.
 // Semantic extraction prompt template for Stage 2b.
 // Matches the spec in specs/020-slm-llm-architecture/design.md lines 254-274.
 const semanticPromptTemplate = `Extract the following from this content. Only include information that is explicitly stated - do not infer or guess.
+
+IMPORTANT: The "Background Context" section below (if present) is provided for disambiguation ONLY.
+Do NOT extract entities, topics, or themes from the Background Context section.
+Extract ONLY from the actual email content that follows the "---" separator.
 
 1. Explicit action items (who should do what, by when)
 2. Key decisions stated
@@ -316,6 +328,27 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 					logging.Err(lastErr),
 				)
 				tracing.SetError(span, lastErr)
+				if s.langfuse != nil {
+					lfTraceID, lfPhaseID := extractLangfuseMetadata(ctx)
+					if lfTraceID != "" {
+						s.langfuse.CreateGeneration(langfuse.GenerationEvent{
+							ID:            uuid.New().String(),
+							TraceID:       lfTraceID,
+							ParentID:      lfPhaseID,
+							Name:          "ai.extract_ner",
+							Model:         model,
+							Input:         nerMessages,
+							Output:        lastErr.Error(),
+							StartTime:     startTime,
+							EndTime:       time.Now(),
+							Level:         "ERROR",
+							StatusMessage: lastErr.Error(),
+						})
+						if flushErr := s.langfuse.Flush(ctx); flushErr != nil {
+							s.logger.Warn("Langfuse generation flush failed", logging.Err(flushErr))
+						}
+					}
+				}
 				return nil, s.convertError(lastErr)
 			}
 
@@ -407,6 +440,27 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 					logging.Err(lastErr),
 				)
 				tracing.SetError(span, lastErr)
+				if s.langfuse != nil {
+					lfTraceID, lfPhaseID := extractLangfuseMetadata(ctx)
+					if lfTraceID != "" {
+						s.langfuse.CreateGeneration(langfuse.GenerationEvent{
+							ID:            uuid.New().String(),
+							TraceID:       lfTraceID,
+							ParentID:      lfPhaseID,
+							Name:          "ai.extract_semantic",
+							Model:         model,
+							Input:         semMessages,
+							Output:        lastErr.Error(),
+							StartTime:     startTime,
+							EndTime:       time.Now(),
+							Level:         "ERROR",
+							StatusMessage: lastErr.Error(),
+						})
+						if flushErr := s.langfuse.Flush(ctx); flushErr != nil {
+							s.logger.Warn("Langfuse generation flush failed", logging.Err(flushErr))
+						}
+					}
+				}
 				return nil, s.convertError(lastErr)
 			}
 
@@ -542,11 +596,13 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 		SemanticPromptVersion: semPromptVersion,
 	}
 
-	// Convert NER people
+	// Convert NER people — mark all NER-extracted people as "body" source since the NER
+	// model extracts from the email body content (pf-2e6663).
 	for _, p := range nerResp.People {
 		resp.People = append(resp.People, &aiv1.PersonEntity{
-			Name: p.Name,
-			Role: p.Role,
+			Name:   p.Name,
+			Role:   p.Role,
+			Source: "body",
 		})
 	}
 

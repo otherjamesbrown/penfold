@@ -824,7 +824,7 @@ func mergeExtractionResults(results []*aiv1.ExtractEntitiesResponse) *workflows.
 			key := normalizeString(p.Name)
 			if existing, ok := peopleMap[key]; !ok || len(p.Role) > len(existing.Role) {
 				// Keep the one with more role info
-				peopleMap[key] = workflows.PersonResult{Name: p.Name, Role: p.Role}
+				peopleMap[key] = workflows.PersonResult{Name: p.Name, Role: p.Role, Source: p.Source}
 			}
 		}
 	}
@@ -997,25 +997,17 @@ func (a *ExtractionActivities) enrichHeaderParticipants(
 		return senderName, participants
 	}
 
-	// Collect person IDs for alias lookup
+	// Collect person IDs for metadata lookup
 	var personIDs []int64
 	for _, p := range people {
 		personIDs = append(personIDs, p.ID)
-	}
-
-	// Batch lookup name aliases
-	aliases, err := a.personLookup.GetNameAliasesByPersonIDs(ctx, personIDs)
-	if err != nil {
-		logger.Warn("Failed to lookup aliases for header enrichment", logging.Err(err))
-		// Continue without aliases — we still have canonical names
-		aliases = nil
 	}
 
 	// Batch lookup person metadata (pf-2d3ec8)
 	personMetadata, err := a.personLookup.GetMetadataByPersonIDs(ctx, personIDs)
 	if err != nil {
 		logger.Warn("Failed to lookup metadata for header enrichment", logging.Err(err))
-		// Continue without metadata — we still have names and aliases
+		// Continue without metadata — we still have canonical names
 		personMetadata = nil
 	}
 
@@ -1031,7 +1023,7 @@ func (a *ExtractionActivities) enrichHeaderParticipants(
 	// Enrich sender (map keys are lowercase from GetPeopleByEmails)
 	enrichedSenderName := senderName
 	if person, ok := people[strings.ToLower(senderEmail)]; ok {
-		enrichedSenderName = formatEnrichedName(person, aliases)
+		enrichedSenderName = formatEnrichedName(person, nil)
 		logger.Info("Enriched sender from person DB",
 			logging.F("raw_name", senderName),
 			logging.F("canonical_name", person.CanonicalName),
@@ -1043,14 +1035,13 @@ func (a *ExtractionActivities) enrichHeaderParticipants(
 	copy(enrichedParticipants, participants)
 	for i, p := range enrichedParticipants {
 		if person, ok := people[strings.ToLower(p.Email)]; ok {
-			enrichedParticipants[i].DisplayName = formatEnrichedName(person, aliases)
+			enrichedParticipants[i].DisplayName = formatEnrichedName(person, nil)
 		}
 	}
 
 	logger.Info("Enriched email header participants from person DB",
 		logging.F("total_emails", len(emails)),
 		logging.F("matched_people", len(people)),
-		logging.F("aliases_found", len(aliases)),
 		logging.F("metadata_found", len(personMetadata)),
 	)
 
@@ -1061,12 +1052,13 @@ func (a *ExtractionActivities) enrichHeaderParticipants(
 // Not all metadata is useful for NER — this whitelist controls what's shown.
 var nerMetadataKeys = []string{"reports_to", "notes", "team"}
 
-// formatEnrichedName builds a display string from PersonInfo and aliases.
+// formatEnrichedName builds a display string from PersonInfo for use in NER input.
+// Alias annotations are intentionally excluded — they caused the NER model to extract
+// aliases as separate person entities (pf-0e4d69). Alias data lives in person_aliases
+// for downstream entity resolution, not for NER input enrichment.
 // Example outputs:
 //   "Tim Dunn" (canonical name only)
 //   "Tim Dunn [Senior Director, Hardware Engineering]" (with title)
-//   "Hrishikesh Varma (also known as: Rishi)" (with alias)
-//   "Tim Dunn [Senior Director] (also known as: Timmy)" (both)
 //   "Sara Weisman [MTC Program Solution Lead, reports to James Brown]" (with metadata)
 func formatEnrichedName(person *PersonInfo, aliases map[int64][]string) string {
 	name := person.CanonicalName
@@ -1089,14 +1081,20 @@ func formatEnrichedName(person *PersonInfo, aliases map[int64][]string) string {
 		name += " [" + strings.Join(annotations, ", ") + "]"
 	}
 
-	if nameAliases, ok := aliases[person.ID]; ok && len(nameAliases) > 0 {
-		name += " (also known as: " + strings.Join(nameAliases, ", ") + ")"
-	}
 	return name
 }
 
+// shortBodyThreshold is the body length (in bytes) below which To/CC participant lists
+// are suppressed in the email header block. Short emails like "+Kyle" or "Excellent, thanks Tim."
+// are dominated by header recipients when all participants are included unconditionally.
+// Keeping only the sender (From) for very short bodies prevents NER from extracting
+// 20+ header-only names as "people mentioned" (pf-2e6663).
+const shortBodyThreshold = 50
+
 // buildEmailHeaderBlock constructs a structured email header block for NER prompt enrichment (pf-de2b09).
 // Returns empty string if no meaningful header data is available.
+// For short email bodies (< shortBodyThreshold bytes), To/CC participants are suppressed
+// to prevent header recipients from dominating the NER extraction output (pf-2e6663).
 func buildEmailHeaderBlock(input workflows.SLMPipelineExtractEntitiesInput) string {
 	var lines []string
 
@@ -1109,24 +1107,29 @@ func buildEmailHeaderBlock(input workflows.SLMPipelineExtractEntitiesInput) stri
 		}
 	}
 
-	// To line — filter participants by header_role
-	var toAddrs []string
-	var ccAddrs []string
-	for _, p := range input.Participants {
-		formatted := formatParticipant(p)
-		switch p.HeaderRole {
-		case "cc":
-			ccAddrs = append(ccAddrs, formatted)
-		default:
-			// "to" or empty defaults to To
-			toAddrs = append(toAddrs, formatted)
+	// To/CC lines — suppressed for short bodies to prevent header-dominated NER output.
+	// When the body is very short (e.g. "+Kyle"), including all participants causes the NER
+	// model to extract every header name as a "person mentioned", overwhelming body mentions.
+	bodyIsShort := len(input.Content) < shortBodyThreshold
+	if !bodyIsShort {
+		var toAddrs []string
+		var ccAddrs []string
+		for _, p := range input.Participants {
+			formatted := formatParticipant(p)
+			switch p.HeaderRole {
+			case "cc":
+				ccAddrs = append(ccAddrs, formatted)
+			default:
+				// "to" or empty defaults to To
+				toAddrs = append(toAddrs, formatted)
+			}
 		}
-	}
-	if len(toAddrs) > 0 {
-		lines = append(lines, fmt.Sprintf("To: %s", strings.Join(toAddrs, "; ")))
-	}
-	if len(ccAddrs) > 0 {
-		lines = append(lines, fmt.Sprintf("CC: %s", strings.Join(ccAddrs, "; ")))
+		if len(toAddrs) > 0 {
+			lines = append(lines, fmt.Sprintf("To: %s", strings.Join(toAddrs, "; ")))
+		}
+		if len(ccAddrs) > 0 {
+			lines = append(lines, fmt.Sprintf("CC: %s", strings.Join(ccAddrs, "; ")))
+		}
 	}
 
 	// Subject line

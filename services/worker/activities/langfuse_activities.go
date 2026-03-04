@@ -110,12 +110,14 @@ func (a *LangfuseActivities) ReportLangfusePhase(ctx context.Context, input work
 	}
 
 	a.ingestion.CreateSpan(langfuse.SpanEvent{
-		ID:        input.PhaseID,
-		TraceID:   input.TraceID,
-		ParentID:  input.ParentSpanID, // nest under root pipeline span if set
-		Name:      input.PhaseName,
-		StartTime: input.StartTime,
-		EndTime:   input.EndTime,
+		ID:            input.PhaseID,
+		TraceID:       input.TraceID,
+		ParentID:      input.ParentSpanID, // nest under root pipeline span if set
+		Name:          input.PhaseName,
+		StartTime:     input.StartTime,
+		EndTime:       input.EndTime,
+		Level:         input.Level,
+		StatusMessage: input.StatusMessage,
 	})
 
 	if err := a.ingestion.Flush(ctx); err != nil {
