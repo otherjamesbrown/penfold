@@ -57,7 +57,8 @@ func GatherAttributedContent(ctx context.Context, pool *pgxpool.Pool, tenantID s
 		LEFT JOIN content_enrichment ce ON ce.source_id = s.id AND ce.tenant_id = s.tenant_id::text
 		WHERE s.tenant_id = $1::uuid
 		  AND $2 = ANY(s.attributed_project_ids)
-		  AND s.source_timestamp::date = $3::date
+		  AND s.source_timestamp >= $3::date
+		  AND s.source_timestamp < ($3::date + interval '1 day')
 		ORDER BY s.source_timestamp
 	`
 
@@ -91,7 +92,8 @@ func GatherAssertions(ctx context.Context, pool *pgxpool.Pool, tenantID string, 
 		JOIN sources s ON s.id = a.source_id AND s.tenant_id = a.tenant_id
 		WHERE a.tenant_id = $1::uuid
 		  AND $2 = ANY(s.attributed_project_ids)
-		  AND s.source_timestamp::date = $3::date
+		  AND s.source_timestamp >= $3::date
+		  AND s.source_timestamp < ($3::date + interval '1 day')
 		ORDER BY a.id
 	`
 
@@ -126,7 +128,8 @@ func GatherInstructionMatches(ctx context.Context, pool *pgxpool.Pool, tenantID 
 		JOIN watch_instructions wi ON wi.id = im.instruction_id
 		WHERE im.tenant_id = $1::uuid
 		  AND (wi.project_id = $2 OR wi.project_id IS NULL)
-		  AND im.matched_at::date = $3::date
+		  AND im.matched_at >= $3::date
+		  AND im.matched_at < ($3::date + interval '1 day')
 		ORDER BY im.matched_at
 	`
 
@@ -154,12 +157,13 @@ func GatherInstructionMatches(ctx context.Context, pool *pgxpool.Pool, tenantID 
 // GatherLedgerEntries queries session ledger entries for the given tenant on the specified date.
 // The session_ledger_entries table has no project_id column, so all tenant entries for the date are returned.
 // Returns an empty slice (not nil) if no results are found.
-func GatherLedgerEntries(ctx context.Context, pool *pgxpool.Pool, tenantID string, projectID int64, date time.Time) ([]LedgerEntrySummary, error) {
+func GatherLedgerEntries(ctx context.Context, pool *pgxpool.Pool, tenantID string, date time.Time) ([]LedgerEntrySummary, error) {
 	query := `
 		SELECT id, COALESCE(entry_type, ''), COALESCE(body, ''), COALESCE(source, '')
 		FROM session_ledger_entries
 		WHERE tenant_id = $1
-		  AND created_at::date = $2::date
+		  AND created_at >= $2::date
+		  AND created_at < ($2::date + interval '1 day')
 		ORDER BY created_at
 	`
 

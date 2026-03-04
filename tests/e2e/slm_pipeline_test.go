@@ -194,26 +194,7 @@ func getAssertionsForSource(env *E2EEnv, sourceID int64) ([]map[string]interface
 // createTempEmail creates a temporary email file for testing and returns its path.
 func createTempEmail(t *testing.T, subject, body string) string {
 	t.Helper()
-	content := fmt.Sprintf(`From: sender@example.com
-To: recipient@example.com
-Subject: %s
-Date: Thu, 5 Feb 2026 10:00:00 +0000
-Message-ID: <%s@example.com>
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-
-%s
-`, subject, fmt.Sprintf("test-%d", time.Now().UnixNano()), body)
-
-	tmpFile, err := os.CreateTemp("", "e2e-email-*.eml")
-	require.NoError(t, err)
-	t.Cleanup(func() { os.Remove(tmpFile.Name()) })
-
-	_, err = tmpFile.WriteString(content)
-	require.NoError(t, err)
-	tmpFile.Close()
-
-	return tmpFile.Name()
+	return createTempEmailWithDate(t, subject, time.Date(2026, 2, 5, 10, 0, 0, 0, time.UTC), body)
 }
 
 func createTempEmailWithDate(t *testing.T, subject string, date time.Time, body string) string {

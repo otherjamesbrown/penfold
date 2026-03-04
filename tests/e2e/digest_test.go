@@ -187,6 +187,7 @@ The CFO has flagged this as a priority item for the next board meeting.
 		t.Logf("digest generate output: %s", result.Stdout)
 
 		// Wait for the digest workflow to complete (poll DB)
+		digestFound := false
 		deadline := time.Now().Add(120 * time.Second)
 		for time.Now().Before(deadline) {
 			var count int
@@ -201,10 +202,12 @@ The CFO has flagged this as a priority item for the next board meeting.
 
 			if count > 0 {
 				t.Logf("Digest created after %v", time.Since(deadline.Add(-120*time.Second)))
+				digestFound = true
 				break
 			}
 			time.Sleep(3 * time.Second)
 		}
+		require.True(t, digestFound, "timed out waiting for digest generation (120s)")
 
 		// Verify digest exists in DB
 		err := env.DB.QueryRow(ctx, `

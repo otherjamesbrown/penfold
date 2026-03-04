@@ -181,7 +181,7 @@ func (a *DigestActivities) GatherDigestData(ctx context.Context, input GatherDig
 
 	// 5. Gather ledger entries
 	recordHeartbeat(ctx, "gathering ledger entries")
-	ledgerEntries, err := digest.GatherLedgerEntries(ctx, a.db, input.TenantID, input.ProjectID, input.Date)
+	ledgerEntries, err := digest.GatherLedgerEntries(ctx, a.db, input.TenantID, input.Date)
 	if err != nil {
 		logger.Error("Failed to gather ledger entries", logging.Err(err))
 		return nil, fmt.Errorf("gather ledger entries: %w", err)
