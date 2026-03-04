@@ -48,12 +48,17 @@ type LedgerEntrySummary struct {
 // Returns an empty slice (not nil) if no results are found.
 func GatherAttributedContent(ctx context.Context, pool *pgxpool.Pool, tenantID string, projectID int64, date time.Time) ([]ContentSummary, error) {
 	query := `
-		SELECT s.id, COALESCE(s.subject, ''), COALESCE(s.from_address, ''), s.received_at, COALESCE(s.summary, '')
+		SELECT s.id,
+		       COALESCE(s.ingestion_metadata->>'subject', ''),
+		       COALESCE(s.ingestion_metadata->>'from_address', ''),
+		       s.source_timestamp,
+		       COALESCE(ce.extracted_data->>'summary', '')
 		FROM sources s
-		WHERE s.tenant_id = $1
+		LEFT JOIN content_enrichment ce ON ce.source_id = s.id AND ce.tenant_id = s.tenant_id::text
+		WHERE s.tenant_id = $1::uuid
 		  AND $2 = ANY(s.attributed_project_ids)
-		  AND s.received_at::date = $3::date
-		ORDER BY s.received_at
+		  AND s.source_timestamp::date = $3::date
+		ORDER BY s.source_timestamp
 	`
 
 	rows, err := pool.Query(ctx, query, tenantID, projectID, date)
@@ -84,9 +89,9 @@ func GatherAssertions(ctx context.Context, pool *pgxpool.Pool, tenantID string, 
 		SELECT a.id, COALESCE(a.assertion_type::text, 'unknown'), COALESCE(a.description, ''), COALESCE(a.source_quote, ''), a.source_id
 		FROM assertions a
 		JOIN sources s ON s.id = a.source_id AND s.tenant_id = a.tenant_id
-		WHERE a.tenant_id = $1
+		WHERE a.tenant_id = $1::uuid
 		  AND $2 = ANY(s.attributed_project_ids)
-		  AND s.received_at::date = $3::date
+		  AND s.source_timestamp::date = $3::date
 		ORDER BY a.id
 	`
 
@@ -119,7 +124,7 @@ func GatherInstructionMatches(ctx context.Context, pool *pgxpool.Pool, tenantID 
 		SELECT im.instruction_id, wi.name, im.confidence, im.explanation, im.matched_at
 		FROM instruction_matches im
 		JOIN watch_instructions wi ON wi.id = im.instruction_id
-		WHERE im.tenant_id = $1
+		WHERE im.tenant_id = $1::uuid
 		  AND (wi.project_id = $2 OR wi.project_id IS NULL)
 		  AND im.matched_at::date = $3::date
 		ORDER BY im.matched_at

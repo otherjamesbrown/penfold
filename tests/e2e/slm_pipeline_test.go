@@ -216,6 +216,30 @@ Content-Type: text/plain; charset=UTF-8
 	return tmpFile.Name()
 }
 
+func createTempEmailWithDate(t *testing.T, subject string, date time.Time, body string) string {
+	t.Helper()
+	content := fmt.Sprintf(`From: sender@example.com
+To: recipient@example.com
+Subject: %s
+Date: %s
+Message-ID: <%s@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+
+%s
+`, subject, date.Format(time.RFC1123Z), fmt.Sprintf("test-%d", time.Now().UnixNano()), body)
+
+	tmpFile, err := os.CreateTemp("", "e2e-email-*.eml")
+	require.NoError(t, err)
+	t.Cleanup(func() { os.Remove(tmpFile.Name()) })
+
+	_, err = tmpFile.WriteString(content)
+	require.NoError(t, err)
+	tmpFile.Close()
+
+	return tmpFile.Name()
+}
+
 // TestSLMPipeline_FullEmailPipeline tests the complete SLM pipeline with an email.
 // Uses CLI commands: ingest email -> pipeline kick -> verify results
 func TestSLMPipeline_FullEmailPipeline(t *testing.T) {
