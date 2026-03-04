@@ -19,7 +19,6 @@ var boilerplateMarkers = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)do not delete or change any of the following text`),
 	// Webex join links
 	regexp.MustCompile(`(?i)^join my webex`),
-	regexp.MustCompile(`(?i)^join my webex personal room`),
 	// Generic conferencing join lines (Webex, Teams, Zoom)
 	regexp.MustCompile(`(?i)^join (the )?meeting`),
 	regexp.MustCompile(`(?i)^meeting number \(access code\)`),
@@ -70,7 +69,7 @@ func ParseEmailBody(bodyText, bodyHTML string) *EmailParseResult {
 	// so that conferencing blocks appended to emails don't contaminate the embedding input.
 	result.CleanBody = stripConferencingBoilerplate(result.CleanBody)
 
-	// Step 4: Detect and separate quoted replies
+	// Step 3: Detect and separate quoted replies
 	newContent, quotedContent, detected := separateQuotedReply(result.CleanBody)
 	result.NewContent = newContent
 	result.QuotedContent = quotedContent
@@ -208,18 +207,25 @@ func isBlockElement(tagName string) bool {
 //   - Mobile signatures: "Sent from my iPhone/iPad/Android"
 //   - Horizontal rules before signature blocks (---/___/=== on their own line)
 func stripConferencingBoilerplate(text string) string {
-	lines := strings.Split(text, "\n")
-
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
+	start := 0
+	for start <= len(text) {
+		end := strings.IndexByte(text[start:], '\n')
+		var line string
+		if end == -1 {
+			line = strings.TrimSpace(text[start:])
+		} else {
+			line = strings.TrimSpace(text[start : start+end])
+		}
 		for _, pattern := range boilerplateMarkers {
-			if pattern.MatchString(trimmed) {
-				// Truncate at this line; trim trailing whitespace from the remaining content.
-				return strings.TrimRight(strings.Join(lines[:i], "\n"), " \t\n")
+			if pattern.MatchString(line) {
+				return strings.TrimRight(text[:start], " \t\n")
 			}
 		}
+		if end == -1 {
+			break
+		}
+		start += end + 1
 	}
-
 	return text
 }
 

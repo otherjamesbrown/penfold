@@ -341,7 +341,7 @@ func (s *AIServer) selectModelForDeepAnalysis(ctx context.Context, category, imp
 
 	// Primary path: DB-backed routing rules
 	if s.registry == nil {
-		s.logger.Warn("Registry not configured — deep_analyze DB routing rules unavailable, using hardcoded fallback",
+		s.logger.Debug("Registry not configured, using hardcoded fallback for deep_analyze",
 			logging.F("category", category),
 			logging.F("importance", importance),
 		)
@@ -380,11 +380,9 @@ func (s *AIServer) selectModelForDeepAnalysis(ctx context.Context, category, imp
 	return routingResult{Model: selectModelForDeepAnalysisFallback(category, importance, configDefault)}
 }
 
-// selectModelForDeepAnalysisFallback contains the original hardcoded routing logic
-// used when DB routing rules are unavailable.
+// selectModelForDeepAnalysisFallback contains the original hardcoded routing logic.
+// Inputs must be pre-normalized (trimmed, uppercased) by the caller.
 func selectModelForDeepAnalysisFallback(category, importance, configDefault string) string {
-	category = strings.TrimSpace(strings.ToUpper(category))
-	importance = strings.TrimSpace(strings.ToUpper(importance))
 
 	// RISK_ISSUE always gets quality model (fallback)
 	if category == "RISK_ISSUE" {

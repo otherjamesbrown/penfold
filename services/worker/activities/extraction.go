@@ -156,10 +156,7 @@ func (a *ExtractionActivities) ExtractAssertions(ctx context.Context, input work
 		content = input.BackgroundContext + "\n\n" + content
 	}
 	if input.QuotedContent != "" {
-		quoted := input.QuotedContent
-		if len(quoted) > 3000 {
-			quoted = quoted[:3000] + "\n[truncated]"
-		}
+		quoted := truncateContent(input.QuotedContent, 3000)
 		content = content + "\n\n--- Parent message (for reference resolution) ---\n" + quoted
 	}
 
