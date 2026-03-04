@@ -363,3 +363,114 @@ func TestUpdateLangfuseTraceTags_ActivityRegistered(t *testing.T) {
 	assert.Contains(t, w.registeredActivities, wantName,
 		"UpdateLangfuseTraceTags must be registered on the main task queue")
 }
+
+// captureSpanBody extracts the spanCreateBody from the second pending event (span-create).
+func captureSpanBody(t *testing.T, ing *langfuse.Ingestion) map[string]interface{} {
+	t.Helper()
+	events := ing.PendingEvents()
+	require.Len(t, events, 2, "expected trace-create + span-create after CreateLangfuseTrace")
+	require.Equal(t, "span-create", events[1].Type)
+
+	raw, err := json.Marshal(events[1].Body)
+	require.NoError(t, err)
+	var body map[string]interface{}
+	require.NoError(t, json.Unmarshal(raw, &body))
+	return body
+}
+
+// -----------------------------------------------------------------------------
+// Tests for root span Input field (pf-4738da)
+// -----------------------------------------------------------------------------
+
+// TestCreateLangfuseTrace_RootSpanHasInput verifies that the root span's Input
+// field contains the structured content summary from the trace input.
+func TestCreateLangfuseTrace_RootSpanHasInput(t *testing.T) {
+	server := newOKServer(t)
+	defer server.Close()
+
+	ing := newTestLangfuseIngestion(t, server.URL)
+	logger := logging.NewNopLogger()
+	acts := NewLangfuseActivities(ing, logger)
+
+	input := workflows.CreateLangfuseTraceInput{
+		TraceID:     "trace-input-001",
+		Name:        "email-processing",
+		ContentID:   "content-abc",
+		TenantID:    "tenant-123",
+		TenantName:  "Akamai",
+		ContentType: "email",
+		Subject:     "Q4 Planning Review",
+		SenderEmail: "alice@example.com",
+		SenderName:  "Alice Smith",
+		Recipients:  "bob@example.com, carol@example.com",
+		Date:        "Mon, 3 Mar 2026 10:00:00 +0000",
+		BodyPreview: "Hi team, please review the Q4 plan attached.",
+	}
+
+	ctx := context.Background()
+	_, err := acts.CreateLangfuseTrace(ctx, input)
+	require.NoError(t, err)
+
+	spanBody := captureSpanBody(t, ing)
+
+	// The span must have an "input" field with the content summary.
+	inputRaw, ok := spanBody["input"]
+	require.True(t, ok, "root span must have an 'input' field")
+
+	inputMap, ok := inputRaw.(map[string]interface{})
+	require.True(t, ok, "input must be a map")
+
+	assert.Equal(t, "email", inputMap["type"])
+	assert.Equal(t, "Q4 Planning Review", inputMap["subject"])
+	assert.Equal(t, "Alice Smith <alice@example.com>", inputMap["from"])
+	assert.Equal(t, "bob@example.com, carol@example.com", inputMap["to"])
+	assert.Equal(t, "Mon, 3 Mar 2026 10:00:00 +0000", inputMap["date"])
+	assert.Equal(t, "Hi team, please review the Q4 plan attached.", inputMap["body"])
+}
+
+// TestCreateLangfuseTrace_RootSpanInputOmittedWhenEmpty verifies that when no
+// content fields are provided, the root span input is nil (omitted from JSON).
+func TestCreateLangfuseTrace_RootSpanInputOmittedWhenEmpty(t *testing.T) {
+	server := newOKServer(t)
+	defer server.Close()
+
+	ing := newTestLangfuseIngestion(t, server.URL)
+	logger := logging.NewNopLogger()
+	acts := NewLangfuseActivities(ing, logger)
+
+	input := workflows.CreateLangfuseTraceInput{
+		TraceID:    "trace-input-002",
+		Name:       "email-processing",
+		ContentID:  "content-xyz",
+		TenantID:   "tenant-456",
+		TenantName: "Test",
+	}
+
+	ctx := context.Background()
+	_, err := acts.CreateLangfuseTrace(ctx, input)
+	require.NoError(t, err)
+
+	spanBody := captureSpanBody(t, ing)
+
+	// When no content fields are provided, input should be omitted.
+	_, hasInput := spanBody["input"]
+	assert.False(t, hasInput, "root span should not have 'input' when no content fields are set")
+}
+
+// TestBuildSpanInput_SenderEmailOnly verifies from field with email but no name.
+func TestBuildSpanInput_SenderEmailOnly(t *testing.T) {
+	input := workflows.CreateLangfuseTraceInput{
+		SenderEmail: "alice@example.com",
+	}
+	m := buildSpanInput(input)
+	assert.Equal(t, "alice@example.com", m["from"])
+}
+
+// TestBuildSpanInput_SenderNameOnly verifies from field with name but no email.
+func TestBuildSpanInput_SenderNameOnly(t *testing.T) {
+	input := workflows.CreateLangfuseTraceInput{
+		SenderName: "Alice",
+	}
+	m := buildSpanInput(input)
+	assert.Equal(t, "Alice", m["from"])
+}

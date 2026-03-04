@@ -18,6 +18,7 @@ type SpanEvent struct {
 	TraceID   string
 	ParentID  string // parent observation ID; empty means root of trace
 	Name      string
+	Input     any    // optional input data displayed in the Langfuse UI
 	StartTime time.Time
 	EndTime   time.Time
 	Metadata  map[string]any

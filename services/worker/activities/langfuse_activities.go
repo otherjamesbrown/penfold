@@ -84,6 +84,13 @@ func (a *LangfuseActivities) CreateLangfuseTrace(ctx context.Context, input work
 		Metadata:    metadata,
 	})
 
+	// Build a clean content summary as the root span Input so Langfuse
+	// shows the raw content fields at the top of every trace (pf-4738da).
+	var spanInput any
+	if m := buildSpanInput(input); m != nil {
+		spanInput = m
+	}
+
 	// Create a root SPAN observation that wraps the entire pipeline run.
 	// FinishLangfuseTrace will close this span with an EndTime, giving the
 	// trace a real duration instead of near-zero (pf-1bfbaf).
@@ -92,6 +99,7 @@ func (a *LangfuseActivities) CreateLangfuseTrace(ctx context.Context, input work
 		ID:        rootSpanID,
 		TraceID:   input.TraceID,
 		Name:      input.Name,
+		Input:     spanInput,
 		StartTime: now,
 	})
 
@@ -180,6 +188,40 @@ func (a *LangfuseActivities) UpdateLangfuseTraceMetadata(ctx context.Context, in
 	}
 
 	return nil
+}
+
+// buildSpanInput creates a structured content summary for the root span Input field.
+// The result is displayed in the Langfuse UI as the trace's top-level input.
+func buildSpanInput(input workflows.CreateLangfuseTraceInput) map[string]any {
+	m := make(map[string]any)
+
+	if input.ContentType != "" {
+		m["type"] = input.ContentType
+	}
+	if input.Subject != "" {
+		m["subject"] = input.Subject
+	}
+	if input.SenderName != "" && input.SenderEmail != "" {
+		m["from"] = input.SenderName + " <" + input.SenderEmail + ">"
+	} else if input.SenderEmail != "" {
+		m["from"] = input.SenderEmail
+	} else if input.SenderName != "" {
+		m["from"] = input.SenderName
+	}
+	if input.Recipients != "" {
+		m["to"] = input.Recipients
+	}
+	if input.Date != "" {
+		m["date"] = input.Date
+	}
+	if input.BodyPreview != "" {
+		m["body"] = input.BodyPreview
+	}
+
+	if len(m) == 0 {
+		return nil
+	}
+	return m
 }
 
 // PersistLangfuseTraceID persists the Langfuse trace ID back to the sources table.

@@ -60,6 +60,7 @@ type spanCreateBody struct {
 	TraceID             string         `json:"traceId"`
 	ParentObservationID string         `json:"parentObservationId,omitempty"`
 	Name                string         `json:"name"`
+	Input               any            `json:"input,omitempty"`
 	StartTime           string         `json:"startTime"`
 	EndTime             string         `json:"endTime,omitempty"`
 	Metadata            map[string]any `json:"metadata,omitempty"`
@@ -129,6 +130,7 @@ func (i *Ingestion) CreateSpan(e SpanEvent) {
 		TraceID:             e.TraceID,
 		ParentObservationID: e.ParentID,
 		Name:                e.Name,
+		Input:               e.Input,
 		StartTime:           e.StartTime.UTC().Format(time.RFC3339Nano),
 		Metadata:            e.Metadata,
 	}

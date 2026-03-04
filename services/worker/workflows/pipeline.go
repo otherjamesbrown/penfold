@@ -751,6 +751,28 @@ func pipelineTraceName(pipeline string) string {
 	return strings.ReplaceAll(pipeline, "_", "-") + "-processing"
 }
 
+// formatParticipants builds a comma-separated string of participant emails for Langfuse display.
+func formatParticipants(participants []Participant) string {
+	if len(participants) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(participants))
+	for _, p := range participants {
+		if p.Email != "" {
+			parts = append(parts, p.Email)
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+// truncateBody returns the first maxLen bytes of body text, appending "…" if truncated.
+func truncateBody(body string, maxLen int) string {
+	if len(body) <= maxLen {
+		return body
+	}
+	return body[:maxLen] + "…"
+}
+
 // SLMPipelineWorkflow orchestrates the SLM/LLM content processing pipeline.
 //
 // Stages:
@@ -1034,6 +1056,11 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		SourceSystem: input.ContentType,
 		Subject:      input.Subject,
 		ContentType:  input.ContentType,
+		SenderEmail:  input.SenderEmail,
+		SenderName:   input.SenderName,
+		Recipients:   formatParticipants(input.ParticipantEmails),
+		Date:         fetchedHeaders["Date"],
+		BodyPreview:  truncateBody(input.BodyText, 500),
 	}).Get(ctx, &langfuseTraceOut)
 	// Root span ID for nesting phase spans and closing with real duration (pf-1bfbaf).
 	var rootSpanID string

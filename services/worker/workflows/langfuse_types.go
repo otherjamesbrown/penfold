@@ -14,6 +14,13 @@ type CreateLangfuseTraceInput struct {
 	SourceSystem string   `json:"source_system,omitempty"` // e.g. "gmail", "human_email"
 	Subject      string   `json:"subject,omitempty"`       // Email subject line
 	ContentType  string   `json:"content_type,omitempty"`  // e.g. "email", "meeting"
+
+	// Content fields for the root span Input display in Langfuse.
+	SenderEmail string `json:"sender_email,omitempty"`
+	SenderName  string `json:"sender_name,omitempty"`
+	Recipients  string `json:"recipients,omitempty"`  // Comma-separated To/CC
+	Date        string `json:"date,omitempty"`        // Formatted date string
+	BodyPreview string `json:"body_preview,omitempty"` // Truncated body text
 }
 
 // PersistLangfuseTraceIDInput is the input for the PersistLangfuseTraceID activity.
