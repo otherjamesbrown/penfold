@@ -481,6 +481,168 @@ func formatLedgerEntries(entries []digest.LedgerEntrySummary) string {
 	return buf.String()
 }
 
+// === Journal Digest Activity Types ===
+
+// GatherJournalDataInput is the input for the GatherJournalData activity.
+type GatherJournalDataInput struct {
+	TenantID    string `json:"tenant_id"`
+	ProjectID   int64  `json:"project_id"`
+	ProjectName string `json:"project_name"`
+	Date        string `json:"date"` // YYYY-MM-DD
+}
+
+// GatherJournalDataOutput is the output from the GatherJournalData activity.
+type GatherJournalDataOutput struct {
+	DailyDigests     []digest.DailyDigestSummary `json:"daily_digests"`
+	ContentSummaries []digest.ContentSummary     `json:"content_summaries"`
+	HasContent       bool                        `json:"has_content"`
+	PeriodStart      string                      `json:"period_start"`
+}
+
+// GenerateJournalNarrativeInput is the input for the GenerateJournalNarrative activity.
+type GenerateJournalNarrativeInput struct {
+	TenantID         string          `json:"tenant_id"`
+	ProjectID        int64           `json:"project_id"`
+	ProjectName      string          `json:"project_name"`
+	Date             string          `json:"date"`
+	Focus            string          `json:"focus"`
+	PeriodStart      string          `json:"period_start"`
+	DailyDigests     json.RawMessage `json:"daily_digests"`
+	ContentSummaries json.RawMessage `json:"content_summaries"`
+}
+
+// GatherJournalData gathers daily digests and attributed content for journal generation.
+// Unlike daily/weekly gather activities, this does NOT perform an idempotency check —
+// journals are always new.
+func (a *DigestActivities) GatherJournalData(ctx context.Context, input GatherJournalDataInput) (*GatherJournalDataOutput, error) {
+	logger := a.logger.WithContext(ctx).With(
+		logging.F("activity", "GatherJournalData"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("project_id", input.ProjectID),
+		logging.F("date", input.Date),
+	)
+
+	logger.Info("Starting journal data gathering")
+
+	date, err := time.Parse("2006-01-02", input.Date)
+	if err != nil {
+		return nil, fmt.Errorf("parse date %q: %w", input.Date, err)
+	}
+
+	// Gather daily digests for the project (last 30 days or all available)
+	recordHeartbeat(ctx, "gathering daily digests for journal")
+	thirtyDaysAgo := date.AddDate(0, 0, -30)
+	dailyDigests, err := digest.GatherDailyDigests(ctx, a.db, input.TenantID, input.ProjectID, thirtyDaysAgo, date)
+	if err != nil {
+		logger.Error("Failed to gather daily digests", logging.Err(err))
+		return nil, fmt.Errorf("gather daily digests: %w", err)
+	}
+
+	// Gather recent attributed content for the project (last 7 days)
+	recordHeartbeat(ctx, "gathering attributed content for journal")
+	sevenDaysAgo := date.AddDate(0, 0, -7)
+	contentSummaries, err := digest.GatherAttributedContent(ctx, a.db, input.TenantID, input.ProjectID, sevenDaysAgo)
+	if err != nil {
+		logger.Warn("Failed to gather attributed content, continuing without it", logging.Err(err))
+		contentSummaries = []digest.ContentSummary{}
+	}
+
+	// Also gather content for recent days individually to get wider coverage
+	for d := sevenDaysAgo.AddDate(0, 0, 1); !d.After(date); d = d.AddDate(0, 0, 1) {
+		daySummaries, err := digest.GatherAttributedContent(ctx, a.db, input.TenantID, input.ProjectID, d)
+		if err != nil {
+			continue
+		}
+		contentSummaries = append(contentSummaries, daySummaries...)
+	}
+
+	hasContent := len(dailyDigests) > 0 || len(contentSummaries) > 0
+
+	// Determine period start from earliest daily digest or fallback to 30 days ago
+	periodStart := thirtyDaysAgo
+	if len(dailyDigests) > 0 {
+		periodStart = dailyDigests[0].Date
+	}
+
+	logger.Info("Journal data gathering complete",
+		logging.F("daily_digest_count", len(dailyDigests)),
+		logging.F("content_summary_count", len(contentSummaries)),
+		logging.F("has_content", hasContent),
+	)
+
+	return &GatherJournalDataOutput{
+		DailyDigests:     dailyDigests,
+		ContentSummaries: contentSummaries,
+		HasContent:       hasContent,
+		PeriodStart:      periodStart.Format("2006-01-02"),
+	}, nil
+}
+
+// journalPromptData holds template variables for the journal generation prompt.
+type journalPromptData struct {
+	ProjectName      string
+	PeriodStart      string
+	PeriodEnd        string
+	Focus            string
+	DailyDigests     string
+	ContentSummaries string
+}
+
+// GenerateJournalNarrative renders the journal prompt template with gathered data,
+// calls the LLM to produce a structured journal body, and returns the result.
+func (a *DigestActivities) GenerateJournalNarrative(ctx context.Context, input GenerateJournalNarrativeInput) (*GenerateDigestOutput, error) {
+	logger := a.logger.WithContext(ctx).With(
+		logging.F("activity", "GenerateJournalNarrative"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("project_id", input.ProjectID),
+		logging.F("date", input.Date),
+		logging.F("focus", input.Focus),
+	)
+
+	logger.Info("Starting journal narrative generation")
+
+	// Unmarshal daily digests
+	var dailyDigestSummaries []digest.DailyDigestSummary
+	if len(input.DailyDigests) > 0 {
+		if err := json.Unmarshal(input.DailyDigests, &dailyDigestSummaries); err != nil {
+			logger.Warn("Failed to unmarshal daily digests, using empty", logging.Err(err))
+		}
+	}
+	dailyDigestsBlock := formatDailyDigests(dailyDigestSummaries)
+
+	// Unmarshal content summaries
+	var contentSummaries []digest.ContentSummary
+	if len(input.ContentSummaries) > 0 {
+		if err := json.Unmarshal(input.ContentSummaries, &contentSummaries); err != nil {
+			logger.Warn("Failed to unmarshal content summaries, using empty", logging.Err(err))
+		}
+	}
+	contentBlock := formatContentSummaries(contentSummaries)
+
+	// Call LLM via shared helper
+	recordHeartbeat(ctx, "calling LLM for journal generation")
+	result, err := a.callLLMForDigest(ctx, "digest_journal_generate", journalPromptData{
+		ProjectName:      input.ProjectName,
+		PeriodStart:      input.PeriodStart,
+		PeriodEnd:        input.Date,
+		Focus:            input.Focus,
+		DailyDigests:     dailyDigestsBlock,
+		ContentSummaries: contentBlock,
+	})
+	if err != nil {
+		logger.Error("Journal narrative generation failed", logging.Err(err))
+		return nil, err
+	}
+
+	logger.Info("Journal narrative generated",
+		logging.F("model_used", result.ModelUsed),
+		logging.F("input_tokens", result.InputTokenCount),
+		logging.F("output_tokens", result.OutputTokenCount),
+	)
+
+	return result, nil
+}
+
 // === Weekly Digest Activity Types ===
 
 // GatherWeeklyDigestDataInput is the input for the GatherWeeklyDigestData activity.

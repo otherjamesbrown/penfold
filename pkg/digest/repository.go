@@ -15,8 +15,9 @@ import (
 
 // Digest type constants.
 const (
-	DigestTypeDaily  = "daily"
-	DigestTypeWeekly = "weekly"
+	DigestTypeDaily   = "daily"
+	DigestTypeWeekly  = "weekly"
+	DigestTypeJournal = "journal"
 )
 
 // Digest represents a generated digest record.

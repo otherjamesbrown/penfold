@@ -68,21 +68,23 @@ func (s *Service) TriggerDigest(ctx context.Context, req *digestv1.TriggerDigest
 		return nil, status.Errorf(codes.InvalidArgument, "invalid date format: %v", err)
 	}
 
-	// Idempotency check
-	exists, err := s.repo.Exists(ctx, req.TenantId, projectID, digestType, date)
-	if err != nil {
-		s.logger.Error("Error checking digest existence", logging.Err(err))
-		return nil, status.Errorf(codes.Internal, "failed to check digest existence: %v", err)
-	}
-	if exists {
-		latest, err := s.repo.GetLatest(ctx, req.TenantId, projectID, digestType)
+	// Idempotency check — skip for journal type (journals are always new)
+	if digestType != digest.DigestTypeJournal {
+		exists, err := s.repo.Exists(ctx, req.TenantId, projectID, digestType, date)
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "digest exists but failed to retrieve: %v", err)
+			s.logger.Error("Error checking digest existence", logging.Err(err))
+			return nil, status.Errorf(codes.Internal, "failed to check digest existence: %v", err)
 		}
-		return &digestv1.TriggerDigestResponse{
-			AlreadyExists: true,
-			DigestId:      latest.ID,
-		}, nil
+		if exists {
+			latest, err := s.repo.GetLatest(ctx, req.TenantId, projectID, digestType)
+			if err != nil {
+				return nil, status.Errorf(codes.Internal, "digest exists but failed to retrieve: %v", err)
+			}
+			return &digestv1.TriggerDigestResponse{
+				AlreadyExists: true,
+				DigestId:      latest.ID,
+			}, nil
+		}
 	}
 
 	if s.temporalClient == nil {
@@ -97,6 +99,9 @@ func (s *Service) TriggerDigest(ctx context.Context, req *digestv1.TriggerDigest
 		"date":         req.Date,
 		"digest_type":  digestType,
 	}
+	if req.Focus != "" {
+		input["focus"] = req.Focus
+	}
 	inputJSON, err := json.Marshal(input)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to marshal workflow input: %v", err)
@@ -104,11 +109,18 @@ func (s *Service) TriggerDigest(ctx context.Context, req *digestv1.TriggerDigest
 
 	// Route to the appropriate workflow based on digest type
 	workflowName := pkgtemporal.WorkflowDigest
-	if digestType == digest.DigestTypeWeekly {
+	switch digestType {
+	case digest.DigestTypeWeekly:
 		workflowName = pkgtemporal.WorkflowWeeklyDigest
+	case digest.DigestTypeJournal:
+		workflowName = pkgtemporal.WorkflowJournalDigest
 	}
 
+	// Journal workflow IDs include a timestamp to allow multiple journals per date
 	workflowID := fmt.Sprintf("digest-%s-%d-%s", digestType, projectID, req.Date)
+	if digestType == digest.DigestTypeJournal {
+		workflowID = fmt.Sprintf("digest-%s-%d-%s-%d", digestType, projectID, req.Date, time.Now().UnixNano())
+	}
 	opts := client.StartWorkflowOptions{
 		ID:        workflowID,
 		TaskQueue: "penfold-main",

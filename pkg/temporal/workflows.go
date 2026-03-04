@@ -17,6 +17,7 @@ const (
 	WorkflowHeartbeat                      = "HeartbeatWorkflow"
 	WorkflowDigest                         = "DigestWorkflow"
 	WorkflowWeeklyDigest                   = "WeeklyDigestWorkflow"
+	WorkflowJournalDigest                  = "JournalDigestWorkflow"
 )
 
 // AI Task Queue workflow names.
