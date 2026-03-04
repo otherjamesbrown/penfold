@@ -348,6 +348,28 @@ type HeartbeatStatusUpdate struct {
 	Summary    string `json:"summary"`
 }
 
+// OutlookSyncInput is the input for Outlook email synchronization workflows.
+type OutlookSyncInput struct {
+	TenantID      string `json:"tenant_id"`
+	IntegrationID int64  `json:"integration_id"`
+	UserID        string `json:"user_id"`   // "me" or specific UPN
+	JobID         string `json:"job_id"`
+	SyncMode      string `json:"sync_mode"` // incremental, full
+	BatchSize     int    `json:"batch_size"` // default 50
+}
+
+// OutlookSyncResult is the result of Outlook email synchronization workflows.
+type OutlookSyncResult struct {
+	TenantID       string    `json:"tenant_id"`
+	Status         string    `json:"status"` // completed, failed, cancelled, partial
+	Error          string    `json:"error,omitempty"`
+	MessagesSynced int       `json:"messages_synced"`
+	NewMessages    int       `json:"new_messages"`
+	UpdatedMsgs    int       `json:"updated_messages"`
+	SkippedMsgs    int       `json:"skipped_messages"`
+	SyncedAt       time.Time `json:"synced_at"`
+}
+
 // TeamsSyncInput is the input for Teams channel message synchronization workflows.
 type TeamsSyncInput struct {
 	TenantID      string   `json:"tenant_id"`

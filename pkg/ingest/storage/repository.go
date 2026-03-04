@@ -19,6 +19,7 @@ const (
 	SourceSystemManualEML     = "manual_eml"
 	SourceSystemGmail         = "gmail"
 	SourceSystemTeamsChannel  = "teams_channel"
+	SourceSystemOutlookMail  = "outlook_mail"
 )
 
 // DefaultTenantID is the safety/test tenant UUID. When no tenant is specified
