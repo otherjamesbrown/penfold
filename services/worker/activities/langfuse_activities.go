@@ -84,13 +84,6 @@ func (a *LangfuseActivities) CreateLangfuseTrace(ctx context.Context, input work
 		Metadata:    metadata,
 	})
 
-	// Build a clean content summary as the root span Input so Langfuse
-	// shows the raw content fields at the top of every trace (pf-4738da).
-	var spanInput any
-	if m := buildSpanInput(input); m != nil {
-		spanInput = m
-	}
-
 	// Create a root SPAN observation that wraps the entire pipeline run.
 	// FinishLangfuseTrace will close this span with an EndTime, giving the
 	// trace a real duration instead of near-zero (pf-1bfbaf).
@@ -99,7 +92,7 @@ func (a *LangfuseActivities) CreateLangfuseTrace(ctx context.Context, input work
 		ID:        rootSpanID,
 		TraceID:   input.TraceID,
 		Name:      input.Name,
-		Input:     spanInput,
+		Input:     buildSpanInput(input), // Content summary for Langfuse UI (pf-4738da)
 		StartTime: now,
 	})
 
@@ -192,7 +185,7 @@ func (a *LangfuseActivities) UpdateLangfuseTraceMetadata(ctx context.Context, in
 
 // buildSpanInput creates a structured content summary for the root span Input field.
 // The result is displayed in the Langfuse UI as the trace's top-level input.
-func buildSpanInput(input workflows.CreateLangfuseTraceInput) map[string]any {
+func buildSpanInput(input workflows.CreateLangfuseTraceInput) any {
 	m := make(map[string]any)
 
 	if input.ContentType != "" {

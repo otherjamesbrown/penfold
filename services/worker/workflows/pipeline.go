@@ -765,12 +765,17 @@ func formatParticipants(participants []Participant) string {
 	return strings.Join(parts, ", ")
 }
 
-// truncateBody returns the first maxLen bytes of body text, appending "…" if truncated.
+// langfuseBodyPreviewMaxRunes is the maximum number of runes to include in the
+// Langfuse root-span body preview.
+const langfuseBodyPreviewMaxRunes = 500
+
+// truncateBody returns the first maxLen runes of body text, appending "…" if truncated.
 func truncateBody(body string, maxLen int) string {
-	if len(body) <= maxLen {
+	runes := []rune(body)
+	if len(runes) <= maxLen {
 		return body
 	}
-	return body[:maxLen] + "…"
+	return string(runes[:maxLen]) + "…"
 }
 
 // SLMPipelineWorkflow orchestrates the SLM/LLM content processing pipeline.
@@ -1060,7 +1065,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		SenderName:   input.SenderName,
 		Recipients:   formatParticipants(input.ParticipantEmails),
 		Date:         fetchedHeaders["Date"],
-		BodyPreview:  truncateBody(input.BodyText, 500),
+		BodyPreview:  truncateBody(input.BodyText, langfuseBodyPreviewMaxRunes),
 	}).Get(ctx, &langfuseTraceOut)
 	// Root span ID for nesting phase spans and closing with real duration (pf-1bfbaf).
 	var rootSpanID string

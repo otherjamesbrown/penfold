@@ -43,6 +43,8 @@ func TestTruncateBody(t *testing.T) {
 		{"short", "hello", 500, "hello"},
 		{"exact limit", "abcde", 5, "abcde"},
 		{"over limit", "abcdef", 5, "abcde…"},
+		{"multibyte safe", "Héllo wörld café", 5, "Héllo…"},
+		{"emoji boundary", "Hi 👋🏽 there", 4, "Hi 👋…"},
 	}
 
 	for _, tt := range tests {

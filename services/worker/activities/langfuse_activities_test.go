@@ -462,7 +462,7 @@ func TestBuildSpanInput_SenderEmailOnly(t *testing.T) {
 	input := workflows.CreateLangfuseTraceInput{
 		SenderEmail: "alice@example.com",
 	}
-	m := buildSpanInput(input)
+	m := buildSpanInput(input).(map[string]any)
 	assert.Equal(t, "alice@example.com", m["from"])
 }
 
@@ -471,6 +471,6 @@ func TestBuildSpanInput_SenderNameOnly(t *testing.T) {
 	input := workflows.CreateLangfuseTraceInput{
 		SenderName: "Alice",
 	}
-	m := buildSpanInput(input)
+	m := buildSpanInput(input).(map[string]any)
 	assert.Equal(t, "Alice", m["from"])
 }
