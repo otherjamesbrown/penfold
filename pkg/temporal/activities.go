@@ -45,6 +45,11 @@ const (
 	ActivityHeartbeatUpdateStatus          = "HeartbeatUpdateStatus"
 	ActivityAttributeProject               = "AttributeProject"
 	ActivityInstructionEvaluate            = "InstructionEvaluate"
+
+	// Digest activities for daily/weekly digest generation
+	ActivityGatherDigestData        = "GatherDigestData"
+	ActivityGenerateDigestNarrative = "GenerateDigestNarrative"
+	ActivitySaveDigest              = "SaveDigest"
 )
 
 // AI Task Queue activity names (4 unique activities).
@@ -157,6 +162,10 @@ func AllMainQueueActivities() []string {
 		ActivityHeartbeatUpdateStatus,
 		ActivityAttributeProject,
 		ActivityInstructionEvaluate,
+		// Digest activities
+		ActivityGatherDigestData,
+		ActivityGenerateDigestNarrative,
+		ActivitySaveDigest,
 		// Graph API activities (Outlook + Teams sync + Transcript sync)
 		ActivityCheckGraphAuth,
 		ActivityFetchOutlookMessages,

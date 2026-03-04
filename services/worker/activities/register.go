@@ -39,6 +39,7 @@ type Registrar struct {
 	heartbeatActivities               *HeartbeatActivities
 	graphActivities                   *GraphActivities
 	instructionEvaluationActivities   *InstructionEvaluationActivities
+	digestActivities                  *DigestActivities
 }
 
 // NewRegistrar creates a new activity registrar.
@@ -183,6 +184,12 @@ func (r *Registrar) WithGraphActivities(ga *GraphActivities) *Registrar {
 // WithInstructionEvaluationActivities adds instruction evaluation activities to the registrar.
 func (r *Registrar) WithInstructionEvaluationActivities(iea *InstructionEvaluationActivities) *Registrar {
 	r.instructionEvaluationActivities = iea
+	return r
+}
+
+// WithDigestActivities adds digest generation activities to the registrar.
+func (r *Registrar) WithDigestActivities(da *DigestActivities) *Registrar {
+	r.digestActivities = da
 	return r
 }
 
@@ -455,6 +462,19 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		})
 	}
 
+	// Digest activities for daily/weekly digest generation
+	if r.digestActivities != nil {
+		w.RegisterActivityWithOptions(r.digestActivities.GatherDigestData, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityGatherDigestData,
+		})
+		w.RegisterActivityWithOptions(r.digestActivities.GenerateDigestNarrative, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityGenerateDigestNarrative,
+		})
+		w.RegisterActivityWithOptions(r.digestActivities.SaveDigest, activity.RegisterOptions{
+			Name: pkgtemporal.ActivitySaveDigest,
+		})
+	}
+
 	// Graph activities for Outlook and Teams sync workflows
 	r.registerGraphActivities(w)
 }
@@ -702,6 +722,10 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		// InstructionEvaluate
 		if r.instructionEvaluationActivities != nil {
 			count += 1
+		}
+		// GatherDigestData, GenerateDigestNarrative, SaveDigest
+		if r.digestActivities != nil {
+			count += 3
 		}
 		// CheckGraphAuth, FetchOutlookMessages, ProcessOutlookMessage, UpdateOutlookSyncState, RollbackOutlookSync,
 		// FetchTeamChannels, FetchChannelMessages, ProcessTeamsThread, UpdateTeamsSyncState, RollbackTeamsSync,

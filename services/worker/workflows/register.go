@@ -82,6 +82,11 @@ func (r *Registrar) registerMainQueueWorkflows(w worker.Worker) {
 	w.RegisterWorkflowWithOptions(HeartbeatWorkflow, workflow.RegisterOptions{
 		Name: "HeartbeatWorkflow",
 	})
+
+	// Digest workflow (daily/weekly digest generation)
+	w.RegisterWorkflowWithOptions(DigestWorkflow, workflow.RegisterOptions{
+		Name: "DigestWorkflow",
+	})
 }
 
 // registerAIQueueWorkflows registers workflows for the AI task queue.
@@ -136,7 +141,7 @@ func (r *Registrar) registerCommonWorkflows(w worker.Worker) {
 func (r *Registrar) WorkflowCount(taskQueue string) int {
 	switch taskQueue {
 	case config.MainTaskQueue:
-		return 9 // SLMPipelineWorkflow, ContentIngestionWorkflow, RelationshipDiscoveryWorkflow, DailyReviewWorkflow, BatchPipelineWorkflow, ConversationMaintenanceWorkflow, ConversationBackfillWorkflow, SessionLedgerConsolidationWorkflow, HeartbeatWorkflow
+		return 10 // SLMPipelineWorkflow, ContentIngestionWorkflow, RelationshipDiscoveryWorkflow, DailyReviewWorkflow, BatchPipelineWorkflow, ConversationMaintenanceWorkflow, ConversationBackfillWorkflow, SessionLedgerConsolidationWorkflow, HeartbeatWorkflow, DigestWorkflow
 	case config.AITaskQueue:
 		return 1 // AnalysisWorkflow
 	case config.EmailTaskQueue:

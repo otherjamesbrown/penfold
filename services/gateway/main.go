@@ -49,6 +49,7 @@ import (
 	workflowv1 "github.com/otherjamesbrown/penfold/api/proto/workflow/v1"
 	schedulev1 "github.com/otherjamesbrown/penfold/api/proto/schedule/v1"
 	source_mappingsv1 "github.com/otherjamesbrown/penfold/api/proto/source_mappings/v1"
+	digestv1 "github.com/otherjamesbrown/penfold/api/proto/digest/v1"
 	instructionv1 "github.com/otherjamesbrown/penfold/api/proto/instruction/v1"
 	graphconnectorpb "github.com/otherjamesbrown/penfold/api/proto/connectors/v1/graphpb"
 	gatewaypb "github.com/otherjamesbrown/penfold/api/proto/core/v1/gatewaypb"
@@ -86,6 +87,7 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/auditservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/bridgeservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/classifyservice"
+	"github.com/otherjamesbrown/penfold/pkg/digest"
 	"github.com/otherjamesbrown/penfold/services/gateway/contentservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/entityservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/entitymanagementservice"
@@ -115,6 +117,7 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/threadsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/scheduleservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/sourcemappingsservice"
+	"github.com/otherjamesbrown/penfold/services/gateway/digestservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/graphservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/instructionservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/watchlistservice"
@@ -630,6 +633,12 @@ func main() {
 	instructionSvc := instructionservice.NewService(instructionRepo, dbPool, logger)
 	instructionv1.RegisterInstructionServiceServer(grpcServer, instructionSvc)
 	logger.Info("Registered InstructionService")
+
+	// Register DigestService for digest generation and retrieval.
+	digestRepo := digest.NewRepository(dbPool)
+	digestSvc := digestservice.NewService(digestRepo, dbPool, temporalClient, logger)
+	digestv1.RegisterDigestServiceServer(grpcServer, digestSvc)
+	logger.Info("Registered DigestService")
 
 	// Start HTTP server for health checks and metrics.
 	httpMux := http.NewServeMux()

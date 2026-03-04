@@ -28,6 +28,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/buildinfo"
 	pkgconfig "github.com/otherjamesbrown/penfold/pkg/config"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment"
+	"github.com/otherjamesbrown/penfold/pkg/digest"
 	"github.com/otherjamesbrown/penfold/pkg/instructions"
 	"github.com/otherjamesbrown/penfold/pkg/schedule"
 	"github.com/otherjamesbrown/penfold/pkg/langfuse"
@@ -839,6 +840,15 @@ func main() {
 		instructionEvalActivities := activities.NewInstructionEvaluationActivities(logger, instructionRepo, instrContentDB, promptRepo, aiClient)
 		activityRegistrar.WithInstructionEvaluationActivities(instructionEvalActivities)
 		logger.Info("Instruction evaluation activities initialized")
+	}
+
+	// Initialize Digest Activities (daily/weekly digest generation)
+	if dbPool != nil && aiClient != nil {
+		digestRepo := digest.NewRepository(dbPool)
+		promptRepo := pipeline.NewRepository(dbPool)
+		digestActivities := activities.NewDigestActivities(dbPool, digestRepo, aiClient, promptRepo, logger)
+		activityRegistrar.WithDigestActivities(digestActivities)
+		logger.Info("Digest activities initialized with database and AI client")
 	}
 
 	// Initialize Threading Activities (Stage 2.5: email threading)
