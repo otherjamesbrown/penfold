@@ -49,6 +49,7 @@ import (
 	workflowv1 "github.com/otherjamesbrown/penfold/api/proto/workflow/v1"
 	schedulev1 "github.com/otherjamesbrown/penfold/api/proto/schedule/v1"
 	source_mappingsv1 "github.com/otherjamesbrown/penfold/api/proto/source_mappings/v1"
+	instructionv1 "github.com/otherjamesbrown/penfold/api/proto/instruction/v1"
 	graphconnectorpb "github.com/otherjamesbrown/penfold/api/proto/connectors/v1/graphpb"
 	gatewaypb "github.com/otherjamesbrown/penfold/api/proto/core/v1/gatewaypb"
 	"github.com/otherjamesbrown/penfold/pkg/ai"
@@ -59,6 +60,7 @@ import (
 	enrichmentconfig "github.com/otherjamesbrown/penfold/pkg/enrichment/config"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/glossary"
+	"github.com/otherjamesbrown/penfold/pkg/instructions"
 	"github.com/otherjamesbrown/penfold/pkg/graph"
 	"github.com/otherjamesbrown/penfold/pkg/ledger"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
@@ -114,6 +116,7 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/scheduleservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/sourcemappingsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/graphservice"
+	"github.com/otherjamesbrown/penfold/services/gateway/instructionservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/watchlistservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/workflowservice"
 )
@@ -621,6 +624,12 @@ func main() {
 	graphSvc := graphservice.NewService(dbPool, tokenStore, temporalClient, logger)
 	graphconnectorpb.RegisterGraphConnectorServiceServer(grpcServer, graphSvc)
 	logger.Info("Registered GraphConnectorService")
+
+	// Register InstructionService for watch instruction CRUD.
+	instructionRepo := instructions.NewRepository(dbPool)
+	instructionSvc := instructionservice.NewService(instructionRepo, dbPool, logger)
+	instructionv1.RegisterInstructionServiceServer(grpcServer, instructionSvc)
+	logger.Info("Registered InstructionService")
 
 	// Start HTTP server for health checks and metrics.
 	httpMux := http.NewServeMux()

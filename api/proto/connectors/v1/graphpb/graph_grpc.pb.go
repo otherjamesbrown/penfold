@@ -5,9 +5,9 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             (unknown)
-// source: graphpb/graph.proto
+// source: connectors/v1/graphpb/graph.proto
 
-package graphpb
+package graphv1
 
 import (
 	context "context"
@@ -248,5 +248,5 @@ var GraphConnectorService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "graphpb/graph.proto",
+	Metadata: "connectors/v1/graphpb/graph.proto",
 }
