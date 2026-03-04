@@ -49,6 +49,7 @@ import (
 	workflowv1 "github.com/otherjamesbrown/penfold/api/proto/workflow/v1"
 	schedulev1 "github.com/otherjamesbrown/penfold/api/proto/schedule/v1"
 	source_mappingsv1 "github.com/otherjamesbrown/penfold/api/proto/source_mappings/v1"
+	alertv1 "github.com/otherjamesbrown/penfold/api/proto/alert/v1"
 	digestv1 "github.com/otherjamesbrown/penfold/api/proto/digest/v1"
 	instructionv1 "github.com/otherjamesbrown/penfold/api/proto/instruction/v1"
 	graphconnectorpb "github.com/otherjamesbrown/penfold/api/proto/connectors/v1/graphpb"
@@ -87,6 +88,7 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/auditservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/bridgeservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/classifyservice"
+	"github.com/otherjamesbrown/penfold/pkg/alert"
 	"github.com/otherjamesbrown/penfold/pkg/digest"
 	"github.com/otherjamesbrown/penfold/services/gateway/contentservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/entityservice"
@@ -117,6 +119,7 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/threadsservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/scheduleservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/sourcemappingsservice"
+	"github.com/otherjamesbrown/penfold/services/gateway/alertservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/digestservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/graphservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/instructionservice"
@@ -633,6 +636,12 @@ func main() {
 	instructionSvc := instructionservice.NewService(instructionRepo, dbPool, logger)
 	instructionv1.RegisterInstructionServiceServer(grpcServer, instructionSvc)
 	logger.Info("Registered InstructionService")
+
+	// Register AlertService for alert management.
+	alertRepo := alert.NewRepository(dbPool)
+	alertSvc := alertservice.NewService(alertRepo, logger)
+	alertv1.RegisterAlertServiceServer(grpcServer, alertSvc)
+	logger.Info("Registered AlertService")
 
 	// Register DigestService for digest generation and retrieval.
 	digestRepo := digest.NewRepository(dbPool)

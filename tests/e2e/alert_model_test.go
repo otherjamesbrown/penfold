@@ -61,9 +61,9 @@ func TestDigest_Phase6_AlertModelWorkflow(t *testing.T) {
 	// Create a watch instruction that will generate alerts
 	instrResult := env.CLI.Run(ctx, "instruction", "add",
 		"--name", "Security Vulnerabilities",
-		"--description", "Alert when security vulnerabilities are mentioned",
+		"--instruction", "Alert when security vulnerabilities are mentioned",
 		"--project", "AlertTestProject",
-		"--severity", "high",
+		"--priority", "high",
 	)
 	require.Equal(t, 0, instrResult.ExitCode, "instruction add: %s", instrResult.Stderr)
 
