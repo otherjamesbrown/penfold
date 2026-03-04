@@ -347,3 +347,26 @@ type HeartbeatStatusUpdate struct {
 	Status     string `json:"status"`
 	Summary    string `json:"summary"`
 }
+
+// TeamsSyncInput is the input for Teams channel message synchronization workflows.
+type TeamsSyncInput struct {
+	TenantID      string   `json:"tenant_id"`
+	IntegrationID int64    `json:"integration_id"`
+	JobID         string   `json:"job_id"`
+	TeamIDs       []string `json:"team_ids"`
+	ChannelIDs    []string `json:"channel_ids,omitempty"` // Empty = all channels
+	SyncMode      string   `json:"sync_mode"`             // incremental, full
+}
+
+// TeamsSyncResult is the result of Teams channel message synchronization workflows.
+type TeamsSyncResult struct {
+	TenantID       string    `json:"tenant_id"`
+	Status         string    `json:"status"` // completed, failed, cancelled, partial
+	Error          string    `json:"error,omitempty"`
+	ChannelsSynced int       `json:"channels_synced"`
+	ThreadsSynced  int       `json:"threads_synced"`
+	MessagesSynced int       `json:"messages_synced"`
+	NewThreads     int       `json:"new_threads"`
+	UpdatedThreads int       `json:"updated_threads"`
+	SyncedAt       time.Time `json:"synced_at"`
+}

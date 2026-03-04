@@ -86,8 +86,8 @@ func TestNewRegistrar(t *testing.T) {
 func TestWorkflowCount_MainQueue(t *testing.T) {
 	r := NewRegistrar()
 	count := r.WorkflowCount(config.MainTaskQueue)
-	// SLMPipelineWorkflow, ContentIngestionWorkflow, RelationshipDiscoveryWorkflow, DailyReviewWorkflow, BatchPipelineWorkflow, ConversationMaintenanceWorkflow, ConversationBackfillWorkflow, SessionLedgerConsolidationWorkflow
-	require.Equal(t, 8, count)
+	// SLMPipelineWorkflow, ContentIngestionWorkflow, RelationshipDiscoveryWorkflow, DailyReviewWorkflow, BatchPipelineWorkflow, ConversationMaintenanceWorkflow, ConversationBackfillWorkflow, SessionLedgerConsolidationWorkflow, HeartbeatWorkflow
+	require.Equal(t, 9, count)
 }
 
 // TestWorkflowCount_AIQueue verifies workflow count for AI queue.
@@ -102,8 +102,8 @@ func TestWorkflowCount_AIQueue(t *testing.T) {
 func TestWorkflowCount_EmailQueue(t *testing.T) {
 	r := NewRegistrar()
 	count := r.WorkflowCount(config.EmailTaskQueue)
-	// EmailProcessingWorkflow, GmailSyncWorkflow
-	require.Equal(t, 2, count)
+	// EmailProcessingWorkflow, GmailSyncWorkflow, TeamsSyncWorkflow
+	require.Equal(t, 3, count)
 }
 
 // TestWorkflowCount_UnknownQueue verifies workflow count for unknown queue.
@@ -123,8 +123,10 @@ func TestRegistrar_RegisterAll_EmailQueue(t *testing.T) {
 		r.RegisterAll(w, config.EmailTaskQueue)
 	})
 
-	// Verify EmailProcessingWorkflow was registered
+	// Verify workflows were registered
 	require.Contains(t, w.registeredWorkflows, "EmailProcessingWorkflow")
+	require.Contains(t, w.registeredWorkflows, "GmailSyncWorkflow")
+	require.Contains(t, w.registeredWorkflows, "TeamsSyncWorkflow")
 }
 
 // TestRegistrar_RegisterAll_MainQueue verifies workflows are registered for main queue.
