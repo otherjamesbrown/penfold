@@ -36,8 +36,9 @@ type Registrar struct {
 	consolidationActivities    *ConsolidationActivities
 	headerMentionsActivities   *HeaderMentionsActivities
 	entityEnrichmentActivities *EntityEnrichmentActivities
-	heartbeatActivities        *HeartbeatActivities
-	graphActivities *GraphActivities
+	heartbeatActivities               *HeartbeatActivities
+	graphActivities                   *GraphActivities
+	instructionEvaluationActivities   *InstructionEvaluationActivities
 }
 
 // NewRegistrar creates a new activity registrar.
@@ -176,6 +177,12 @@ func (r *Registrar) WithHeartbeatActivities(ha *HeartbeatActivities) *Registrar 
 // WithGraphActivities adds Microsoft Graph API activities (Outlook + Teams) to the registrar.
 func (r *Registrar) WithGraphActivities(ga *GraphActivities) *Registrar {
 	r.graphActivities = ga
+	return r
+}
+
+// WithInstructionEvaluationActivities adds instruction evaluation activities to the registrar.
+func (r *Registrar) WithInstructionEvaluationActivities(iea *InstructionEvaluationActivities) *Registrar {
+	r.instructionEvaluationActivities = iea
 	return r
 }
 
@@ -441,6 +448,13 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		})
 	}
 
+	// Instruction evaluation activities for watch instructions
+	if r.instructionEvaluationActivities != nil {
+		w.RegisterActivityWithOptions(r.instructionEvaluationActivities.InstructionEvaluate, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityInstructionEvaluate,
+		})
+	}
+
 	// Graph activities for Outlook and Teams sync workflows
 	r.registerGraphActivities(w)
 }
@@ -684,6 +698,10 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		// CreateLangfuseTrace, ReportLangfusePhase, FinishLangfuseTrace, PersistLangfuseTraceID, UpdateLangfuseTraceTags, UpdateLangfuseTraceMetadata
 		if r.langfuseActivities != nil {
 			count += 6
+		}
+		// InstructionEvaluate
+		if r.instructionEvaluationActivities != nil {
+			count += 1
 		}
 		// CheckGraphAuth, FetchOutlookMessages, ProcessOutlookMessage, UpdateOutlookSyncState, RollbackOutlookSync,
 		// FetchTeamChannels, FetchChannelMessages, ProcessTeamsThread, UpdateTeamsSyncState, RollbackTeamsSync,

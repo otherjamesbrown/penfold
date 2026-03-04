@@ -2626,6 +2626,48 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		}
 	}
 
+	// Stage 4.8: Instruction Evaluation (watch instruction matching)
+	if stageInPipeline(stageConfigMap, "instruction_evaluate") {
+		updateStatus("evaluating_instructions", "InstructionEvaluate")
+		instrStage := stageByStatus("evaluating_instructions")
+		logger.Info("pipeline stage starting",
+			"source_id", input.SourceID,
+			"stage", instrStage.Name,
+			"stage_number", "4.8",
+			"total_steps", state.status.TotalSteps,
+		)
+		instrStart := workflow.Now(ctx)
+
+		var instrOutput InstructionEvaluationOutput
+		ctxInstr := workflow.WithActivityOptions(ctx, fastOpts)
+		err = workflow.ExecuteActivity(ctxInstr, pkgtemporal.ActivityInstructionEvaluate, InstructionEvaluationInput{
+			TenantID:  input.TenantID,
+			SourceID:  input.SourceID,
+			ContentID: input.ContentID,
+		}).Get(ctx, &instrOutput)
+		if err != nil {
+			logger.Warn("pipeline stage failed (non-blocking)",
+				"source_id", input.SourceID,
+				"stage", instrStage.Name,
+				"stage_number", "4.8",
+				"duration_ms", workflow.Now(ctx).Sub(instrStart).Milliseconds(),
+				"status", "failed",
+				"error", err.Error(),
+			)
+		} else {
+			logger.Info("pipeline stage completed",
+				"source_id", input.SourceID,
+				"stage", instrStage.Name,
+				"stage_number", "4.8",
+				"duration_ms", workflow.Now(ctx).Sub(instrStart).Milliseconds(),
+				"status", "completed",
+				"instructions_evaluated", instrOutput.InstructionsEvaluated,
+				"matches_found", instrOutput.MatchesFound,
+				"skipped", instrOutput.Skipped,
+			)
+		}
+	}
+
 	if checkCancellation() {
 		runCompensation(ctx)
 		state.result.Status = "cancelled"

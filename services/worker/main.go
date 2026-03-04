@@ -28,6 +28,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/buildinfo"
 	pkgconfig "github.com/otherjamesbrown/penfold/pkg/config"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment"
+	"github.com/otherjamesbrown/penfold/pkg/instructions"
 	"github.com/otherjamesbrown/penfold/pkg/schedule"
 	"github.com/otherjamesbrown/penfold/pkg/langfuse"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/classification"
@@ -828,6 +829,16 @@ func main() {
 		attributionActivities := activities.NewAttributionActivities(logger, attributionRepo)
 		activityRegistrar.WithAttributionActivities(attributionActivities)
 		logger.Info("Attribution activities initialized")
+	}
+
+	// Initialize Instruction Evaluation Activities (after attribute_project)
+	if dbPool != nil && aiClient != nil {
+		instructionRepo := instructions.NewRepository(dbPool)
+		instrContentDB := activities.NewPostgresInstructionContentDB(dbPool, logger)
+		promptRepo := pipeline.NewRepository(dbPool)
+		instructionEvalActivities := activities.NewInstructionEvaluationActivities(logger, instructionRepo, instrContentDB, promptRepo, aiClient)
+		activityRegistrar.WithInstructionEvaluationActivities(instructionEvalActivities)
+		logger.Info("Instruction evaluation activities initialized")
 	}
 
 	// Initialize Threading Activities (Stage 2.5: email threading)

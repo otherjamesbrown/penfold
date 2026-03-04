@@ -44,6 +44,7 @@ const (
 	ActivityHeartbeatCheckStaleContent     = "HeartbeatCheckStaleContent"
 	ActivityHeartbeatUpdateStatus          = "HeartbeatUpdateStatus"
 	ActivityAttributeProject               = "AttributeProject"
+	ActivityInstructionEvaluate            = "InstructionEvaluate"
 )
 
 // AI Task Queue activity names (4 unique activities).
@@ -155,6 +156,7 @@ func AllMainQueueActivities() []string {
 		ActivityHeartbeatCheckStaleContent,
 		ActivityHeartbeatUpdateStatus,
 		ActivityAttributeProject,
+		ActivityInstructionEvaluate,
 		// Graph API activities (Outlook + Teams sync + Transcript sync)
 		ActivityCheckGraphAuth,
 		ActivityFetchOutlookMessages,

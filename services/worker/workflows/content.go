@@ -106,6 +106,21 @@ type (
 		AttributedProjectIDs []int64 `json:"attributed_project_ids"`
 	}
 
+	// InstructionEvaluationInput is the input for the InstructionEvaluate activity.
+	InstructionEvaluationInput struct {
+		TenantID  string `json:"tenant_id"`
+		SourceID  int64  `json:"source_id"`
+		ContentID string `json:"content_id,omitempty"`
+	}
+
+	// InstructionEvaluationOutput is the output from the InstructionEvaluate activity.
+	InstructionEvaluationOutput struct {
+		InstructionsEvaluated int    `json:"instructions_evaluated"`
+		MatchesFound          int    `json:"matches_found"`
+		Skipped               bool   `json:"skipped"`
+		SkipReason            string `json:"skip_reason,omitempty"`
+	}
+
 	// ExtractEntitiesOutput is the output from the ExtractEntities activity.
 	// This matches the activities.ExtractEntitiesOutput structure for JSON deserialization.
 	ExtractEntitiesOutput struct {
