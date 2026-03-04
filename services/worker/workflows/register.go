@@ -118,6 +118,11 @@ func (r *Registrar) registerEmailQueueWorkflows(w worker.Worker) {
 	w.RegisterWorkflowWithOptions(ADSyncWorkflow, workflow.RegisterOptions{
 		Name: "ADSyncWorkflow",
 	})
+
+	// Teams meeting transcript sync workflow
+	w.RegisterWorkflowWithOptions(TranscriptSyncWorkflow, workflow.RegisterOptions{
+		Name: "TranscriptSyncWorkflow",
+	})
 }
 
 // registerCommonWorkflows registers workflows shared across all task queues.
@@ -135,7 +140,7 @@ func (r *Registrar) WorkflowCount(taskQueue string) int {
 	case config.AITaskQueue:
 		return 1 // AnalysisWorkflow
 	case config.EmailTaskQueue:
-		return 5 // EmailProcessingWorkflow, GmailSyncWorkflow, TeamsSyncWorkflow, OutlookSyncWorkflow, ADSyncWorkflow
+		return 6 // EmailProcessingWorkflow, GmailSyncWorkflow, TeamsSyncWorkflow, OutlookSyncWorkflow, ADSyncWorkflow, TranscriptSyncWorkflow
 	default:
 		return 0
 	}

@@ -16,10 +16,11 @@ import (
 
 // SourceSystem identifies the origin system for ingested content.
 const (
-	SourceSystemManualEML     = "manual_eml"
-	SourceSystemGmail         = "gmail"
-	SourceSystemTeamsChannel  = "teams_channel"
-	SourceSystemOutlookMail  = "outlook_mail"
+	SourceSystemManualEML        = "manual_eml"
+	SourceSystemGmail            = "gmail"
+	SourceSystemTeamsChannel     = "teams_channel"
+	SourceSystemOutlookMail      = "outlook_mail"
+	SourceSystemTeamsTranscript  = "teams_transcript"
 )
 
 // DefaultTenantID is the safety/test tenant UUID. When no tenant is specified

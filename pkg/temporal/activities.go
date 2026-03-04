@@ -90,6 +90,12 @@ const (
 	ActivityProcessTeamsThread   = "ProcessTeamsThread"
 	ActivityUpdateTeamsSyncState = "UpdateTeamsSyncState"
 	ActivityRollbackTeamsSync    = "RollbackTeamsSync"
+
+	// Transcript sync activities
+	ActivityFetchMeetingTranscripts   = "FetchMeetingTranscripts"
+	ActivityProcessTranscriptContent  = "ProcessTranscriptContent"
+	ActivityUpdateTranscriptSyncState = "UpdateTranscriptSyncState"
+	ActivityRollbackTranscriptSync    = "RollbackTranscriptSync"
 )
 
 // Deprecated Langfuse activity name constants — removed from the main queue in pf-37ebe8.
@@ -149,7 +155,7 @@ func AllMainQueueActivities() []string {
 		ActivityHeartbeatCheckStaleContent,
 		ActivityHeartbeatUpdateStatus,
 		ActivityAttributeProject,
-		// Graph API activities (Outlook + Teams sync)
+		// Graph API activities (Outlook + Teams sync + Transcript sync)
 		ActivityCheckGraphAuth,
 		ActivityFetchOutlookMessages,
 		ActivityProcessOutlookMessage,
@@ -160,6 +166,10 @@ func AllMainQueueActivities() []string {
 		ActivityProcessTeamsThread,
 		ActivityUpdateTeamsSyncState,
 		ActivityRollbackTeamsSync,
+		ActivityFetchMeetingTranscripts,
+		ActivityProcessTranscriptContent,
+		ActivityUpdateTranscriptSyncState,
+		ActivityRollbackTranscriptSync,
 	}
 }
 
@@ -183,7 +193,7 @@ func AllEmailQueueActivities() []string {
 		ActivityFetchSource,
 		ActivityUpdateSourceStatus,
 		ActivityParseEmail,
-		// Graph API activities (Outlook + Teams sync workflows run on email queue)
+		// Graph API activities (Outlook + Teams sync + Transcript sync workflows run on email queue)
 		ActivityCheckGraphAuth,
 		ActivityFetchOutlookMessages,
 		ActivityProcessOutlookMessage,
@@ -194,5 +204,9 @@ func AllEmailQueueActivities() []string {
 		ActivityProcessTeamsThread,
 		ActivityUpdateTeamsSyncState,
 		ActivityRollbackTeamsSync,
+		ActivityFetchMeetingTranscripts,
+		ActivityProcessTranscriptContent,
+		ActivityUpdateTranscriptSyncState,
+		ActivityRollbackTranscriptSync,
 	}
 }

@@ -17,6 +17,7 @@ import (
 	"go.temporal.io/sdk/activity"
 
 	"github.com/otherjamesbrown/penfold/pkg/graph"
+	"github.com/otherjamesbrown/penfold/pkg/ingest/meeting"
 	"github.com/otherjamesbrown/penfold/pkg/ingest/storage"
 	"github.com/otherjamesbrown/penfold/pkg/ingest/teams"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
@@ -1192,6 +1193,340 @@ func nullableString(s string) *string {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Transcript sync activities
+// ──────────────────────────────────────────────────────────────────────────────
+
+// FetchMeetingTranscripts lists online meetings since the given date and returns
+// any that have transcripts available.
+func (a *GraphActivities) FetchMeetingTranscripts(ctx context.Context, input workflows.FetchMeetingTranscriptsInput) (*workflows.FetchMeetingTranscriptsOutput, error) {
+	logger := a.logger.With(
+		logging.F("activity", "FetchMeetingTranscripts"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("integration_id", input.IntegrationID),
+		logging.F("user_id", input.UserID),
+		logging.F("since_date", input.SinceDate),
+	)
+
+	activity.RecordHeartbeat(ctx, "fetching meeting transcripts")
+
+	logger.Info("Fetching meeting transcripts")
+
+	if input.TenantID == "" {
+		return nil, NewValidationError("tenant_id is required")
+	}
+
+	gc, err := a.newGraphClientForTenant(ctx, input.TenantID)
+	if err != nil {
+		return nil, fmt.Errorf("creating graph client: %w", err)
+	}
+
+	sinceTime, err := time.Parse(time.RFC3339, input.SinceDate)
+	if err != nil {
+		sinceTime = time.Now().UTC().Add(-30 * 24 * time.Hour)
+	}
+
+	userID := input.UserID
+	if userID == "" {
+		userID = "me"
+	}
+
+	activity.RecordHeartbeat(ctx, "calling Graph ListOnlineMeetings")
+
+	meetings, err := gc.ListOnlineMeetings(ctx, userID, sinceTime, 50)
+	if err != nil {
+		logger.Error("Failed to list online meetings", logging.Err(err))
+		return nil, fmt.Errorf("listing online meetings: %w", err)
+	}
+
+	var transcripts []workflows.TranscriptInfo
+
+	for i, mtg := range meetings {
+		meetingID := ""
+		if id := mtg.GetId(); id != nil {
+			meetingID = *id
+		}
+		if meetingID == "" {
+			continue
+		}
+
+		activity.RecordHeartbeat(ctx, fmt.Sprintf("checking transcripts for meeting %d/%d", i+1, len(meetings)))
+
+		meetingTranscripts, err := gc.ListMeetingTranscripts(ctx, userID, meetingID)
+		if err != nil {
+			logger.Debug("No transcripts for meeting",
+				logging.F("meeting_id", meetingID),
+				logging.Err(err),
+			)
+			continue
+		}
+
+		// Extract meeting metadata
+		subject := ""
+		if s := mtg.GetSubject(); s != nil {
+			subject = *s
+		}
+		var startTime, endTime time.Time
+		if st := mtg.GetStartDateTime(); st != nil {
+			startTime = *st
+		}
+		if et := mtg.GetEndDateTime(); et != nil {
+			endTime = *et
+		}
+		organizerName := ""
+		if p := mtg.GetParticipants(); p != nil {
+			if org := p.GetOrganizer(); org != nil {
+				if identity := org.GetIdentity(); identity != nil {
+					if user := identity.GetUser(); user != nil {
+						if name := user.GetDisplayName(); name != nil {
+							organizerName = *name
+						}
+					}
+				}
+			}
+		}
+
+		for _, t := range meetingTranscripts {
+			transcriptID := ""
+			if id := t.GetId(); id != nil {
+				transcriptID = *id
+			}
+			if transcriptID == "" {
+				continue
+			}
+
+			transcripts = append(transcripts, workflows.TranscriptInfo{
+				MeetingID:      meetingID,
+				TranscriptID:   transcriptID,
+				MeetingSubject: subject,
+				StartDateTime:  startTime,
+				EndDateTime:    endTime,
+				OrganizerName:  organizerName,
+			})
+		}
+	}
+
+	logger.Info("Meeting transcripts fetched",
+		logging.F("meetings_checked", len(meetings)),
+		logging.F("transcripts_found", len(transcripts)),
+	)
+
+	return &workflows.FetchMeetingTranscriptsOutput{
+		Transcripts:     transcripts,
+		MeetingsChecked: len(meetings),
+	}, nil
+}
+
+// ProcessTranscriptContent downloads the WebVTT content for a transcript,
+// parses it with the existing VTT parser, and creates a source record.
+func (a *GraphActivities) ProcessTranscriptContent(ctx context.Context, input workflows.ProcessTranscriptContentInput) (*workflows.ProcessTranscriptContentOutput, error) {
+	logger := a.logger.With(
+		logging.F("activity", "ProcessTranscriptContent"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("meeting_id", input.MeetingID),
+		logging.F("transcript_id", input.TranscriptID),
+	)
+
+	activity.RecordHeartbeat(ctx, "processing transcript content")
+
+	logger.Info("Processing transcript content")
+
+	if input.TenantID == "" || input.MeetingID == "" || input.TranscriptID == "" {
+		return nil, NewValidationError("tenant_id, meeting_id, and transcript_id are required")
+	}
+
+	externalID := fmt.Sprintf("transcript:%s:%s", input.MeetingID, input.TranscriptID)
+
+	// Dedup check before hitting the API.
+	exists, existingID, err := a.ingestRepo.ExistsByExternalID(ctx, input.TenantID, externalID)
+	if err != nil {
+		return nil, fmt.Errorf("dedup check for transcript %s: %w", externalID, err)
+	}
+	if exists {
+		logger.Info("Transcript already ingested, skipping", logging.F("existing_source_id", existingID))
+		return &workflows.ProcessTranscriptContentOutput{
+			SourceID: existingID,
+			Action:   "skipped",
+		}, nil
+	}
+
+	gc, err := a.newGraphClientForTenant(ctx, input.TenantID)
+	if err != nil {
+		return nil, fmt.Errorf("creating graph client: %w", err)
+	}
+
+	userID := input.UserID
+	if userID == "" {
+		userID = "me"
+	}
+
+	activity.RecordHeartbeat(ctx, "downloading transcript WebVTT")
+
+	vttBytes, err := gc.GetTranscriptContent(ctx, userID, input.MeetingID, input.TranscriptID)
+	if err != nil {
+		logger.Error("Failed to download transcript content", logging.Err(err))
+		return nil, fmt.Errorf("downloading transcript %s: %w", input.TranscriptID, err)
+	}
+
+	// Parse the WebVTT to extract speakers and full text
+	activity.RecordHeartbeat(ctx, "parsing WebVTT")
+
+	vttResult, err := meeting.ParseVTT(strings.NewReader(string(vttBytes)))
+	if err != nil {
+		logger.Warn("VTT parse failed, storing raw content", logging.Err(err))
+		// Store raw even if parse fails — content is still valuable
+	}
+
+	// Compute content hash
+	h := sha256.Sum256(vttBytes)
+	contentHash := hex.EncodeToString(h[:])
+
+	// Build metadata
+	meta := map[string]interface{}{
+		"integration_id": input.IntegrationID,
+		"user_id":        userID,
+		"meeting_id":     input.MeetingID,
+		"transcript_id":  input.TranscriptID,
+		"source_format":  "webvtt",
+	}
+	if input.MeetingSubject != "" {
+		meta["meeting_subject"] = input.MeetingSubject
+	}
+	if input.StartDateTime != "" {
+		meta["meeting_start"] = input.StartDateTime
+	}
+	if input.EndDateTime != "" {
+		meta["meeting_end"] = input.EndDateTime
+	}
+	if input.OrganizerName != "" {
+		meta["organizer"] = input.OrganizerName
+	}
+
+	var speakers []string
+	rawContent := string(vttBytes)
+	if vttResult != nil {
+		speakers = vttResult.Speakers
+		if len(speakers) > 0 {
+			meta["speakers"] = speakers
+		}
+		if vttResult.DurationSeconds > 0 {
+			meta["duration_seconds"] = vttResult.DurationSeconds
+		}
+	}
+
+	// Parse source timestamp
+	var sourceTimestamp time.Time
+	if input.StartDateTime != "" {
+		if t, err := time.Parse(time.RFC3339, input.StartDateTime); err == nil {
+			sourceTimestamp = t
+		}
+	}
+	if sourceTimestamp.IsZero() {
+		sourceTimestamp = time.Now().UTC()
+	}
+
+	activity.RecordHeartbeat(ctx, "creating source record")
+
+	src := &storage.EmailSource{
+		TenantID:        input.TenantID,
+		SourceSystem:    storage.SourceSystemTeamsTranscript,
+		ExternalID:      externalID,
+		ContentHash:     contentHash,
+		RawContent:      rawContent,
+		ContentType:     "text/vtt",
+		ContentSize:     int32(len(vttBytes)),
+		Metadata:        meta,
+		SourceTimestamp: sourceTimestamp,
+	}
+
+	created, err := a.ingestRepo.CreateSource(ctx, src)
+	if err != nil {
+		logger.Error("Failed to create source record", logging.Err(err))
+		return nil, fmt.Errorf("creating source for transcript %s: %w", externalID, err)
+	}
+
+	logger.Info("Transcript ingested",
+		logging.F("source_id", created.ID),
+		logging.F("content_id", created.ContentID),
+		logging.F("content_size", len(vttBytes)),
+		logging.F("speaker_count", len(speakers)),
+	)
+
+	return &workflows.ProcessTranscriptContentOutput{
+		SourceID:  created.ID,
+		ContentID: created.ContentID,
+		Action:    "created",
+		Speakers:  speakers,
+	}, nil
+}
+
+// UpdateTranscriptSyncState marks the transcript sync as healthy and records the sync timestamp.
+func (a *GraphActivities) UpdateTranscriptSyncState(ctx context.Context, input workflows.UpdateTranscriptSyncStateInput) error {
+	logger := a.logger.With(
+		logging.F("activity", "UpdateTranscriptSyncState"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("integration_id", input.IntegrationID),
+		logging.F("transcripts_synced", input.TranscriptsSynced),
+	)
+
+	activity.RecordHeartbeat(ctx, "updating transcript sync state")
+
+	logger.Info("Updating transcript sync state")
+
+	if input.TenantID == "" {
+		return NewValidationError("tenant_id is required")
+	}
+
+	syncedAt := input.SyncedAt
+	if syncedAt.IsZero() {
+		syncedAt = time.Now().UTC()
+	}
+
+	_, err := a.pool.Exec(ctx, `
+		UPDATE tenant_integrations
+		SET last_sync_at = $2,
+		    sync_status  = 'healthy',
+		    sync_error   = NULL,
+		    updated_at   = NOW()
+		WHERE tenant_id = $1 AND integration_type = 'microsoft_graph'
+	`, input.TenantID, syncedAt)
+	if err != nil {
+		return fmt.Errorf("updating transcript sync state for tenant %s: %w", input.TenantID, err)
+	}
+
+	logger.Info("Transcript sync state updated")
+	return nil
+}
+
+// RollbackTranscriptSync soft-deletes sources created during a failed transcript sync.
+func (a *GraphActivities) RollbackTranscriptSync(ctx context.Context, input workflows.RollbackTranscriptSyncInput) error {
+	logger := a.logger.With(
+		logging.F("activity", "RollbackTranscriptSync"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("source_count", len(input.SourceIDs)),
+	)
+
+	activity.RecordHeartbeat(ctx, "rolling back transcript sync")
+
+	logger.Info("Rolling back transcript sync sources")
+
+	if len(input.SourceIDs) == 0 {
+		return nil
+	}
+
+	_, err := a.pool.Exec(ctx, `
+		UPDATE sources
+		SET deleted_at = NOW(), updated_at = NOW()
+		WHERE id = ANY($1) AND tenant_id = $2 AND deleted_at IS NULL
+	`, input.SourceIDs, input.TenantID)
+	if err != nil {
+		return fmt.Errorf("soft-deleting transcript sources for tenant %s: %w", input.TenantID, err)
+	}
+
+	logger.Info("Transcript sync rolled back", logging.F("source_count", len(input.SourceIDs)))
+	return nil
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Internal helpers
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -1233,4 +1568,8 @@ var _ interface {
 	FetchADGroups(ctx context.Context, input workflows.FetchADGroupsInput) (*workflows.FetchADGroupsOutput, error)
 	SyncTeamsFromAD(ctx context.Context, input workflows.SyncTeamsFromADInput) (*workflows.SyncTeamsFromADOutput, error)
 	UpdateADSyncState(ctx context.Context, input workflows.UpdateADSyncStateInput) error
+	FetchMeetingTranscripts(ctx context.Context, input workflows.FetchMeetingTranscriptsInput) (*workflows.FetchMeetingTranscriptsOutput, error)
+	ProcessTranscriptContent(ctx context.Context, input workflows.ProcessTranscriptContentInput) (*workflows.ProcessTranscriptContentOutput, error)
+	UpdateTranscriptSyncState(ctx context.Context, input workflows.UpdateTranscriptSyncStateInput) error
+	RollbackTranscriptSync(ctx context.Context, input workflows.RollbackTranscriptSyncInput) error
 } = (*GraphActivities)(nil)

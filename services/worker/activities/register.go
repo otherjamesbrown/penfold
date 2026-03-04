@@ -37,7 +37,7 @@ type Registrar struct {
 	headerMentionsActivities   *HeaderMentionsActivities
 	entityEnrichmentActivities *EntityEnrichmentActivities
 	heartbeatActivities        *HeartbeatActivities
-	graphActivities            *GraphActivities
+	graphActivities *GraphActivities
 }
 
 // NewRegistrar creates a new activity registrar.
@@ -564,6 +564,19 @@ func (r *Registrar) registerGraphActivities(w worker.Worker) {
 	w.RegisterActivityWithOptions(r.graphActivities.RollbackTeamsSync, activity.RegisterOptions{
 		Name: pkgtemporal.ActivityRollbackTeamsSync,
 	})
+	// Transcript sync
+	w.RegisterActivityWithOptions(r.graphActivities.FetchMeetingTranscripts, activity.RegisterOptions{
+		Name: pkgtemporal.ActivityFetchMeetingTranscripts,
+	})
+	w.RegisterActivityWithOptions(r.graphActivities.ProcessTranscriptContent, activity.RegisterOptions{
+		Name: pkgtemporal.ActivityProcessTranscriptContent,
+	})
+	w.RegisterActivityWithOptions(r.graphActivities.UpdateTranscriptSyncState, activity.RegisterOptions{
+		Name: pkgtemporal.ActivityUpdateTranscriptSyncState,
+	})
+	w.RegisterActivityWithOptions(r.graphActivities.RollbackTranscriptSync, activity.RegisterOptions{
+		Name: pkgtemporal.ActivityRollbackTranscriptSync,
+	})
 }
 
 // registerCommonActivities registers activities shared across all task queues.
@@ -673,9 +686,10 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 			count += 6
 		}
 		// CheckGraphAuth, FetchOutlookMessages, ProcessOutlookMessage, UpdateOutlookSyncState, RollbackOutlookSync,
-		// FetchTeamChannels, FetchChannelMessages, ProcessTeamsThread, UpdateTeamsSyncState, RollbackTeamsSync
+		// FetchTeamChannels, FetchChannelMessages, ProcessTeamsThread, UpdateTeamsSyncState, RollbackTeamsSync,
+		// FetchMeetingTranscripts, ProcessTranscriptContent, UpdateTranscriptSyncState, RollbackTranscriptSync
 		if r.graphActivities != nil {
-			count += 10
+			count += 14
 		}
 		return count
 	case config.AITaskQueue:
@@ -710,9 +724,9 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		}
 		// Add AI activities count
 		count += r.ActivityCount(config.AITaskQueue)
-		// Graph activities (Outlook + Teams sync workflows run on email queue)
+		// Graph activities (Outlook + Teams + Transcript sync workflows run on email queue)
 		if r.graphActivities != nil {
-			count += 10
+			count += 14
 		}
 		return count
 	default:

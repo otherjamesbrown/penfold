@@ -311,6 +311,27 @@ type ADSyncResult struct {
 	SyncedAt       time.Time `json:"synced_at"`
 }
 
+// TranscriptSyncInput is the input for Teams meeting transcript synchronization workflows.
+type TranscriptSyncInput struct {
+	TenantID      string `json:"tenant_id"`
+	IntegrationID int64  `json:"integration_id"`
+	UserID        string `json:"user_id"`   // "me" or specific UPN
+	JobID         string `json:"job_id"`
+	SyncMode      string `json:"sync_mode"` // incremental, full
+}
+
+// TranscriptSyncResult is the result of Teams meeting transcript synchronization workflows.
+type TranscriptSyncResult struct {
+	TenantID           string    `json:"tenant_id"`
+	Status             string    `json:"status"` // completed, failed, cancelled, partial
+	Error              string    `json:"error,omitempty"`
+	MeetingsChecked    int       `json:"meetings_checked"`
+	TranscriptsSynced  int       `json:"transcripts_synced"`
+	NewTranscripts     int       `json:"new_transcripts"`
+	SkippedTranscripts int       `json:"skipped_transcripts"`
+	SyncedAt           time.Time `json:"synced_at"`
+}
+
 // Heartbeat check name constants.
 const (
 	HeartbeatCheckReviewQueue  = "review_queue"
