@@ -156,6 +156,15 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 	} else {
 		subtype = enrichment.ContentSubtype("HUMAN")
 	}
+
+	// Fallback: detect calendar subtype from headers when rule engine is unavailable
+	// or didn't classify specifically (pf-67ed68). The legacy ClassifyContentSubtype
+	// heuristic checks Content-Type: text/calendar and subject prefixes.
+	if !subtype.IsCalendar() {
+		if headerSubtype := enrichment.ClassifyContentSubtype(input.Headers, input.SenderEmail, input.Subject, nil); headerSubtype.IsCalendar() {
+			subtype = headerSubtype
+		}
+	}
 	logger.Info("Content subtype classified",
 		logging.F("subtype", string(subtype)),
 		logging.F("source_id", input.SourceID),

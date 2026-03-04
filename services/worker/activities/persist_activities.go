@@ -73,32 +73,14 @@ func (a *PersistActivities) PersistFindings(ctx context.Context, input workflows
 		)
 	}
 
-	// Lightweight persist: no analysis output (notification/newsletter pipelines).
-	// Record the pipeline_run as completed and return zero counts.
+	// Validate analysis is provided (pf-fcbdab).
+	// Callers that don't need persistence (notification/newsletter) should skip
+	// calling PersistFindings entirely rather than passing nil analysis.
 	if input.Analysis == nil {
-		logger.Info("Lightweight persist (no analysis output)")
-		output := &workflows.PersistFindingsOutput{}
-		if a.pipelineRepo != nil {
-			durationMS := int(time.Since(startTime).Milliseconds())
-			inputJSON, _ := json.Marshal(map[string]interface{}{
-				"source_id":    input.SourceID,
-				"has_analysis": false,
-				"lightweight":  true,
-			})
-			outputJSON, _ := json.Marshal(output)
-			runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
-				SourceID:   input.SourceID,
-				Stage:      "persist",
-				Status:     "completed",
-				DurationMS: durationMS,
-				InputData:  inputJSON,
-				OutputData: outputJSON,
-			})
-			if runErr != nil {
-				logger.Warn("Failed to record pipeline run for lightweight persist", logging.Err(runErr))
-			}
-		}
-		return output, nil
+		return nil, temporal.NewApplicationError(
+			"analysis is required",
+			"ValidationError",
+		)
 	}
 
 	// Check if repository is available
