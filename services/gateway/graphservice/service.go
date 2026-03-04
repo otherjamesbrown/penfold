@@ -337,11 +337,8 @@ func (s *Service) ListGraphChannels(ctx context.Context, req *graphpb.ListGraphC
 	}
 
 	// Use configured team IDs if set, otherwise use all discovered teams.
-	teamIDs := teamsCfg.TeamIDs
-	if len(teamIDs) == 0 {
-		for _, t := range joinedTeams {
-			teamIDs = append(teamIDs, t.ID)
-		}
+	teamIDs := resolveTeamIDs(teamsCfg.TeamIDs, joinedTeams)
+	if len(teamIDs) != len(teamsCfg.TeamIDs) {
 		s.logger.Debug("Auto-discovered joined teams",
 			logging.F("tenant_id", req.TenantId),
 			logging.F("team_count", len(teamIDs)),
@@ -492,4 +489,21 @@ func (s *Service) InitiateGraphAuth(ctx context.Context, req *graphpb.InitiateGr
 		Message:         result.Message,
 		ExpiresIn:       int32(result.ExpiresIn),
 	}, nil
+}
+
+// resolveTeamIDs returns configured team IDs if non-empty, otherwise extracts
+// IDs from the discovered joined teams. Returns nil when both inputs are empty
+// or nil, which is safe to range over.
+func resolveTeamIDs(configured []string, discovered []graph.JoinedTeam) []string {
+	if len(configured) > 0 {
+		return configured
+	}
+	if discovered == nil {
+		return nil
+	}
+	ids := make([]string, 0, len(discovered))
+	for _, t := range discovered {
+		ids = append(ids, t.ID)
+	}
+	return ids
 }

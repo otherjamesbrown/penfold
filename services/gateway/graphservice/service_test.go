@@ -325,3 +325,54 @@ func TestAuthStatusFromConfig_NilBytes(t *testing.T) {
 	got := authStatusFromConfig(nil)
 	assert.Equal(t, "disconnected", got)
 }
+
+// ============================================================
+// resolveTeamIDs unit tests
+// ============================================================
+
+func TestResolveTeamIDs(t *testing.T) {
+	tests := []struct {
+		name       string
+		configured []string
+		discovered []graph.JoinedTeam
+		want       []string
+	}{
+		{
+			name:       "configured IDs take precedence",
+			configured: []string{"team-1", "team-2"},
+			discovered: []graph.JoinedTeam{{ID: "team-3"}},
+			want:       []string{"team-1", "team-2"},
+		},
+		{
+			name:       "falls back to discovered teams",
+			configured: nil,
+			discovered: []graph.JoinedTeam{{ID: "team-a"}, {ID: "team-b"}},
+			want:       []string{"team-a", "team-b"},
+		},
+		{
+			name:       "nil discovered returns nil — no panic",
+			configured: nil,
+			discovered: nil,
+			want:       nil,
+		},
+		{
+			name:       "empty configured with nil discovered returns nil",
+			configured: []string{},
+			discovered: nil,
+			want:       nil,
+		},
+		{
+			name:       "empty configured with empty discovered returns empty",
+			configured: []string{},
+			discovered: []graph.JoinedTeam{},
+			want:       []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := resolveTeamIDs(tt.configured, tt.discovered)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
