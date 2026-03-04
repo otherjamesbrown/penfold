@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -392,20 +394,68 @@ func (s *Service) InitiateGraphAuth(ctx context.Context, req *graphpb.InitiateGr
 		TenantID: cfg.TenantID,
 	}
 
-	_, result, err := auth.Initiate(ctx)
+	// onToken runs in a background goroutine after the user completes auth
+	// (or the device code expires). Persist the token to tenant_integrations.
+	onToken := func(cred azcore.TokenCredential, tokenErr error) {
+		if tokenErr != nil {
+			s.logger.Warn("Device code polling failed or expired",
+				logging.Err(tokenErr),
+				logging.F("tenant_id", req.TenantId),
+			)
+			return
+		}
+
+		s.logger.Info("Device code auth completed, persisting token",
+			logging.F("tenant_id", req.TenantId),
+		)
+
+		// Request a fresh token from the credential to store.
+		storeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		tok, getErr := cred.GetToken(storeCtx, policy.TokenRequestOptions{
+			Scopes: []string{"https://graph.microsoft.com/.default"},
+		})
+		if getErr != nil {
+			s.logger.Error("Failed to get token for storage after auth",
+				logging.Err(getErr),
+				logging.F("tenant_id", req.TenantId),
+			)
+			return
+		}
+
+		storedToken := &graph.StoredToken{
+			AccessToken: tok.Token,
+			Expiry:      tok.ExpiresOn,
+		}
+		if storeErr := s.tokenStore.StoreToken(storeCtx, req.TenantId, storedToken); storeErr != nil {
+			s.logger.Error("Failed to persist token after device code auth",
+				logging.Err(storeErr),
+				logging.F("tenant_id", req.TenantId),
+			)
+			return
+		}
+
+		// Update sync_status to 'connected'.
+		if _, dbErr := s.pool.Exec(storeCtx, `
+			UPDATE tenant_integrations
+			SET sync_status = 'connected', updated_at = NOW()
+			WHERE tenant_id = $1 AND integration_type = 'microsoft_graph'
+		`, req.TenantId); dbErr != nil {
+			s.logger.Error("Failed to update sync_status after auth",
+				logging.Err(dbErr),
+				logging.F("tenant_id", req.TenantId),
+			)
+		}
+	}
+
+	result, err := auth.Initiate(ctx, onToken)
 	if err != nil {
 		s.logger.Error("Device code flow initiation failed",
 			logging.Err(err),
 			logging.F("tenant_id", req.TenantId),
 		)
 		return nil, status.Errorf(codes.Internal, "initiating device code flow: %v", err)
-	}
-
-	if result == nil {
-		// Token acquired immediately — user was already authenticated.
-		return &graphpb.InitiateGraphAuthResponse{
-			Message: "authentication already complete",
-		}, nil
 	}
 
 	return &graphpb.InitiateGraphAuthResponse{
