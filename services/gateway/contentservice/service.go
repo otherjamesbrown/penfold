@@ -1109,7 +1109,7 @@ func (r *repositoryImpl) ListProjectContent(ctx context.Context, tenantID string
 		  s.created_at,
 		  COALESCE(a.attribution_source, '') AS attribution_source,
 		  COALESCE(a.attribution_confidence, 0.0) AS attribution_confidence,
-		  COALESCE(ce.content_type, s.source_system) AS content_type
+		  COALESCE(ce.content_type::text, s.source_system) AS content_type
 		FROM sources s
 		JOIN assertions a ON a.source_id = s.id
 		  AND a.project_id = $2
@@ -1259,7 +1259,7 @@ func (r *repositoryImpl) ListUnattributedContent(ctx context.Context, tenantID s
 		  s.id, s.content_id,
 		  COALESCE(s.ingestion_metadata->>'subject', s.ingestion_metadata->>'title', s.content_id) AS title,
 		  s.created_at,
-		  COALESCE(ce.content_type, s.source_system) AS content_type,
+		  COALESCE(ce.content_type::text, s.source_system) AS content_type,
 		  COUNT(a.id) AS assertion_count
 		FROM sources s
 		LEFT JOIN content_enrichment ce ON ce.source_id = s.id
