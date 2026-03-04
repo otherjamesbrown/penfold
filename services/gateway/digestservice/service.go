@@ -89,16 +89,23 @@ func (s *Service) TriggerDigest(ctx context.Context, req *digestv1.TriggerDigest
 		return nil, status.Error(codes.Unavailable, "Temporal client not available")
 	}
 
-	// Start DigestWorkflow
+	// Build workflow input
 	input := map[string]interface{}{
 		"tenant_id":    req.TenantId,
 		"project_id":   projectID,
 		"project_name": projectName,
 		"date":         req.Date,
+		"digest_type":  digestType,
 	}
 	inputJSON, err := json.Marshal(input)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to marshal workflow input: %v", err)
+	}
+
+	// Route to the appropriate workflow based on digest type
+	workflowName := pkgtemporal.WorkflowDigest
+	if digestType == "weekly" {
+		workflowName = pkgtemporal.WorkflowWeeklyDigest
 	}
 
 	workflowID := fmt.Sprintf("digest-%s-%d-%s", digestType, projectID, req.Date)
@@ -107,15 +114,17 @@ func (s *Service) TriggerDigest(ctx context.Context, req *digestv1.TriggerDigest
 		TaskQueue: "penfold-main",
 	}
 
-	run, err := s.temporalClient.ExecuteWorkflow(ctx, opts, pkgtemporal.WorkflowDigest, json.RawMessage(inputJSON))
+	run, err := s.temporalClient.ExecuteWorkflow(ctx, opts, workflowName, json.RawMessage(inputJSON))
 	if err != nil {
-		s.logger.Error("Failed to start DigestWorkflow", logging.Err(err))
+		s.logger.Error("Failed to start digest workflow", logging.Err(err),
+			logging.F("digest_type", digestType))
 		return nil, status.Errorf(codes.Internal, "failed to start digest workflow: %v", err)
 	}
 
-	s.logger.Info("DigestWorkflow started",
+	s.logger.Info("Digest workflow started",
 		logging.F("workflow_id", run.GetID()),
 		logging.F("project_id", projectID),
+		logging.F("digest_type", digestType),
 		logging.F("date", req.Date),
 	)
 

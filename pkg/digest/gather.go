@@ -3,6 +3,7 @@ package digest
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -183,6 +184,90 @@ func GatherLedgerEntries(ctx context.Context, pool *pgxpool.Pool, tenantID strin
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("gather ledger entries rows: %w", err)
+	}
+
+	return result, nil
+}
+
+// DailyDigestSummary holds a daily digest record for weekly rollup generation.
+type DailyDigestSummary struct {
+	ID   string
+	Date time.Time
+	Body json.RawMessage
+}
+
+// ThemeSummary holds topic/theme data for weekly digest generation.
+type ThemeSummary struct {
+	TopicID        int64
+	Name           string
+	Description    string
+	RunningContext string
+	Keywords       []string
+}
+
+// GatherDailyDigests returns daily digests for a project within the given week.
+// Returns an empty slice (not nil) if no results are found.
+func GatherDailyDigests(ctx context.Context, pool *pgxpool.Pool, tenantID string, projectID int64, weekStart, weekEnd time.Time) ([]DailyDigestSummary, error) {
+	query := `
+		SELECT id, period_start, body
+		FROM digests
+		WHERE tenant_id = $1
+		  AND project_id = $2
+		  AND digest_type = 'daily'
+		  AND period_start >= $3
+		  AND period_start <= $4
+		ORDER BY period_start
+	`
+
+	rows, err := pool.Query(ctx, query, tenantID, projectID, weekStart, weekEnd)
+	if err != nil {
+		return nil, fmt.Errorf("gather daily digests: %w", err)
+	}
+	defer rows.Close()
+
+	result := []DailyDigestSummary{}
+	for rows.Next() {
+		var d DailyDigestSummary
+		if err := rows.Scan(&d.ID, &d.Date, &d.Body); err != nil {
+			return nil, fmt.Errorf("scan daily digest: %w", err)
+		}
+		result = append(result, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("gather daily digests rows: %w", err)
+	}
+
+	return result, nil
+}
+
+// GatherProjectThemes returns active project-scoped topics with running_context.
+// Returns an empty slice (not nil) if no results are found.
+func GatherProjectThemes(ctx context.Context, pool *pgxpool.Pool, tenantID string, projectID int64) ([]ThemeSummary, error) {
+	query := `
+		SELECT id, name, COALESCE(description, ''), COALESCE(running_context, ''), COALESCE(keywords, '{}')
+		FROM topics
+		WHERE tenant_id = $1
+		  AND project_id = $2
+		  AND status = 'active'
+		ORDER BY name
+	`
+
+	rows, err := pool.Query(ctx, query, tenantID, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("gather project themes: %w", err)
+	}
+	defer rows.Close()
+
+	result := []ThemeSummary{}
+	for rows.Next() {
+		var t ThemeSummary
+		if err := rows.Scan(&t.TopicID, &t.Name, &t.Description, &t.RunningContext, &t.Keywords); err != nil {
+			return nil, fmt.Errorf("scan project theme: %w", err)
+		}
+		result = append(result, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("gather project themes rows: %w", err)
 	}
 
 	return result, nil

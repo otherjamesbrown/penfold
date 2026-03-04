@@ -473,6 +473,16 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		w.RegisterActivityWithOptions(r.digestActivities.SaveDigest, activity.RegisterOptions{
 			Name: pkgtemporal.ActivitySaveDigest,
 		})
+		// Weekly digest activities
+		w.RegisterActivityWithOptions(r.digestActivities.GatherWeeklyDigestData, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityGatherWeeklyDigestData,
+		})
+		w.RegisterActivityWithOptions(r.digestActivities.GenerateWeeklyNarrative, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityGenerateWeeklyNarrative,
+		})
+		w.RegisterActivityWithOptions(r.digestActivities.UpdateThemeContexts, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityUpdateThemeContexts,
+		})
 	}
 
 	// Graph activities for Outlook and Teams sync workflows
@@ -723,9 +733,10 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		if r.instructionEvaluationActivities != nil {
 			count += 1
 		}
-		// GatherDigestData, GenerateDigestNarrative, SaveDigest
+		// GatherDigestData, GenerateDigestNarrative, SaveDigest,
+		// GatherWeeklyDigestData, GenerateWeeklyNarrative, UpdateThemeContexts
 		if r.digestActivities != nil {
-			count += 3
+			count += 6
 		}
 		// CheckGraphAuth, FetchOutlookMessages, ProcessOutlookMessage, UpdateOutlookSyncState, RollbackOutlookSync,
 		// FetchTeamChannels, FetchChannelMessages, ProcessTeamsThread, UpdateTeamsSyncState, RollbackTeamsSync,

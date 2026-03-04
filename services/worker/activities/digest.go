@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"text/template"
 	"time"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	"github.com/otherjamesbrown/penfold/pkg/digest"
+	pferrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/pipeline"
 
@@ -64,6 +66,7 @@ type SaveDigestInput struct {
 	TenantID         string          `json:"tenant_id"`
 	ProjectID        int64           `json:"project_id"`
 	Date             string          `json:"date"`
+	PeriodEnd        string          `json:"period_end,omitempty"` // if empty, same as Date
 	DigestType       string          `json:"digest_type"`
 	Body             json.RawMessage `json:"body"`
 	ModelUsed        string          `json:"model_used"`
@@ -88,6 +91,7 @@ type DigestActivities struct {
 	promptRepo *pipeline.Repository
 	logger     logging.Logger
 }
+
 
 // NewDigestActivities creates a new DigestActivities instance.
 func NewDigestActivities(
@@ -359,16 +363,32 @@ func (a *DigestActivities) SaveDigest(ctx context.Context, input SaveDigestInput
 			return nil, fmt.Errorf("parse date %q: %w", input.Date, err)
 		}
 	}
-	// Normalize to UTC midnight for consistent daily period boundaries
+	// Normalize to UTC midnight for consistent period boundaries
 	date = time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
 
-	// 2. Build the digest record (daily: PeriodStart = PeriodEnd = date)
+	// 2. Determine period end — for daily digests PeriodEnd = PeriodStart;
+	// for weekly digests a PeriodEnd is provided explicitly.
+	periodEnd := date
+	if input.PeriodEnd != "" {
+		periodEnd, err = time.Parse("2006-01-02", input.PeriodEnd)
+		if err != nil {
+			// Fallback: try RFC3339
+			periodEnd, err = time.Parse(time.RFC3339, input.PeriodEnd)
+			if err != nil {
+				logger.Error("Failed to parse period_end", logging.Err(err))
+				return nil, fmt.Errorf("parse period_end %q: %w", input.PeriodEnd, err)
+			}
+		}
+		periodEnd = time.Date(periodEnd.Year(), periodEnd.Month(), periodEnd.Day(), 0, 0, 0, 0, time.UTC)
+	}
+
+	// 3. Build the digest record
 	d := digest.Digest{
 		TenantID:         input.TenantID,
 		ProjectID:        input.ProjectID,
 		DigestType:       input.DigestType,
 		PeriodStart:      date,
-		PeriodEnd:        date,
+		PeriodEnd:        periodEnd,
 		Body:             input.Body,
 		ModelUsed:        input.ModelUsed,
 		PromptTemplateID: input.PromptTemplateID,
@@ -377,7 +397,7 @@ func (a *DigestActivities) SaveDigest(ctx context.Context, input SaveDigestInput
 		SourceContentIDs: input.SourceContentIDs,
 	}
 
-	// 3. Persist
+	// 4. Persist
 	id, err := a.digestRepo.Create(ctx, &d)
 	if err != nil {
 		logger.Error("Failed to create digest", logging.Err(err))
@@ -450,4 +470,390 @@ func formatLedgerEntries(entries []digest.LedgerEntrySummary) string {
 		buf.WriteString("\n")
 	}
 	return buf.String()
+}
+
+// === Weekly Digest Activity Types ===
+
+// GatherWeeklyDigestDataInput is the input for the GatherWeeklyDigestData activity.
+type GatherWeeklyDigestDataInput struct {
+	TenantID    string    `json:"tenant_id"`
+	ProjectID   int64     `json:"project_id"`
+	ProjectName string    `json:"project_name"`
+	WeekStart   time.Time `json:"week_start"`
+	WeekEnd     time.Time `json:"week_end"`
+}
+
+// GatherWeeklyDigestDataOutput is the output from the GatherWeeklyDigestData activity.
+type GatherWeeklyDigestDataOutput struct {
+	DailyDigests     []digest.DailyDigestSummary `json:"daily_digests"`
+	PreviousRollup   *digest.Digest              `json:"previous_rollup,omitempty"`
+	ThemeContexts    []digest.ThemeSummary       `json:"theme_contexts"`
+	HasContent       bool                        `json:"has_content"`
+	AlreadyExists    bool                        `json:"already_exists"`
+	ExistingDigestID string                      `json:"existing_digest_id,omitempty"`
+}
+
+// GenerateWeeklyNarrativeInput is the input for the GenerateWeeklyNarrative activity.
+type GenerateWeeklyNarrativeInput struct {
+	TenantID       string          `json:"tenant_id"`
+	ProjectID      int64           `json:"project_id"`
+	ProjectName    string          `json:"project_name"`
+	WeekStart      string          `json:"week_start"`
+	WeekEnd        string          `json:"week_end"`
+	DailyDigests   json.RawMessage `json:"daily_digests"`
+	PreviousRollup json.RawMessage `json:"previous_rollup"`
+	ThemeContexts  json.RawMessage `json:"theme_contexts"`
+}
+
+// UpdateThemeContextsInput is the input for the UpdateThemeContexts activity.
+type UpdateThemeContextsInput struct {
+	TenantID  string          `json:"tenant_id"`
+	ProjectID int64           `json:"project_id"`
+	Body      json.RawMessage `json:"body"`
+}
+
+// === Weekly Digest Activities ===
+
+// GatherWeeklyDigestData checks for an existing weekly digest and gathers all data
+// needed for weekly rollup generation: daily digests, previous rollup, and project themes.
+func (a *DigestActivities) GatherWeeklyDigestData(ctx context.Context, input GatherWeeklyDigestDataInput) (*GatherWeeklyDigestDataOutput, error) {
+	logger := a.logger.WithContext(ctx).With(
+		logging.F("activity", "GatherWeeklyDigestData"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("project_id", input.ProjectID),
+		logging.F("week_start", input.WeekStart.Format("2006-01-02")),
+		logging.F("week_end", input.WeekEnd.Format("2006-01-02")),
+	)
+
+	recordHeartbeat(ctx, "checking for existing weekly digest")
+	logger.Info("Starting weekly digest data gathering")
+
+	// 1. Check idempotency — if a weekly digest already exists for this week, skip
+	exists, err := a.digestRepo.Exists(ctx, input.TenantID, input.ProjectID, "weekly", input.WeekStart)
+	if err != nil {
+		logger.Error("Failed to check weekly digest existence", logging.Err(err))
+		return nil, fmt.Errorf("check weekly digest exists: %w", err)
+	}
+
+	if exists {
+		existing, err := a.digestRepo.GetLatest(ctx, input.TenantID, input.ProjectID, "weekly")
+		if err != nil {
+			logger.Warn("Weekly digest exists but failed to get ID, continuing", logging.Err(err))
+			return &GatherWeeklyDigestDataOutput{
+				AlreadyExists: true,
+			}, nil
+		}
+		logger.Info("Weekly digest already exists, skipping generation",
+			logging.F("existing_digest_id", existing.ID),
+		)
+		return &GatherWeeklyDigestDataOutput{
+			AlreadyExists:    true,
+			ExistingDigestID: existing.ID,
+		}, nil
+	}
+
+	// 2. Gather daily digests for the week
+	recordHeartbeat(ctx, "gathering daily digests for week")
+	dailyDigests, err := digest.GatherDailyDigests(ctx, a.db, input.TenantID, input.ProjectID, input.WeekStart, input.WeekEnd)
+	if err != nil {
+		logger.Error("Failed to gather daily digests", logging.Err(err))
+		return nil, fmt.Errorf("gather daily digests: %w", err)
+	}
+
+	if len(dailyDigests) == 0 {
+		logger.Info("No daily digests found for week, skipping weekly generation")
+		return &GatherWeeklyDigestDataOutput{
+			HasContent: false,
+		}, nil
+	}
+
+	// 3. Get previous weekly rollup (best effort — ignore ErrNotFound)
+	recordHeartbeat(ctx, "fetching previous weekly rollup")
+	var previousRollup *digest.Digest
+	prev, err := a.digestRepo.GetLatest(ctx, input.TenantID, input.ProjectID, "weekly")
+	if err != nil && !isNotFound(err) {
+		logger.Warn("Failed to get previous weekly rollup, continuing without it", logging.Err(err))
+	} else if err == nil {
+		previousRollup = prev
+	}
+
+	// 4. Gather project themes (best effort)
+	recordHeartbeat(ctx, "gathering project themes")
+	themeContexts, err := digest.GatherProjectThemes(ctx, a.db, input.TenantID, input.ProjectID)
+	if err != nil {
+		logger.Warn("Failed to gather project themes, continuing without them", logging.Err(err))
+		themeContexts = []digest.ThemeSummary{}
+	}
+
+	logger.Info("Weekly digest data gathering complete",
+		logging.F("daily_digest_count", len(dailyDigests)),
+		logging.F("has_previous_rollup", previousRollup != nil),
+		logging.F("theme_count", len(themeContexts)),
+	)
+
+	return &GatherWeeklyDigestDataOutput{
+		DailyDigests:   dailyDigests,
+		PreviousRollup: previousRollup,
+		ThemeContexts:  themeContexts,
+		HasContent:     true,
+	}, nil
+}
+
+// weeklyDigestPromptData holds template variables for the weekly digest generation prompt.
+type weeklyDigestPromptData struct {
+	ProjectName    string
+	WeekStart      string
+	WeekEnd        string
+	DailyDigests   string
+	PreviousRollup string
+	ThemeContexts  string
+}
+
+// GenerateWeeklyNarrative loads the weekly digest prompt template, renders it with gathered data,
+// calls the LLM to produce a structured weekly narrative, and returns the result.
+func (a *DigestActivities) GenerateWeeklyNarrative(ctx context.Context, input GenerateWeeklyNarrativeInput) (*GenerateDigestOutput, error) {
+	logger := a.logger.WithContext(ctx).With(
+		logging.F("activity", "GenerateWeeklyNarrative"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("project_id", input.ProjectID),
+		logging.F("week_start", input.WeekStart),
+		logging.F("week_end", input.WeekEnd),
+	)
+
+	recordHeartbeat(ctx, "loading weekly prompt template")
+	logger.Info("Starting weekly digest narrative generation")
+
+	// 1. Load prompt template for weekly synthesis
+	promptTemplate, err := a.promptRepo.GetPromptByStage(ctx, "digest_weekly_synthesize", 0)
+	if err != nil {
+		logger.Error("Failed to load weekly prompt template", logging.Err(err))
+		return nil, fmt.Errorf("load weekly prompt template: %w", err)
+	}
+
+	// 2. Unmarshal and format daily digests as readable text
+	var dailyDigestSummaries []digest.DailyDigestSummary
+	if len(input.DailyDigests) > 0 {
+		if err := json.Unmarshal(input.DailyDigests, &dailyDigestSummaries); err != nil {
+			logger.Warn("Failed to unmarshal daily digests, using empty", logging.Err(err))
+		}
+	}
+	dailyDigestsBlock := formatDailyDigests(dailyDigestSummaries)
+
+	// 3. Format previous rollup as text
+	previousRollupBlock := formatPreviousRollup(input.PreviousRollup)
+
+	// 4. Unmarshal and format theme contexts as text
+	themeContextsBlock := formatThemeContexts(input.ThemeContexts)
+
+	// 5. Render the prompt template
+	tmpl, err := template.New("digest_weekly_synthesize").Parse(promptTemplate.Content)
+	if err != nil {
+		logger.Error("Failed to parse weekly prompt template", logging.Err(err))
+		return nil, fmt.Errorf("parse weekly prompt template: %w", err)
+	}
+
+	data := weeklyDigestPromptData{
+		ProjectName:    input.ProjectName,
+		WeekStart:      input.WeekStart,
+		WeekEnd:        input.WeekEnd,
+		DailyDigests:   dailyDigestsBlock,
+		PreviousRollup: previousRollupBlock,
+		ThemeContexts:  themeContextsBlock,
+	}
+
+	var renderedPrompt bytes.Buffer
+	if err := tmpl.Execute(&renderedPrompt, data); err != nil {
+		logger.Error("Failed to render weekly prompt", logging.Err(err))
+		return nil, fmt.Errorf("render weekly prompt: %w", err)
+	}
+
+	// 6. Call LLM with JSON mode enabled
+	recordHeartbeat(ctx, "calling LLM for weekly digest generation")
+	jsonMode := true
+	resp, err := a.aiClient.GenerateSummary(ctx, &aiv1.SummaryRequest{
+		Content:  renderedPrompt.String(),
+		JsonMode: &jsonMode,
+	})
+	if err != nil {
+		logger.Error("LLM weekly digest generation failed", logging.Err(err))
+		return nil, fmt.Errorf("LLM weekly digest generation: %w", err)
+	}
+
+	// 7. Extract token counts
+	var inputTokens, outputTokens int
+	if resp.InputTokens != nil {
+		inputTokens = int(*resp.InputTokens)
+	}
+	if resp.OutputTokens != nil {
+		outputTokens = int(*resp.OutputTokens)
+	}
+
+	logger.Info("Weekly digest narrative generated",
+		logging.F("model_used", resp.ModelUsed),
+		logging.F("input_tokens", inputTokens),
+		logging.F("output_tokens", outputTokens),
+	)
+
+	return &GenerateDigestOutput{
+		Body:             json.RawMessage(resp.Summary),
+		ModelUsed:        resp.ModelUsed,
+		PromptTemplateID: promptTemplate.ID,
+		InputTokenCount:  inputTokens,
+		OutputTokenCount: outputTokens,
+	}, nil
+}
+
+// UpdateThemeContexts updates the running_context field on topics based on theme context updates
+// extracted from the weekly digest body. This activity is best-effort: errors are logged but
+// do not fail the workflow.
+func (a *DigestActivities) UpdateThemeContexts(ctx context.Context, input UpdateThemeContextsInput) error {
+	logger := a.logger.WithContext(ctx).With(
+		logging.F("activity", "UpdateThemeContexts"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("project_id", input.ProjectID),
+	)
+
+	// Parse body to extract themes with context updates
+	var body struct {
+		Sections struct {
+			Themes []struct {
+				Name          string `json:"name"`
+				ContextUpdate string `json:"context_update"`
+			} `json:"themes"`
+		} `json:"sections"`
+	}
+	if err := json.Unmarshal(input.Body, &body); err != nil {
+		logger.Warn("Failed to parse weekly digest body for theme updates", logging.Err(err))
+		return nil // best effort
+	}
+
+	if len(body.Sections.Themes) == 0 {
+		logger.Info("No theme updates in weekly digest")
+		return nil
+	}
+
+	now := time.Now()
+	updated := 0
+
+	for _, theme := range body.Sections.Themes {
+		if theme.Name == "" || theme.ContextUpdate == "" {
+			continue
+		}
+
+		// Find the topic by name (case-insensitive) within this project
+		var topicID int64
+		err := a.db.QueryRow(ctx, `
+			SELECT id
+			FROM topics
+			WHERE tenant_id = $1 AND project_id = $2 AND LOWER(name) = LOWER($3)
+			LIMIT 1
+		`, input.TenantID, input.ProjectID, theme.Name).Scan(&topicID)
+		if err != nil {
+			logger.Warn("Topic not found for theme update",
+				logging.F("theme_name", theme.Name),
+				logging.Err(err),
+			)
+			continue
+		}
+
+		// Update running_context and last_updated_at
+		_, err = a.db.Exec(ctx, `
+			UPDATE topics
+			SET running_context = $1, last_updated_at = $2, updated_at = NOW()
+			WHERE id = $3
+		`, theme.ContextUpdate, now, topicID)
+		if err != nil {
+			logger.Warn("Failed to update topic running_context",
+				logging.F("topic_id", topicID),
+				logging.F("theme_name", theme.Name),
+				logging.Err(err),
+			)
+			continue
+		}
+
+		logger.Info("Updated topic running_context",
+			logging.F("topic_id", topicID),
+			logging.F("theme_name", theme.Name),
+		)
+		updated++
+	}
+
+	logger.Info("Theme context update complete",
+		logging.F("themes_processed", len(body.Sections.Themes)),
+		logging.F("topics_updated", updated),
+	)
+
+	return nil
+}
+
+// === Weekly digest formatting helpers ===
+
+// formatDailyDigests formats a slice of DailyDigestSummary as a readable text block.
+func formatDailyDigests(digests []digest.DailyDigestSummary) string {
+	if len(digests) == 0 {
+		return "None"
+	}
+	var buf bytes.Buffer
+	for _, d := range digests {
+		// Extract summary text from body JSON
+		var body map[string]interface{}
+		summary := string(d.Body)
+		if err := json.Unmarshal(d.Body, &body); err == nil {
+			if s, ok := body["summary"].(string); ok {
+				summary = s
+			}
+		}
+		fmt.Fprintf(&buf, "- %s: %s\n", d.Date.Format("2006-01-02 (Monday)"), summary)
+	}
+	return buf.String()
+}
+
+// formatPreviousRollup formats the previous weekly rollup body as a readable summary string.
+func formatPreviousRollup(data json.RawMessage) string {
+	if len(data) == 0 || string(data) == "null" {
+		return "None"
+	}
+	var rollup digest.Digest
+	if err := json.Unmarshal(data, &rollup); err != nil {
+		return "None"
+	}
+	if len(rollup.Body) == 0 {
+		return "None"
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(rollup.Body, &body); err != nil {
+		return string(rollup.Body)
+	}
+	if s, ok := body["summary"].(string); ok {
+		return s
+	}
+	return string(rollup.Body)
+}
+
+// formatThemeContexts formats a slice of ThemeSummary as a readable text block.
+func formatThemeContexts(data json.RawMessage) string {
+	if len(data) == 0 || string(data) == "null" {
+		return "None"
+	}
+	var themes []digest.ThemeSummary
+	if err := json.Unmarshal(data, &themes); err != nil {
+		return "None"
+	}
+	if len(themes) == 0 {
+		return "None"
+	}
+	var buf bytes.Buffer
+	for _, t := range themes {
+		fmt.Fprintf(&buf, "- %s: %s", t.Name, t.Description)
+		if t.RunningContext != "" {
+			fmt.Fprintf(&buf, "\n  Context: %s", t.RunningContext)
+		}
+		buf.WriteString("\n")
+	}
+	return buf.String()
+}
+
+// isNotFound returns true if the error represents a not-found condition.
+func isNotFound(err error) bool {
+	return errors.Is(err, pferrors.ErrNotFound)
 }

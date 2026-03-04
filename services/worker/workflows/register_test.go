@@ -86,8 +86,8 @@ func TestNewRegistrar(t *testing.T) {
 func TestWorkflowCount_MainQueue(t *testing.T) {
 	r := NewRegistrar()
 	count := r.WorkflowCount(config.MainTaskQueue)
-	// SLMPipelineWorkflow, ContentIngestionWorkflow, RelationshipDiscoveryWorkflow, DailyReviewWorkflow, BatchPipelineWorkflow, ConversationMaintenanceWorkflow, ConversationBackfillWorkflow, SessionLedgerConsolidationWorkflow, HeartbeatWorkflow
-	require.Equal(t, 9, count)
+	// SLMPipelineWorkflow, ContentIngestionWorkflow, RelationshipDiscoveryWorkflow, DailyReviewWorkflow, BatchPipelineWorkflow, ConversationMaintenanceWorkflow, ConversationBackfillWorkflow, SessionLedgerConsolidationWorkflow, HeartbeatWorkflow, DigestWorkflow, WeeklyDigestWorkflow
+	require.Equal(t, 11, count)
 }
 
 // TestWorkflowCount_AIQueue verifies workflow count for AI queue.
@@ -102,8 +102,8 @@ func TestWorkflowCount_AIQueue(t *testing.T) {
 func TestWorkflowCount_EmailQueue(t *testing.T) {
 	r := NewRegistrar()
 	count := r.WorkflowCount(config.EmailTaskQueue)
-	// EmailProcessingWorkflow, GmailSyncWorkflow, TeamsSyncWorkflow, OutlookSyncWorkflow, ADSyncWorkflow
-	require.Equal(t, 5, count)
+	// EmailProcessingWorkflow, GmailSyncWorkflow, TeamsSyncWorkflow, OutlookSyncWorkflow, ADSyncWorkflow, TranscriptSyncWorkflow
+	require.Equal(t, 6, count)
 }
 
 // TestWorkflowCount_UnknownQueue verifies workflow count for unknown queue.

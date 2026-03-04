@@ -83,9 +83,14 @@ func (r *Registrar) registerMainQueueWorkflows(w worker.Worker) {
 		Name: "HeartbeatWorkflow",
 	})
 
-	// Digest workflow (daily/weekly digest generation)
+	// Digest workflow (daily digest generation)
 	w.RegisterWorkflowWithOptions(DigestWorkflow, workflow.RegisterOptions{
 		Name: "DigestWorkflow",
+	})
+
+	// Weekly digest workflow (weekly rollup generation)
+	w.RegisterWorkflowWithOptions(WeeklyDigestWorkflow, workflow.RegisterOptions{
+		Name: "WeeklyDigestWorkflow",
 	})
 }
 
@@ -141,7 +146,7 @@ func (r *Registrar) registerCommonWorkflows(w worker.Worker) {
 func (r *Registrar) WorkflowCount(taskQueue string) int {
 	switch taskQueue {
 	case config.MainTaskQueue:
-		return 10 // SLMPipelineWorkflow, ContentIngestionWorkflow, RelationshipDiscoveryWorkflow, DailyReviewWorkflow, BatchPipelineWorkflow, ConversationMaintenanceWorkflow, ConversationBackfillWorkflow, SessionLedgerConsolidationWorkflow, HeartbeatWorkflow, DigestWorkflow
+		return 11 // SLMPipelineWorkflow, ContentIngestionWorkflow, RelationshipDiscoveryWorkflow, DailyReviewWorkflow, BatchPipelineWorkflow, ConversationMaintenanceWorkflow, ConversationBackfillWorkflow, SessionLedgerConsolidationWorkflow, HeartbeatWorkflow, DigestWorkflow, WeeklyDigestWorkflow
 	case config.AITaskQueue:
 		return 1 // AnalysisWorkflow
 	case config.EmailTaskQueue:

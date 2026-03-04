@@ -50,6 +50,11 @@ const (
 	ActivityGatherDigestData        = "GatherDigestData"
 	ActivityGenerateDigestNarrative = "GenerateDigestNarrative"
 	ActivitySaveDigest              = "SaveDigest"
+
+	// Weekly digest activities
+	ActivityGatherWeeklyDigestData  = "GatherWeeklyDigestData"
+	ActivityGenerateWeeklyNarrative = "GenerateWeeklyNarrative"
+	ActivityUpdateThemeContexts     = "UpdateThemeContexts"
 )
 
 // AI Task Queue activity names (4 unique activities).
@@ -166,6 +171,10 @@ func AllMainQueueActivities() []string {
 		ActivityGatherDigestData,
 		ActivityGenerateDigestNarrative,
 		ActivitySaveDigest,
+		// Weekly digest activities
+		ActivityGatherWeeklyDigestData,
+		ActivityGenerateWeeklyNarrative,
+		ActivityUpdateThemeContexts,
 		// Graph API activities (Outlook + Teams sync + Transcript sync)
 		ActivityCheckGraphAuth,
 		ActivityFetchOutlookMessages,

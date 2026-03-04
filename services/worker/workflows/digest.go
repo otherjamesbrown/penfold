@@ -71,6 +71,7 @@ type digestSaveInput struct {
 	TenantID         string          `json:"tenant_id"`
 	ProjectID        int64           `json:"project_id"`
 	Date             string          `json:"date"`
+	PeriodEnd        string          `json:"period_end,omitempty"` // if empty, same as Date
 	DigestType       string          `json:"digest_type"`
 	Body             json.RawMessage `json:"body"`
 	ModelUsed        string          `json:"model_used"`
