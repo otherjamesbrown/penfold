@@ -14,8 +14,9 @@
 -- tags. The migration runner at pkg/db/migrations.go (line 271-273) strips the
 -- goose Down section automatically, so those tags are harmless but misleading.
 -- Old migrations are not modified.
-
-BEGIN;
+--
+-- Note: No explicit BEGIN/COMMIT — the migration runner (pkg/db/migrations.go)
+-- wraps each migration in a transaction automatically.
 
 -- Step 1: Fix MEETING/TRANSCRIPT routing.
 -- All rows with this type/subtype combination should route to the 'transcript'
@@ -42,5 +43,7 @@ WHERE a.id > b.id
 ALTER TABLE pipeline_routing
   ADD CONSTRAINT uq_pipeline_routing_tenant_type_subtype_pipeline
   UNIQUE (tenant_id, content_type, content_subtype, pipeline);
-
-COMMIT;
+-- Note: PostgreSQL treats NULLs as distinct in UNIQUE constraints, so this
+-- won't prevent duplicate wildcard routes (NULL content_type/subtype). Currently
+-- all routes have non-NULL values. If wildcard routes are ever needed, replace
+-- this with a unique index using COALESCE.
