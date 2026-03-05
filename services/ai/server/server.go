@@ -404,17 +404,17 @@ func (s *AIServer) GenerateSummary(ctx context.Context, req *aiv1.SummaryRequest
 		// Try routing rules with content-length awareness.
 		if s.registry != nil {
 			rules, err := s.registry.GetRoutingRulesByTask(ctx, "summarization")
-			if err == nil && len(rules) > 0 {
+			if err != nil {
+				s.logger.Warn("Failed to query summarization routing rules, falling back to config",
+					logging.Err(err))
+			} else if len(rules) > 0 {
 				attrs := map[string]string{
 					"content_chars": strconv.Itoa(len(content)),
 				}
 				for _, rule := range rules {
 					if registry.MatchesConditions(rule.Conditions, attrs) {
 						if len(rule.PreferredModels) > 0 {
-							model = rule.PreferredModels[0]
-							if idx := strings.LastIndex(model, "/"); idx >= 0 {
-								model = model[idx+1:]
-							}
+							model = stripProviderPrefix(rule.PreferredModels[0])
 							break
 						}
 					}

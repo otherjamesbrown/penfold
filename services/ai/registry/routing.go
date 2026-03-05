@@ -132,34 +132,14 @@ func MatchesConditions(conditions map[string][]string, attrs map[string]string) 
 	}
 	for field, allowedValues := range conditions {
 		// Numeric range conditions (min_/max_ prefix).
-		if strings.HasPrefix(field, "min_") || strings.HasPrefix(field, "max_") {
-			var prefix, attrKey string
-			if strings.HasPrefix(field, "min_") {
-				prefix = "min_"
-				attrKey = field[len("min_"):]
-			} else {
-				prefix = "max_"
-				attrKey = field[len("max_"):]
-			}
-			actual, ok := attrs[attrKey]
-			if !ok {
+		if strings.HasPrefix(field, "min_") {
+			if !matchesNumericRange(attrs, field[4:], allowedValues, false) {
 				return false
 			}
-			actualVal, err := strconv.ParseInt(actual, 10, 64)
-			if err != nil {
-				return false
-			}
-			if len(allowedValues) == 0 {
-				return false
-			}
-			thresholdVal, err := strconv.ParseInt(allowedValues[0], 10, 64)
-			if err != nil {
-				return false
-			}
-			if prefix == "max_" && actualVal > thresholdVal {
-				return false
-			}
-			if prefix == "min_" && actualVal < thresholdVal {
+			continue
+		}
+		if strings.HasPrefix(field, "max_") {
+			if !matchesNumericRange(attrs, field[4:], allowedValues, true) {
 				return false
 			}
 			continue
@@ -182,4 +162,25 @@ func MatchesConditions(conditions map[string][]string, attrs map[string]string) 
 		}
 	}
 	return true
+}
+
+// matchesNumericRange checks if attrs[attrKey] satisfies a numeric threshold.
+// If isMax is true, actual must be <= threshold; if false, actual must be >= threshold.
+func matchesNumericRange(attrs map[string]string, attrKey string, allowedValues []string, isMax bool) bool {
+	actual, ok := attrs[attrKey]
+	if !ok || len(allowedValues) == 0 {
+		return false
+	}
+	actualVal, err := strconv.ParseInt(actual, 10, 64)
+	if err != nil {
+		return false
+	}
+	thresholdVal, err := strconv.ParseInt(allowedValues[0], 10, 64)
+	if err != nil {
+		return false
+	}
+	if isMax {
+		return actualVal <= thresholdVal
+	}
+	return actualVal >= thresholdVal
 }
