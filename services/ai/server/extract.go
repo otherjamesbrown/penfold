@@ -26,10 +26,6 @@ IMPORTANT: The "Background Context" section below (if present) is provided for d
 Do NOT extract entities, topics, or themes from the Background Context section.
 Extract ONLY from the actual email content that follows the "---" separator.
 
-When extracting people: prioritize people mentioned by name IN THE EMAIL BODY over
-people listed only in the To/CC email headers. People in headers who are not mentioned
-in the body text should be tagged as header-only contacts, not as people "mentioned" in the content.
-
 1. People mentioned (name, role/title if stated — pay special attention to email signature blocks after sign-offs like Regards/Best/Thanks. Extract job title and department from signatures. Do not extract non-title text from meeting invitations or automated blocks like 'Tap to call in', 'Join my meeting', 'attendees only', 'dial in', or 'conference call'. Do NOT extract tool or software names as people — e.g. "Aha!", "Jira", "Slack", "ServiceNow" are products, not people. Do NOT extract publication titles, newsletter names, or service desk names as people — e.g. "Emea Newsletter", "Akamai Solution Center" are not people. When you encounter short abbreviations like "AK", "JB", "TL" that appear to be initials for a person, extract them as-is rather than guessing the full name.)
 2. Dates and deadlines mentioned
 3. Projects, products, or codenames mentioned

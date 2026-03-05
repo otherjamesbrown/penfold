@@ -193,6 +193,7 @@ func (a *PipelineActivities) RecordSkippedStage(ctx context.Context, input workf
 		return nil
 	}
 
+	var firstErr error
 	for _, s := range input.Stages {
 		runErr := a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
 			SourceID:        input.SourceID,
@@ -203,12 +204,15 @@ func (a *PipelineActivities) RecordSkippedStage(ctx context.Context, input workf
 			// DurationMS, InputTokens, OutputTokens are all 0 for skipped stages
 		})
 		if runErr != nil {
-			logger.Warn("Failed to record skipped pipeline run",
+			logger.Error("Failed to record skipped pipeline run",
 				logging.F("stage", s.Stage),
 				logging.F("skip_reason", s.SkipReason),
 				logging.Err(runErr),
 			)
-			// Continue recording the other stages even if one fails
+			// Accumulate the first error; continue recording remaining stages.
+			if firstErr == nil {
+				firstErr = fmt.Errorf("record skipped stage %q: %w", s.Stage, runErr)
+			}
 		} else {
 			logger.Info("Recorded skipped stage",
 				logging.F("stage", s.Stage),
@@ -219,7 +223,7 @@ func (a *PipelineActivities) RecordSkippedStage(ctx context.Context, input workf
 
 	recordHeartbeat(ctx, "record skipped stages complete")
 
-	return nil
+	return firstErr
 }
 
 // FetchPipelineDefinition fetches the pipeline definition for a given pipeline name.

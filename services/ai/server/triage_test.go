@@ -234,9 +234,9 @@ func TestBuildTriagePrompt(t *testing.T) {
 			}
 
 			// Check truncation
-			if len(tt.content) > 500 {
+			if len(tt.content) > 1500 {
 				// User prompt should not contain the full content
-				if strings.Contains(user, strings.Repeat("a", 600)) {
+				if strings.Contains(user, strings.Repeat("a", 2000)) {
 					t.Errorf("content was not truncated")
 				}
 			}
@@ -246,15 +246,15 @@ func TestBuildTriagePrompt(t *testing.T) {
 
 func TestBuildTriagePrompt_Truncation(t *testing.T) {
 	s := &AIServer{} // no promptStore — uses hardcoded fallback
-	longContent := strings.Repeat("x", 600)
+	longContent := strings.Repeat("x", 2000)
 	_, user, _ := s.buildTriagePrompt(context.Background(), "Subject", "sender@example.com", longContent, 0)
 
-	// The user prompt should contain the truncated content (500 chars), not the full 600
-	if strings.Contains(user, strings.Repeat("x", 600)) {
-		t.Errorf("content should be truncated to 500 chars, but full content found")
+	// The user prompt should contain the truncated content (1500 chars), not the full 2000
+	if strings.Contains(user, strings.Repeat("x", 2000)) {
+		t.Errorf("content should be truncated to 1500 chars, but full content found")
 	}
-	if !strings.Contains(user, strings.Repeat("x", 500)) {
-		t.Errorf("truncated content (500 chars) should be present in user prompt")
+	if !strings.Contains(user, strings.Repeat("x", 1500)) {
+		t.Errorf("truncated content (1500 chars) should be present in user prompt")
 	}
 }
 

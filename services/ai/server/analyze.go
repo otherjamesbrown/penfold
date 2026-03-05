@@ -383,6 +383,8 @@ func (s *AIServer) selectModelForDeepAnalysis(ctx context.Context, category, imp
 // selectModelForDeepAnalysisFallback contains the original hardcoded routing logic.
 // Inputs must be pre-normalized (trimmed, uppercased) by the caller.
 func selectModelForDeepAnalysisFallback(category, importance, configDefault string) string {
+	category = strings.TrimSpace(strings.ToUpper(category))
+	importance = strings.TrimSpace(strings.ToUpper(importance))
 
 	// RISK_ISSUE always gets quality model (fallback)
 	if category == "RISK_ISSUE" {
@@ -391,6 +393,11 @@ func selectModelForDeepAnalysisFallback(category, importance, configDefault stri
 
 	// CUSTOMER + HIGH or MEDIUM → quality (fallback)
 	if category == "CUSTOMER" && (importance == "HIGH" || importance == "MEDIUM") {
+		return "gemini-2.5-pro" // fallback default
+	}
+
+	// DECISION + HIGH or MEDIUM → quality (fallback)
+	if category == "DECISION" && (importance == "HIGH" || importance == "MEDIUM") {
 		return "gemini-2.5-pro" // fallback default
 	}
 

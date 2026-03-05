@@ -259,3 +259,148 @@ func TestKickNextPending_ZeroLimit(t *testing.T) {
 	require.Equal(t, int32(0), capturedLimit)
 	require.Equal(t, int64(0), out.QueuedCount)
 }
+
+// ---
+// Tests for RecordSkippedStage (pf-e05c78)
+// Bug: RecordSkippedStage silently swallowed DB errors (logger.Warn + return nil).
+// Fix: propagate the first error encountered so callers (Temporal) can retry.
+// ---
+
+// mockFailingPipelineRepo is a PipelineRepository whose CreateRun always returns the
+// configured error. RecordOverrides is a no-op stub.
+type mockFailingPipelineRepo struct {
+	err        error
+	calledWith []PipelineRunInput
+}
+
+func (r *mockFailingPipelineRepo) CreateRun(_ context.Context, input PipelineRunInput) error {
+	r.calledWith = append(r.calledWith, input)
+	return r.err
+}
+
+func (r *mockFailingPipelineRepo) RecordOverrides(_ context.Context, _ int64, _ map[string]string) error {
+	return nil
+}
+
+// newTestPipelineActivitiesWithRepo creates a PipelineActivities with a real pipelineRepo,
+// enabling tests of activities that depend on the repo (e.g. RecordSkippedStage).
+func newTestPipelineActivitiesWithRepo(repo PipelineRepository) *PipelineActivities {
+	logger := logging.NewNopLogger()
+	return &PipelineActivities{
+		logger:       logger.With(logging.F("component", "pipeline_activities")),
+		pipelineRepo: repo,
+	}
+}
+
+// TestRecordSkippedStage_SurfacesErrors verifies that RecordSkippedStage returns an
+// error when CreateRun fails, rather than silently swallowing it (pf-e05c78 bug 1).
+func TestRecordSkippedStage_SurfacesErrors(t *testing.T) {
+	dbErr := errors.New("pq: insert or update on table \"pipeline_runs\" violates foreign key constraint \"pipeline_runs_stage_fkey\"")
+
+	repo := &mockFailingPipelineRepo{err: dbErr}
+	a := newTestPipelineActivitiesWithRepo(repo)
+
+	err := a.RecordSkippedStage(context.Background(), workflows.RecordSkippedStageInput{
+		SourceID: 42,
+		Stages: []workflows.SkippedStage{
+			{Stage: "summarize", SkipReason: "contribution_gating:LOW"},
+		},
+		LangfuseTraceID: "trace-abc",
+	})
+
+	require.Error(t, err,
+		"RecordSkippedStage must return an error when CreateRun fails (pf-e05c78: errors were silently swallowed)")
+}
+
+// TestRecordSkippedStage_StageMismatch_Summarize verifies that when CreateRun returns a
+// FK violation for stage='summarize' (the stage name used by workflow code), the error
+// is surfaced rather than swallowed (pf-e05c78 bug 2).
+func TestRecordSkippedStage_StageMismatch_Summarize(t *testing.T) {
+	fkErr := errors.New("pq: insert or update on table \"pipeline_runs\" violates foreign key constraint \"pipeline_runs_stage_fkey\": key (stage)=(summarize) is not present in table \"pipeline_stages\"")
+
+	repo := &mockFailingPipelineRepo{err: fkErr}
+	a := newTestPipelineActivitiesWithRepo(repo)
+
+	// This is the exact call pattern from pipeline.go (the summarize skip path).
+	err := a.RecordSkippedStage(context.Background(), workflows.RecordSkippedStageInput{
+		SourceID: 99,
+		Stages: []workflows.SkippedStage{
+			{Stage: "summarize", SkipReason: "contribution_gating:NONE"},
+		},
+		LangfuseTraceID: "trace-xyz",
+	})
+
+	// Verify the repo received the call with stage="summarize".
+	require.Len(t, repo.calledWith, 1,
+		"CreateRun must have been called once for the single skipped stage")
+	require.Equal(t, "summarize", repo.calledWith[0].Stage,
+		"Stage name sent to CreateRun must be 'summarize' as used by the workflow")
+
+	require.Error(t, err,
+		"RecordSkippedStage must surface the FK violation instead of swallowing it (pf-e05c78)")
+}
+
+// TestRecordSkippedStage_PartialFailure_AllErrorsSurfaced verifies that when all
+// CreateRun calls fail, RecordSkippedStage still calls each stage and returns an error.
+// All stages must be attempted even when earlier ones fail.
+func TestRecordSkippedStage_PartialFailure_AllErrorsSurfaced(t *testing.T) {
+	dbErr := errors.New("pq: FK violation on pipeline_runs.stage")
+
+	repo := &mockFailingPipelineRepo{err: dbErr}
+	a := newTestPipelineActivitiesWithRepo(repo)
+
+	err := a.RecordSkippedStage(context.Background(), workflows.RecordSkippedStageInput{
+		SourceID: 10,
+		Stages: []workflows.SkippedStage{
+			{Stage: "summarize", SkipReason: "routing:no_pipeline:MEETING/TRANSCRIPT"},
+			{Stage: "extract_ner", SkipReason: "routing:no_pipeline:MEETING/TRANSCRIPT"},
+			{Stage: "analyze", SkipReason: "routing:no_pipeline:MEETING/TRANSCRIPT"},
+		},
+	})
+
+	// All three CreateRun calls must have been attempted.
+	require.Len(t, repo.calledWith, 3,
+		"CreateRun must be called for every stage even when earlier stages fail")
+
+	require.Error(t, err,
+		"RecordSkippedStage must return an error when all CreateRun calls fail (pf-e05c78)")
+}
+
+// TestRecordSkippedStage_SuccessPath verifies that when CreateRun succeeds,
+// RecordSkippedStage returns nil and calls CreateRun for each stage with correct fields.
+func TestRecordSkippedStage_SuccessPath(t *testing.T) {
+	repo := &mockFailingPipelineRepo{err: nil} // no error — success
+	a := newTestPipelineActivitiesWithRepo(repo)
+
+	err := a.RecordSkippedStage(context.Background(), workflows.RecordSkippedStageInput{
+		SourceID: 7,
+		Stages: []workflows.SkippedStage{
+			{Stage: "summarize", SkipReason: "contribution_gating:LOW"},
+			{Stage: "embed", SkipReason: "contribution_gating:LOW"},
+		},
+		LangfuseTraceID: "trace-success",
+	})
+
+	require.NoError(t, err, "RecordSkippedStage must return nil when all CreateRun calls succeed")
+	require.Len(t, repo.calledWith, 2, "CreateRun must be called once per stage")
+	require.Equal(t, "summarize", repo.calledWith[0].Stage)
+	require.Equal(t, "skipped", repo.calledWith[0].Status)
+	require.Equal(t, int64(7), repo.calledWith[0].SourceID)
+	require.Equal(t, "contribution_gating:LOW", repo.calledWith[0].SkipReason)
+	require.Equal(t, "trace-success", repo.calledWith[0].LangfuseTraceID)
+}
+
+// TestRecordSkippedStage_NoStages verifies that RecordSkippedStage returns nil
+// when called with an empty stages list (early-exit path).
+func TestRecordSkippedStage_NoStages(t *testing.T) {
+	repo := &mockFailingPipelineRepo{err: nil}
+	a := newTestPipelineActivitiesWithRepo(repo)
+
+	err := a.RecordSkippedStage(context.Background(), workflows.RecordSkippedStageInput{
+		SourceID: 1,
+		Stages:   []workflows.SkippedStage{},
+	})
+
+	require.NoError(t, err, "RecordSkippedStage must return nil for empty stage list")
+	require.Empty(t, repo.calledWith, "CreateRun must not be called when stages list is empty")
+}

@@ -58,20 +58,25 @@ Assess content_contribution (how much NEW information the message body contribut
 
 Assess contribution INDEPENDENT of thread importance. A brief "I resign" has HIGH contribution despite being 2 words.
 
+IMPORTANT: For forwarded emails (content starting with 'From:', '---------- Forwarded message', or 'FW:'), evaluate the CONTENT inside the forward, not the forwarding structure. Financial data, decisions, risk information, or escalations in forwarded content should be evaluated on their own merit. A forwarded email containing substantive business content is NOT automatically FYI/LOW.
+
 Respond ONLY with JSON:
 {"category": "...", "importance": "...", "reason": "one sentence", "content_contribution": "...", "contribution_reason": "one sentence"}`
 
 // buildTriagePrompt constructs the triage prompt from subject, sender, and content.
-// Content is truncated to the first 500 characters as specified in the design.
+// Content is truncated to the first 1500 characters to preserve forwarded email bodies
+// (forwarding headers consume ~400 chars, so 1500 leaves room for substantive content).
 // It tries the DB prompt store first; falls back to the hardcoded triagePromptTemplate on error.
 // Returns the system prompt, user prompt, and the prompt version (0 when using hardcoded fallback).
 func (s *AIServer) buildTriagePrompt(ctx context.Context, subject, sender, content string, version int32) (systemPrompt, userPrompt string, promptVersion int32) {
 	systemPrompt, promptVersion = s.getPrompt(ctx, "triage", triagePromptTemplate, version)
 
-	// Truncate content to first 500 characters
+	// Truncate content to first 1500 characters.
+	// Forwarded emails have ~400 chars of headers before substantive content begins,
+	// so the previous 500-char limit was cutting off the body of forwarded messages.
 	truncatedContent := content
-	if len(truncatedContent) > 500 {
-		truncatedContent = truncatedContent[:500]
+	if len(truncatedContent) > 1500 {
+		truncatedContent = truncatedContent[:1500]
 	}
 
 	// Build user prompt with subject and sender context

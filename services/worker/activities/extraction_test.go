@@ -586,7 +586,6 @@ func TestBuildEmailHeaderBlock_FullHeaders(t *testing.T) {
 		SenderName:  "Ponec, Miroslav",
 		SenderEmail: "mponec@akamai.com",
 		Subject:     "Immediate CLIC Action Required on Juniper Router Issues Impacting MTC Revenue",
-		// Content must be >= shortBodyThreshold (50) to include To/CC participants.
 		Content: "We need to take immediate action on the Juniper router issues impacting MTC revenue.",
 		Participants: []workflows.Participant{
 			{Email: "tdunn@akamai.com", DisplayName: "Dunn, Tim", HeaderRole: "to"},
@@ -600,8 +599,14 @@ func TestBuildEmailHeaderBlock_FullHeaders(t *testing.T) {
 
 	require.Contains(t, result, "EMAIL METADATA:\n")
 	require.Contains(t, result, "From: Ponec, Miroslav <mponec@akamai.com>")
-	require.Contains(t, result, "To: Dunn, Tim <tdunn@akamai.com>; DeMent, James <jdement@akamai.com>")
-	require.Contains(t, result, "CC: Weisman, Sara <sweisman@akamai.com>; Brown, James <jabrown@akamai.com>")
+	// To/CC participant lines are intentionally excluded from NER input (pf-c9077c).
+	// Header recipients are captured by ExtractHeaderMentions.
+	require.NotContains(t, result, "To:")
+	require.NotContains(t, result, "CC:")
+	require.NotContains(t, result, "Dunn, Tim")
+	require.NotContains(t, result, "DeMent, James")
+	require.NotContains(t, result, "Weisman, Sara")
+	require.NotContains(t, result, "Brown, James")
 	require.Contains(t, result, "Subject: Immediate CLIC Action Required")
 	require.Contains(t, result, "---\nBODY:\n")
 }
@@ -612,7 +617,6 @@ func TestBuildEmailHeaderBlock_NoCC(t *testing.T) {
 		SenderName:  "Alice",
 		SenderEmail: "alice@example.com",
 		Subject:     "Hello",
-		// Content must be >= shortBodyThreshold (50) to include To/CC participants.
 		Content: "Please see my note below regarding the outstanding tasks we discussed.",
 		Participants: []workflows.Participant{
 			{Email: "bob@example.com", DisplayName: "Bob", HeaderRole: "to"},
@@ -622,15 +626,16 @@ func TestBuildEmailHeaderBlock_NoCC(t *testing.T) {
 	result := buildEmailHeaderBlock(input)
 
 	require.Contains(t, result, "From: Alice <alice@example.com>")
-	require.Contains(t, result, "To: Bob <bob@example.com>")
+	// To/CC participant lines are excluded from NER input (pf-c9077c).
+	require.NotContains(t, result, "To:")
 	require.NotContains(t, result, "CC:")
+	require.NotContains(t, result, "Bob")
 }
 
 func TestBuildEmailHeaderBlock_NoDisplayName(t *testing.T) {
 	input := ExtractEntitiesInput{
 		ContentType: "email",
 		SenderEmail: "alice@example.com",
-		// Content must be >= shortBodyThreshold (50) to include To/CC participants.
 		Content: "Please see my note below regarding the outstanding tasks we discussed.",
 		Participants: []workflows.Participant{
 			{Email: "bob@example.com", HeaderRole: "to"},
@@ -640,7 +645,9 @@ func TestBuildEmailHeaderBlock_NoDisplayName(t *testing.T) {
 	result := buildEmailHeaderBlock(input)
 
 	require.Contains(t, result, "From: alice@example.com")
-	require.Contains(t, result, "To: bob@example.com")
+	// To/CC participant lines are excluded from NER input (pf-c9077c).
+	require.NotContains(t, result, "To:")
+	require.NotContains(t, result, "bob@example.com")
 }
 
 func TestBuildEmailHeaderBlock_EmptyParticipants(t *testing.T) {
@@ -673,7 +680,6 @@ func TestBuildEmailHeaderBlock_DefaultToRole(t *testing.T) {
 	input := ExtractEntitiesInput{
 		ContentType: "email",
 		SenderEmail: "alice@example.com",
-		// Content must be >= shortBodyThreshold (50) to include To/CC participants.
 		Content: "Please see my note below regarding the outstanding tasks we discussed.",
 		Participants: []workflows.Participant{
 			{Email: "bob@example.com", DisplayName: "Bob"},
@@ -681,7 +687,11 @@ func TestBuildEmailHeaderBlock_DefaultToRole(t *testing.T) {
 	}
 
 	result := buildEmailHeaderBlock(input)
-	require.Contains(t, result, "To: Bob <bob@example.com>")
+	// To/CC participant lines are excluded from NER input (pf-c9077c).
+	require.NotContains(t, result, "To:")
+	require.NotContains(t, result, "Bob")
+	// Sender is still present.
+	require.Contains(t, result, "From: alice@example.com")
 }
 
 func TestExtractEntities_EmailHeadersPrepended(t *testing.T) {
@@ -711,7 +721,6 @@ func TestExtractEntities_EmailHeadersPrepended(t *testing.T) {
 		TenantID: "test-tenant",
 		SourceID: 123,
 		JobID:    "job-123",
-		// Content must be >= shortBodyThreshold (50) to include To/CC participants (pf-2e6663).
 		Content:     "Please review the router issues and provide your feedback by end of day.",
 		ContentType: "email",
 		SenderName:  "Ponec, Miroslav",
@@ -727,11 +736,14 @@ func TestExtractEntities_EmailHeadersPrepended(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, output)
 
-	// Verify the AI received content with headers prepended
+	// Verify the AI received content with headers prepended.
+	// To/CC participant lines are excluded from NER input (pf-c9077c).
 	require.True(t, strings.HasPrefix(capturedContent, "EMAIL METADATA:\n"), "Content should start with EMAIL METADATA header block")
 	require.Contains(t, capturedContent, "From: Ponec, Miroslav <mponec@akamai.com>")
-	require.Contains(t, capturedContent, "To: Dunn, Tim <tdunn@akamai.com>")
-	require.Contains(t, capturedContent, "CC: Weisman, Sara <sweisman@akamai.com>")
+	require.NotContains(t, capturedContent, "To:")
+	require.NotContains(t, capturedContent, "CC:")
+	require.NotContains(t, capturedContent, "Dunn, Tim")
+	require.NotContains(t, capturedContent, "Weisman, Sara")
 	require.Contains(t, capturedContent, "Subject: Router Issues")
 	require.Contains(t, capturedContent, "---\nBODY:\nPlease review the router issues and provide your feedback by end of day.")
 }
@@ -900,7 +912,6 @@ func TestEnrichHeaderParticipants_NilPersonLookup(t *testing.T) {
 		TenantID: "tenant1",
 		SourceID: 1,
 		JobID:    "job-1",
-		// Content must be >= shortBodyThreshold (50) to include To/CC participants (pf-2e6663).
 		Content:     "Please review the attached document and send me your feedback by Friday.",
 		ContentType: "email",
 		SenderName:  "Varma, Hrishikesh",
@@ -914,9 +925,11 @@ func TestEnrichHeaderParticipants_NilPersonLookup(t *testing.T) {
 	_, err := acts.ExtractEntities(context.Background(), input)
 	require.NoError(t, err)
 
-	// Raw names must appear in the header block (no enrichment applied)
+	// Raw sender name must appear in the header block (no enrichment applied).
+	// To/CC participant lines are excluded from NER input (pf-c9077c).
 	require.Contains(t, capturedContent, "From: Varma, Hrishikesh <hvarma@example.com>")
-	require.Contains(t, capturedContent, "To: Smith, Alice <alice@example.com>")
+	require.NotContains(t, capturedContent, "To:")
+	require.NotContains(t, capturedContent, "Smith, Alice")
 }
 
 func TestEnrichHeaderParticipants_LookupError(t *testing.T) {
@@ -1015,7 +1028,6 @@ func TestBuildEmailHeaderBlock_EnrichedParticipants(t *testing.T) {
 		SenderName:  "Hrishikesh Varma [VP Engineering]",
 		SenderEmail: "hvarma@example.com",
 		Subject:     "Q3 Planning",
-		// Content must be >= shortBodyThreshold (50) to include To/CC participants.
 		Content: "Please review the attached Q3 planning document and send me your feedback.",
 		Participants: []workflows.Participant{
 			{Email: "alice@example.com", DisplayName: "Alice Smith [Senior Director, Hardware Engineering]", HeaderRole: "to"},
@@ -1025,7 +1037,9 @@ func TestBuildEmailHeaderBlock_EnrichedParticipants(t *testing.T) {
 	result := buildEmailHeaderBlock(input)
 
 	require.Contains(t, result, "From: Hrishikesh Varma [VP Engineering] <hvarma@example.com>")
-	require.Contains(t, result, "To: Alice Smith [Senior Director, Hardware Engineering] <alice@example.com>")
+	// To/CC participant lines are excluded from NER input (pf-c9077c).
+	require.NotContains(t, result, "To:")
+	require.NotContains(t, result, "Alice Smith")
 	require.Contains(t, result, "Subject: Q3 Planning")
 }
 
@@ -1316,22 +1330,14 @@ func TestEnrichHeaderParticipants_AliasNotInOutput(t *testing.T) {
 	require.NotContains(t, enrichedSender, "(also known as:")
 }
 
-// TestBuildEmailHeaderBlock_ShortBodyHeaderDomination is a reproduction test for pf-2e6663.
+// TestBuildEmailHeaderBlock_ShortBodyHeaderDomination is a regression test for pf-2e6663.
 //
-// Bug: For short emails (e.g. "+Kyle"), buildEmailHeaderBlock includes the full To/CC
-// participant list unconditionally. When this header block is prepended to a one-line body
-// and sent to the NER model, the header recipients dominate the extraction output.
-// A "+Kyle" email produces 23 "people" — all from headers, none from the body.
+// Original bug: For short emails (e.g. "+Kyle"), buildEmailHeaderBlock included the full
+// To/CC participant list, causing NER to extract 23+ header-only people from a 5-char body.
 //
-// Root cause: buildEmailHeaderBlock has no awareness of body length. It always emits
-// every participant in To/CC regardless of whether the body is 5 chars or 5000.
-// Additionally, the NER prompt template contains no instruction to distinguish
-// body mentions from header recipients, and PersonEntity.Source is never set.
-//
-// This test FAILS against the current code because buildEmailHeaderBlock does NOT
-// suppress or reduce the participant list when the body is very short (< 50 chars).
-// The fix should either suppress the participant list for short bodies, or add a
-// prompt instruction to prioritise body mentions.
+// The fix in pf-c9077c removes To/CC participants from the NER input entirely. After this
+// fix, zero participant names appear in the header block for any body length. This test
+// continues to pass because 0 < 20 (participantNamesInHeader < len(manyParticipants)).
 func TestBuildEmailHeaderBlock_ShortBodyHeaderDomination(t *testing.T) {
 	// Simulate the "+Kyle" scenario: 20 participants in To/CC but a 6-char body.
 	manyParticipants := []workflows.Participant{
@@ -1398,4 +1404,275 @@ func TestBuildEmailHeaderBlock_ShortBodyHeaderDomination(t *testing.T) {
 			"dominated by header participants rather than body mentions (pf-2e6663)",
 		shortBody, len(shortBody), len(manyParticipants),
 	)
+}
+
+// TestBuildEmailHeaderBlock_ExcludesToCCParticipants is a reproduction test for pf-c9077c.
+//
+// Bug: buildEmailHeaderBlock included the full To/CC participant display names in the NER
+// prompt input for all normal-length emails (body >= 50 chars). The NER model then extracted
+// every header recipient as a "person mentioned", flooding the output with header-only people.
+//
+// Root cause: To/CC recipient names should never appear in the NER prompt input. They are
+// already captured deterministically by ExtractHeaderMentions. Including them in the NER
+// input caused duplicate extraction and header-dominated results.
+//
+// This test passes after the fix removes To/CC participant names from the header block.
+func TestBuildEmailHeaderBlock_ExcludesToCCParticipants(t *testing.T) {
+	normalBody := "Please review the attached proposal and share your thoughts before the end of the week. We need to align on the budget and timeline before the client call on Friday."
+
+	require.GreaterOrEqual(t, len(normalBody), 50,
+		"body must be >= 50 chars so we are testing a normal email, not an edge case")
+
+	input := ExtractEntitiesInput{
+		ContentType: "email",
+		SenderName:  "Alice Sender",
+		SenderEmail: "alice@example.com",
+		Subject:     "Proposal review",
+		Content:     normalBody,
+		Participants: []workflows.Participant{
+			{Email: "john.smith@example.com", DisplayName: "John Smith", HeaderRole: "to"},
+			{Email: "jane.doe@example.com", DisplayName: "Jane Doe", HeaderRole: "to"},
+			{Email: "bob.wilson@example.com", DisplayName: "Bob Wilson", HeaderRole: "cc"},
+		},
+	}
+
+	headerBlock := buildEmailHeaderBlock(input)
+
+	// The sender (From:) is legitimately useful context for NER — it should remain.
+	require.Contains(t, headerBlock, "Alice Sender",
+		"sender name should still be present in header block for NER context")
+
+	// To/CC recipient names must NOT appear in the NER prompt input (pf-c9077c).
+	// They are already captured by ExtractHeaderMentions; including them here causes
+	// the NER model to emit every header recipient as a "person mentioned".
+	require.NotContains(t, headerBlock, "John Smith",
+		"To recipient 'John Smith' must NOT be in NER input — already captured by ExtractHeaderMentions (pf-c9077c)")
+	require.NotContains(t, headerBlock, "Jane Doe",
+		"To recipient 'Jane Doe' must NOT be in NER input — already captured by ExtractHeaderMentions (pf-c9077c)")
+	require.NotContains(t, headerBlock, "Bob Wilson",
+		"CC recipient 'Bob Wilson' must NOT be in NER input — already captured by ExtractHeaderMentions (pf-c9077c)")
+
+	// Email addresses in To/CC lines also must not appear.
+	require.NotContains(t, headerBlock, "john.smith@example.com",
+		"To recipient email address must NOT be in NER input (pf-c9077c)")
+	require.NotContains(t, headerBlock, "jane.doe@example.com",
+		"To recipient email address must NOT be in NER input (pf-c9077c)")
+	require.NotContains(t, headerBlock, "bob.wilson@example.com",
+		"CC recipient email address must NOT be in NER input (pf-c9077c)")
+
+	// The To: and CC: header lines themselves should be absent.
+	require.NotContains(t, headerBlock, "To:",
+		"To: line must be removed from NER input entirely (pf-c9077c)")
+	require.NotContains(t, headerBlock, "CC:",
+		"CC: line must be removed from NER input entirely (pf-c9077c)")
+}
+
+// TestMergeExtractionResults_NameFormatDedup is a reproduction test for pf-3dc3ff.
+// It demonstrates that mergeExtractionResults does not normalize name formats before
+// deduplication, causing the same person represented as "Last, First", "Initial Last",
+// and "First" to survive as separate PersonResult entries.
+//
+// This test MUST FAIL against the current implementation.
+// The fix requires name-format normalization in the dedup key before the bug is resolved.
+func TestMergeExtractionResults_NameFormatDedup(t *testing.T) {
+	// Two people, each represented in multiple formats across extraction chunks.
+	// Pandya, Parimal appears as:
+	//   "Pandya, Parimal"  — Last, First (corporate email header format)
+	//   "P Pandya"         — Initial Last (common in transcripts)
+	//   "Parimal"          — First name only
+	// Karthik Naidu appears as:
+	//   "Karthik Naidu"    — First Last
+	//   "Naidu, Karthik"   — Last, First
+	results := []*aiv1.ExtractEntitiesResponse{
+		{
+			People: []*aiv1.PersonEntity{
+				{Name: "Pandya, Parimal", Role: "Engineer"},
+				{Name: "Karthik Naidu", Role: "Manager"},
+			},
+			Dates:         []*aiv1.DateEntity{},
+			Projects:      []string{},
+			Organisations: []string{},
+			ActionItems:   []*aiv1.ActionItemEntity{},
+			Decisions:     []string{},
+			Risks:         []string{},
+			DetailedRisks: []*aiv1.RiskEntity{},
+			ModelUsed:     "test-model",
+		},
+		{
+			People: []*aiv1.PersonEntity{
+				{Name: "P Pandya", Role: ""},
+				{Name: "Naidu, Karthik", Role: ""},
+			},
+			Dates:         []*aiv1.DateEntity{},
+			Projects:      []string{},
+			Organisations: []string{},
+			ActionItems:   []*aiv1.ActionItemEntity{},
+			Decisions:     []string{},
+			Risks:         []string{},
+			DetailedRisks: []*aiv1.RiskEntity{},
+			ModelUsed:     "test-model",
+		},
+		{
+			People: []*aiv1.PersonEntity{
+				{Name: "Parimal", Role: ""},
+			},
+			Dates:         []*aiv1.DateEntity{},
+			Projects:      []string{},
+			Organisations: []string{},
+			ActionItems:   []*aiv1.ActionItemEntity{},
+			Decisions:     []string{},
+			Risks:         []string{},
+			DetailedRisks: []*aiv1.RiskEntity{},
+			ModelUsed:     "test-model",
+		},
+	}
+
+	output := mergeExtractionResults(results)
+
+	require.NotNil(t, output)
+
+	// Collect names for a readable failure message.
+	names := make([]string, 0, len(output.People))
+	for _, p := range output.People {
+		names = append(names, p.Name)
+	}
+
+	// After name-format normalization and dedup there should be exactly 2 unique
+	// people: one for "Pandya, Parimal" / "P Pandya" / "Parimal" and one for
+	// "Karthik Naidu" / "Naidu, Karthik".
+	// The current implementation uses only strings.ToLower(strings.TrimSpace(name)),
+	// so all five variants survive as separate entries (len == 5).
+	// This assertion FAILS against the current code, confirming the bug. (pf-3dc3ff)
+	require.Equal(t, 2, len(output.People),
+		"Expected 2 unique people after name-format normalization, got %d: %v", len(output.People), names)
+}
+
+// TestMergeExtractionResults_GarbageFilter is a reproduction test for pf-3dc3ff.
+// It demonstrates that single-character names extracted by the NER model ("P", "K")
+// are not filtered out by mergeExtractionResults, polluting the people list.
+//
+// This test MUST FAIL against the current implementation.
+// The fix requires a minimum-length guard (len >= 2 unicode runes, or equivalent)
+// before a name is admitted into the dedup map.
+func TestMergeExtractionResults_GarbageFilter(t *testing.T) {
+	results := []*aiv1.ExtractEntitiesResponse{
+		{
+			People: []*aiv1.PersonEntity{
+				{Name: "P", Role: ""},
+				{Name: "K", Role: ""},
+				{Name: "Alice Smith", Role: "Engineer"},
+			},
+			Dates:         []*aiv1.DateEntity{},
+			Projects:      []string{},
+			Organisations: []string{},
+			ActionItems:   []*aiv1.ActionItemEntity{},
+			Decisions:     []string{},
+			Risks:         []string{},
+			DetailedRisks: []*aiv1.RiskEntity{},
+			ModelUsed:     "test-model",
+		},
+	}
+
+	output := mergeExtractionResults(results)
+
+	require.NotNil(t, output)
+
+	// Collect names for a readable failure message.
+	names := make([]string, 0, len(output.People))
+	for _, p := range output.People {
+		names = append(names, p.Name)
+	}
+
+	// After a garbage filter, only "Alice Smith" should remain.
+	// The current implementation has no length guard, so "P" and "K" survive
+	// (len == 3). This assertion FAILS against the current code. (pf-3dc3ff)
+	require.Equal(t, 1, len(output.People),
+		"Expected single-character names to be filtered out, got %d people: %v", len(output.People), names)
+
+	require.Equal(t, "Alice Smith", output.People[0].Name,
+		"Only Alice Smith should remain after garbage filtering")
+}
+
+// TestCanonicalizePersonName covers all input formats handled by canonicalizePersonName.
+func TestCanonicalizePersonName(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "last comma first",
+			input: "Pandya, Parimal",
+			want:  "parimal pandya",
+		},
+		{
+			name:  "last comma first with middle name",
+			input: "Smith, John Michael",
+			want:  "john michael smith",
+		},
+		{
+			name:  "first last",
+			input: "Karthik Naidu",
+			want:  "karthik naidu",
+		},
+		{
+			name:  "first last already lowercase",
+			input: "alice smith",
+			want:  "alice smith",
+		},
+		{
+			name:  "initial last",
+			input: "P Pandya",
+			want:  "p pandya",
+		},
+		{
+			name:  "single first name",
+			input: "Parimal",
+			want:  "parimal",
+		},
+		{
+			name:  "leading and trailing whitespace",
+			input: "  John Doe  ",
+			want:  "john doe",
+		},
+		{
+			name:  "comma with leading whitespace in first part",
+			input: "Doe,  Jane",
+			want:  "jane doe",
+		},
+		{
+			name:  "empty string",
+			input: "",
+			want:  "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := canonicalizePersonName(tt.input)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestIsGarbageName covers the garbage-name filter.
+func TestIsGarbageName(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{name: "single letter upper", input: "P", want: true},
+		{name: "single letter lower", input: "k", want: true},
+		{name: "empty string", input: "", want: true},
+		{name: "only whitespace", input: "   ", want: true},
+		{name: "two characters", input: "Jo", want: false},
+		{name: "normal name", input: "Alice", want: false},
+		{name: "full name", input: "Alice Smith", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isGarbageName(tt.input)
+			require.Equal(t, tt.want, got)
+		})
+	}
 }

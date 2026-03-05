@@ -823,20 +823,95 @@ func mergeExtractionResults(results []*aiv1.ExtractEntitiesResponse) *workflows.
 	modelUsed := results[0].ModelUsed
 	qualityGateTriggered := false
 
-	// People: deduplicate by case-insensitive name
+	// People: deduplicate by canonical name.
+	// canonicalizePersonName normalises "Last, First" → "first last" so that
+	// different representations of the same person produce the same dedup key.
+	// isGarbageName filters single-character NER artifacts before they enter the map.
 	peopleMap := make(map[string]workflows.PersonResult)
 	for _, result := range results {
 		if result.QualityGateTriggered {
 			qualityGateTriggered = true
 		}
 		for _, p := range result.People {
-			key := normalizeString(p.Name)
+			if isGarbageName(p.Name) {
+				continue
+			}
+			key := canonicalizePersonName(p.Name)
 			if existing, ok := peopleMap[key]; !ok || len(p.Role) > len(existing.Role) {
 				// Keep the one with more role info
 				peopleMap[key] = workflows.PersonResult{Name: p.Name, Role: p.Role, Source: p.Source}
 			}
 		}
 	}
+
+	// Subset/initial matching: merge "F Last" into "FirstName Last" and
+	// single-word "First" into "First Last" when an unambiguous match exists.
+	//
+	// Pass 1: for each key of the form "X word" where X is a single character,
+	// find a key "word1 word2" where word1 starts with X and word2 == word.
+	// Pass 2: for each single-word key, find a multi-word key that starts with it.
+	for key := range peopleMap {
+		parts := strings.Fields(key)
+		switch {
+		case len(parts) == 2 && len(parts[0]) == 1:
+			// "f pandya" — look for "* pandya" where * starts with "f"
+			initial := parts[0]
+			lastName := parts[1]
+			var matchKey string
+			for candidate := range peopleMap {
+				if candidate == key {
+					continue
+				}
+				cParts := strings.Fields(candidate)
+				if len(cParts) >= 2 && strings.HasPrefix(cParts[0], initial) && cParts[len(cParts)-1] == lastName {
+					if matchKey == "" {
+						matchKey = candidate
+					} else {
+						matchKey = "" // ambiguous — two candidates, skip
+						break
+					}
+				}
+			}
+			if matchKey != "" {
+				existing := peopleMap[matchKey]
+				entry := peopleMap[key]
+				if len(entry.Role) > len(existing.Role) {
+					existing.Role = entry.Role
+				}
+				peopleMap[matchKey] = existing
+				delete(peopleMap, key)
+			}
+
+		case len(parts) == 1:
+			// "parimal" — look for "parimal *" (any multi-word key starting with this)
+			word := parts[0]
+			var matchKey string
+			for candidate := range peopleMap {
+				if candidate == key {
+					continue
+				}
+				cParts := strings.Fields(candidate)
+				if len(cParts) >= 2 && cParts[0] == word {
+					if matchKey == "" {
+						matchKey = candidate
+					} else {
+						matchKey = "" // ambiguous
+						break
+					}
+				}
+			}
+			if matchKey != "" {
+				existing := peopleMap[matchKey]
+				entry := peopleMap[key]
+				if len(entry.Role) > len(existing.Role) {
+					existing.Role = entry.Role
+				}
+				peopleMap[matchKey] = existing
+				delete(peopleMap, key)
+			}
+		}
+	}
+
 	people := make([]workflows.PersonResult, 0, len(peopleMap))
 	for _, p := range peopleMap {
 		people = append(people, p)
@@ -1093,21 +1168,18 @@ func formatEnrichedName(person *PersonInfo) string {
 	return name
 }
 
-// shortBodyThreshold is the body length (in bytes) below which To/CC participant lists
-// are suppressed in the email header block. Short emails like "+Kyle" or "Excellent, thanks Tim."
-// are dominated by header recipients when all participants are included unconditionally.
-// Keeping only the sender (From) for very short bodies prevents NER from extracting
-// 20+ header-only names as "people mentioned" (pf-2e6663).
-const shortBodyThreshold = 50
-
 // buildEmailHeaderBlock constructs a structured email header block for NER prompt enrichment (pf-de2b09).
 // Returns empty string if no meaningful header data is available.
-// For short email bodies (< shortBodyThreshold bytes), To/CC participants are suppressed
-// to prevent header recipients from dominating the NER extraction output (pf-2e6663).
+//
+// To/CC participant names are intentionally excluded from the NER prompt input (pf-c9077c).
+// Header recipients are already captured deterministically by ExtractHeaderMentions (Stage 1.5).
+// Including them here caused the NER model to extract every header recipient as a "person
+// mentioned", flooding output with header-only names and obscuring genuine body mentions.
+// Only the sender (From) is retained for context, as it is meaningful for disambiguation.
 func buildEmailHeaderBlock(input workflows.SLMPipelineExtractEntitiesInput) string {
 	var lines []string
 
-	// From line
+	// From line — sender context is useful for NER disambiguation.
 	if input.SenderEmail != "" {
 		if input.SenderName != "" {
 			lines = append(lines, fmt.Sprintf("From: %s <%s>", input.SenderName, input.SenderEmail))
@@ -1116,30 +1188,9 @@ func buildEmailHeaderBlock(input workflows.SLMPipelineExtractEntitiesInput) stri
 		}
 	}
 
-	// To/CC lines — suppressed for short bodies to prevent header-dominated NER output.
-	// When the body is very short (e.g. "+Kyle"), including all participants causes the NER
-	// model to extract every header name as a "person mentioned", overwhelming body mentions.
-	bodyIsShort := len(input.Content) < shortBodyThreshold
-	if !bodyIsShort {
-		var toAddrs []string
-		var ccAddrs []string
-		for _, p := range input.Participants {
-			formatted := formatParticipant(p)
-			switch p.HeaderRole {
-			case "cc":
-				ccAddrs = append(ccAddrs, formatted)
-			default:
-				// "to" or empty defaults to To
-				toAddrs = append(toAddrs, formatted)
-			}
-		}
-		if len(toAddrs) > 0 {
-			lines = append(lines, fmt.Sprintf("To: %s", strings.Join(toAddrs, "; ")))
-		}
-		if len(ccAddrs) > 0 {
-			lines = append(lines, fmt.Sprintf("CC: %s", strings.Join(ccAddrs, "; ")))
-		}
-	}
+	// To/CC lines are intentionally omitted. Header recipients are captured by
+	// ExtractHeaderMentions; emitting them here causes NER to re-extract them as
+	// body mentions and dominates extraction output (pf-c9077c).
 
 	// Subject line
 	if input.Subject != "" {
@@ -1164,6 +1215,34 @@ func formatParticipant(p workflows.Participant) string {
 // normalizeString converts a string to lowercase and trims whitespace for deduplication.
 func normalizeString(s string) string {
 	return strings.TrimSpace(strings.ToLower(s))
+}
+
+// isGarbageName returns true if name is too short to be a real person's name.
+// Single-character names ("P", "K") are NER artifacts and should be filtered.
+func isGarbageName(name string) bool {
+	return len(strings.TrimSpace(name)) < 2
+}
+
+// canonicalizePersonName normalises a person name to "first last" lowercase form
+// so that different representations of the same person produce the same dedup key.
+//
+// Supported input formats:
+//   - "Last, First [Middle]"  →  "first last"   (corporate email header format)
+//   - "First Last"            →  "first last"   (standard)
+//   - "F Last"                →  "f last"       (initial + last; handled by subset match later)
+//   - "First"                 →  "first"        (first-name only; handled by subset match later)
+func canonicalizePersonName(name string) string {
+	trimmed := strings.TrimSpace(name)
+	if commaIdx := strings.IndexByte(trimmed, ','); commaIdx >= 0 {
+		last := strings.TrimSpace(trimmed[:commaIdx])
+		firstPart := strings.TrimSpace(trimmed[commaIdx+1:])
+		if last == "" || firstPart == "" {
+			return strings.ToLower(trimmed)
+		}
+		// "Pandya, Parimal" → "parimal pandya"
+		return strings.ToLower(firstPart + " " + last)
+	}
+	return strings.ToLower(trimmed)
 }
 
 // optString returns a pointer to the given string (for proto optional fields).

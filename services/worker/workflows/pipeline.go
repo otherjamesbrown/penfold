@@ -1478,6 +1478,23 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			LangfuseTraceID: langfuseTraceID,
 		}).Get(ctx, nil)
 
+		// Langfuse: report pipeline-skip span so skipped items are visible in traces.
+		skipPhaseStart := workflow.Now(ctx)
+		_ = workflow.ExecuteActivity(
+			workflow.WithActivityOptions(ctx, fastOpts),
+			pkgtemporal.ActivityReportLangfusePhase,
+			ReportLangfusePhaseInput{
+				PhaseID:       sideEffectUUID(ctx),
+				TraceID:       langfuseTraceID,
+				PhaseName:     "PipelineSkip",
+				StartTime:     skipPhaseStart,
+				EndTime:       workflow.Now(ctx),
+				ParentSpanID:  rootSpanID,
+				Level:         "DEFAULT",
+				StatusMessage: skipReason,
+			},
+		).Get(ctx, nil)
+
 		// Mark as completed (processed with no pipeline)
 		ctxStatus := workflow.WithActivityOptions(ctx, fastOpts)
 		_ = workflow.ExecuteActivity(ctxStatus, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
@@ -1634,6 +1651,22 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				LangfuseTraceID: langfuseTraceID,
 			}).Get(ctx, nil)
 		}
+		// Langfuse: report summarize-skip span so skipped stages are visible in traces.
+		summarizeSkipStart := workflow.Now(ctx)
+		_ = workflow.ExecuteActivity(
+			workflow.WithActivityOptions(ctx, fastOpts),
+			pkgtemporal.ActivityReportLangfusePhase,
+			ReportLangfusePhaseInput{
+				PhaseID:       sideEffectUUID(ctx),
+				TraceID:       langfuseTraceID,
+				PhaseName:     "Summarize",
+				StartTime:     summarizeSkipStart,
+				EndTime:       workflow.Now(ctx),
+				ParentSpanID:  rootSpanID,
+				Level:         "DEFAULT",
+				StatusMessage: summarizeSkipReason,
+			},
+		).Get(ctx, nil)
 	} else {
 		summarizeStart := workflow.Now(ctx)
 		summarizePhaseID := sideEffectUUID(ctx)
@@ -1730,6 +1763,12 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			for _, s := range extractStages {
 				if cfg, ok := stageConfigMap[s]; ok && cfg.Enabled && !cfg.SkipWhenLow {
 					skipExtract = false
+					logger.Info("Pipeline definition override: skip_when_low=false bypassed contribution gate",
+						"source_id", input.SourceID,
+						"pipeline", pipelineName,
+						"stage", s,
+						"contribution", contribution,
+					)
 					logger.Info("pipeline definition override: extraction not skipped (skip_when_low=false)",
 						"source_id", input.SourceID,
 						"pipeline", pipelineName,
@@ -1743,6 +1782,12 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			for _, s := range analyzeStages {
 				if cfg, ok := stageConfigMap[s]; ok && cfg.Enabled && !cfg.SkipWhenLow {
 					skipAnalyze = false
+					logger.Info("Pipeline definition override: skip_when_low=false bypassed contribution gate",
+						"source_id", input.SourceID,
+						"pipeline", pipelineName,
+						"stage", s,
+						"contribution", contribution,
+					)
 					logger.Info("pipeline definition override: analyze not skipped (skip_when_low=false)",
 						"source_id", input.SourceID,
 						"pipeline", pipelineName,
@@ -1826,6 +1871,23 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				Stages:          skippedStages,
 				LangfuseTraceID: langfuseTraceID,
 			}).Get(ctx, nil)
+
+			// Langfuse: report contribution-gating skip span so skipped stages are visible in traces.
+			skipGateStart := workflow.Now(ctx)
+			_ = workflow.ExecuteActivity(
+				workflow.WithActivityOptions(ctx, fastOpts),
+				pkgtemporal.ActivityReportLangfusePhase,
+				ReportLangfusePhaseInput{
+					PhaseID:       sideEffectUUID(ctx),
+					TraceID:       langfuseTraceID,
+					PhaseName:     "ContributionGatingSkip",
+					StartTime:     skipGateStart,
+					EndTime:       workflow.Now(ctx),
+					ParentSpanID:  rootSpanID,
+					Level:         "DEFAULT",
+					StatusMessage: skipReason,
+				},
+			).Get(ctx, nil)
 		}
 
 		// pf-91b00d: When extraction is skipped entirely (contribution=NONE or SkipDeep),

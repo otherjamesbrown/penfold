@@ -479,9 +479,11 @@ func (a *TriageActivities) Triage(ctx context.Context, input workflows.TriageInp
 	if resp.ContentContribution != nil {
 		contentContribution = *resp.ContentContribution
 	}
-	// Default to HIGH if not provided (never skip by accident)
+	// Default to MEDIUM if not provided — consistent with pipeline.go expectations.
+	// HIGH would bypass the skip_deep optimisation for all emails where the model
+	// omits the field. MEDIUM is the conservative default that preserves the path.
 	if contentContribution == "" {
-		contentContribution = "HIGH"
+		contentContribution = "MEDIUM"
 	}
 
 	contributionReason := ""
