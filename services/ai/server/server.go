@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -399,6 +400,31 @@ func (s *AIServer) GenerateEmbedding(ctx context.Context, req *aiv1.EmbeddingReq
 func (s *AIServer) GenerateSummary(ctx context.Context, req *aiv1.SummaryRequest) (*aiv1.SummaryResponse, error) {
 	content := strings.TrimSpace(req.GetContent())
 	model := req.GetModel()
+	if model == "" {
+		// Try routing rules with content-length awareness.
+		if s.registry != nil {
+			rules, err := s.registry.GetRoutingRulesByTask(ctx, "summarization")
+			if err == nil && len(rules) > 0 {
+				attrs := map[string]string{
+					"content_chars": strconv.Itoa(len(content)),
+				}
+				for _, rule := range rules {
+					if registry.MatchesConditions(rule.Conditions, attrs) {
+						if len(rule.PreferredModels) > 0 {
+							model = rule.PreferredModels[0]
+							if idx := strings.LastIndex(model, "/"); idx >= 0 {
+								model = model[idx+1:]
+							}
+							break
+						}
+					}
+				}
+			}
+		}
+		if model == "" {
+			model = s.resolveModel(ctx, "summarize")
+		}
+	}
 
 	// Start tracing span for the summary generation.
 	// The worker creates the stage.summarize span; this handler only creates ai.summarize.

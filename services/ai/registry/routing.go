@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"strconv"
 	"strings"
 	"time"
 )
@@ -120,11 +121,51 @@ func (r *RoutingRule) Clone() *RoutingRule {
 // MatchesConditions checks if the given attributes satisfy a rule's conditions.
 // Semantics: all condition fields must match (AND), values within a field are
 // alternatives (OR). Empty/nil conditions = matches everything (default rule).
+//
+// Numeric range conditions: if the condition key starts with "min_" or "max_",
+// the key is stripped of its prefix to look up the attribute value, and a numeric
+// comparison is performed. For example, condition key "max_content_chars" looks up
+// attrs["content_chars"] and checks actual <= threshold.
 func MatchesConditions(conditions map[string][]string, attrs map[string]string) bool {
 	if len(conditions) == 0 {
 		return true
 	}
 	for field, allowedValues := range conditions {
+		// Numeric range conditions (min_/max_ prefix).
+		if strings.HasPrefix(field, "min_") || strings.HasPrefix(field, "max_") {
+			var prefix, attrKey string
+			if strings.HasPrefix(field, "min_") {
+				prefix = "min_"
+				attrKey = field[len("min_"):]
+			} else {
+				prefix = "max_"
+				attrKey = field[len("max_"):]
+			}
+			actual, ok := attrs[attrKey]
+			if !ok {
+				return false
+			}
+			actualVal, err := strconv.ParseInt(actual, 10, 64)
+			if err != nil {
+				return false
+			}
+			if len(allowedValues) == 0 {
+				return false
+			}
+			thresholdVal, err := strconv.ParseInt(allowedValues[0], 10, 64)
+			if err != nil {
+				return false
+			}
+			if prefix == "max_" && actualVal > thresholdVal {
+				return false
+			}
+			if prefix == "min_" && actualVal < thresholdVal {
+				return false
+			}
+			continue
+		}
+
+		// String equality conditions (existing behaviour).
 		actual, ok := attrs[field]
 		if !ok {
 			return false
