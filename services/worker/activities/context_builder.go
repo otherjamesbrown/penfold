@@ -516,13 +516,13 @@ func enrichPeopleFromHeaders(people []workflows.PersonResult, senderEmail, sende
 
 	// pf-0f08e0: Dedup enriched list by canonical name.
 	// After enrichment, "Miroslav" → "Miroslav Ponec" may duplicate an existing
-	// "Miroslav Ponec" entry. Use canonicalizePersonName so that "Last, First"
-	// and "First Last" representations of the same person also collapse.
+	// "Miroslav Ponec" entry. NormalizeDisplayName handles "Last, First" → "First Last"
+	// and lowercasing collapses different representations of the same person.
 	// Keep the first occurrence (preserves role if any).
 	seen := make(map[string]bool)
 	deduped := make([]workflows.PersonResult, 0, len(enriched))
 	for _, p := range enriched {
-		key := canonicalizePersonName(p.Name)
+		key := strings.ToLower(entities.NormalizeDisplayName(p.Name))
 		if seen[key] {
 			continue
 		}

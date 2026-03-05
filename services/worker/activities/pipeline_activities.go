@@ -204,7 +204,7 @@ func (a *PipelineActivities) RecordSkippedStage(ctx context.Context, input workf
 			// DurationMS, InputTokens, OutputTokens are all 0 for skipped stages
 		})
 		if runErr != nil {
-			logger.Error("Failed to record skipped pipeline run",
+			logger.Warn("Failed to record skipped pipeline run",
 				logging.F("stage", s.Stage),
 				logging.F("skip_reason", s.SkipReason),
 				logging.Err(runErr),

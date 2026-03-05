@@ -383,8 +383,6 @@ func (s *AIServer) selectModelForDeepAnalysis(ctx context.Context, category, imp
 // selectModelForDeepAnalysisFallback contains the original hardcoded routing logic.
 // Inputs must be pre-normalized (trimmed, uppercased) by the caller.
 func selectModelForDeepAnalysisFallback(category, importance, configDefault string) string {
-	category = strings.TrimSpace(strings.ToUpper(category))
-	importance = strings.TrimSpace(strings.ToUpper(importance))
 
 	// RISK_ISSUE always gets quality model (fallback)
 	if category == "RISK_ISSUE" {

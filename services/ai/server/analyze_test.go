@@ -206,9 +206,9 @@ func TestSelectModelForDeepAnalysis(t *testing.T) {
 			want:           "custom-model",
 		},
 		{
-			name:       "Case insensitive category",
-			category:   "risk_issue",
-			importance: "high",
+			name:       "Pre-normalized category",
+			category:   "RISK_ISSUE",
+			importance: "HIGH",
 			want:       "gemini-2.5-pro",
 		},
 	}

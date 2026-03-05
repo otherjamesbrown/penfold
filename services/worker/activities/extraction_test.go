@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
+	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
@@ -1593,8 +1594,8 @@ func TestMergeExtractionResults_GarbageFilter(t *testing.T) {
 		"Only Alice Smith should remain after garbage filtering")
 }
 
-// TestCanonicalizePersonName covers all input formats handled by canonicalizePersonName.
-func TestCanonicalizePersonName(t *testing.T) {
+// TestNameDedup covers the dedup key logic (NormalizeDisplayName + lowercase).
+func TestNameDedup(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
@@ -1648,7 +1649,7 @@ func TestCanonicalizePersonName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := canonicalizePersonName(tt.input)
+			got := strings.ToLower(entities.NormalizeDisplayName(tt.input))
 			require.Equal(t, tt.want, got)
 		})
 	}

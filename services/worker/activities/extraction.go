@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc/metadata"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
+	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/tracing"
@@ -824,8 +825,8 @@ func mergeExtractionResults(results []*aiv1.ExtractEntitiesResponse) *workflows.
 	qualityGateTriggered := false
 
 	// People: deduplicate by canonical name.
-	// canonicalizePersonName normalises "Last, First" → "first last" so that
-	// different representations of the same person produce the same dedup key.
+	// NormalizeDisplayName handles "Last, First" → "First Last" + whitespace/quote cleanup.
+	// Lowercasing ensures different representations produce the same dedup key.
 	// isGarbageName filters single-character NER artifacts before they enter the map.
 	peopleMap := make(map[string]workflows.PersonResult)
 	for _, result := range results {
@@ -836,7 +837,7 @@ func mergeExtractionResults(results []*aiv1.ExtractEntitiesResponse) *workflows.
 			if isGarbageName(p.Name) {
 				continue
 			}
-			key := canonicalizePersonName(p.Name)
+			key := strings.ToLower(entities.NormalizeDisplayName(p.Name))
 			if existing, ok := peopleMap[key]; !ok || len(p.Role) > len(existing.Role) {
 				// Keep the one with more role info
 				peopleMap[key] = workflows.PersonResult{Name: p.Name, Role: p.Role, Source: p.Source}
@@ -1204,14 +1205,6 @@ func buildEmailHeaderBlock(input workflows.SLMPipelineExtractEntitiesInput) stri
 	return "EMAIL METADATA:\n" + strings.Join(lines, "\n") + "\n---\nBODY:\n"
 }
 
-// formatParticipant formats a participant as "Name <email>" or just email.
-func formatParticipant(p workflows.Participant) string {
-	if p.DisplayName != "" {
-		return fmt.Sprintf("%s <%s>", p.DisplayName, p.Email)
-	}
-	return p.Email
-}
-
 // normalizeString converts a string to lowercase and trims whitespace for deduplication.
 func normalizeString(s string) string {
 	return strings.TrimSpace(strings.ToLower(s))
@@ -1221,28 +1214,6 @@ func normalizeString(s string) string {
 // Single-character names ("P", "K") are NER artifacts and should be filtered.
 func isGarbageName(name string) bool {
 	return len(strings.TrimSpace(name)) < 2
-}
-
-// canonicalizePersonName normalises a person name to "first last" lowercase form
-// so that different representations of the same person produce the same dedup key.
-//
-// Supported input formats:
-//   - "Last, First [Middle]"  →  "first last"   (corporate email header format)
-//   - "First Last"            →  "first last"   (standard)
-//   - "F Last"                →  "f last"       (initial + last; handled by subset match later)
-//   - "First"                 →  "first"        (first-name only; handled by subset match later)
-func canonicalizePersonName(name string) string {
-	trimmed := strings.TrimSpace(name)
-	if commaIdx := strings.IndexByte(trimmed, ','); commaIdx >= 0 {
-		last := strings.TrimSpace(trimmed[:commaIdx])
-		firstPart := strings.TrimSpace(trimmed[commaIdx+1:])
-		if last == "" || firstPart == "" {
-			return strings.ToLower(trimmed)
-		}
-		// "Pandya, Parimal" → "parimal pandya"
-		return strings.ToLower(firstPart + " " + last)
-	}
-	return strings.ToLower(trimmed)
 }
 
 // optString returns a pointer to the given string (for proto optional fields).
