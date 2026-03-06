@@ -98,7 +98,7 @@ func TestTriageTruncation_ForwardedEmail(t *testing.T) {
 	// Build the triage prompt using the real buildTriagePrompt function.
 	// Use an AIServer with no promptStore so it falls back to the hardcoded template.
 	s := &AIServer{}
-	_, userPrompt, _ := s.buildTriagePrompt(
+	_, userPrompt, _, _ := s.buildTriagePrompt(
 		context.Background(),
 		"FW: Q1 Revenue Risk -- CIS Portfolio Review",
 		"alice.lim@bigcorp.com",
@@ -131,7 +131,7 @@ func TestTriageTruncation_ForwardedEmail_TruncationIsAt1500(t *testing.T) {
 	longContent := strings.Repeat("x", 1600)
 
 	s := &AIServer{}
-	_, userPrompt, _ := s.buildTriagePrompt(context.Background(), "", "", longContent, 0)
+	_, userPrompt, _, _ := s.buildTriagePrompt(context.Background(), "", "", longContent, 0)
 
 	if !strings.Contains(userPrompt, strings.Repeat("x", 1500)) {
 		t.Errorf("expected 1500 x's in user prompt after truncation")

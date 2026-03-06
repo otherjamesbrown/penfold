@@ -179,10 +179,10 @@ func (s *AIServer) resolveModel(ctx context.Context, stage string) string {
 // getPrompt retrieves the active prompt for the given stage from the DB prompt store.
 // If the store is not configured, the DB is unreachable, or no active prompt exists,
 // it falls back to the provided hardcoded default without failing the request.
-// Returns the prompt content and the prompt version (0 when using the hardcoded fallback).
-func (s *AIServer) getPrompt(ctx context.Context, stage, hardcoded string, version int32) (string, int32) {
+// Returns the prompt content, response schema (nil when using hardcoded fallback), and the prompt version (0 when using the hardcoded fallback).
+func (s *AIServer) getPrompt(ctx context.Context, stage, hardcoded string, version int32) (string, json.RawMessage, int32) {
 	if s.promptStore == nil {
-		return hardcoded, 0
+		return hardcoded, nil, 0
 	}
 	pt, err := s.promptStore.GetPromptByStage(ctx, stage, int(version))
 	if err != nil {
@@ -190,12 +190,12 @@ func (s *AIServer) getPrompt(ctx context.Context, stage, hardcoded string, versi
 			logging.F("stage", stage),
 			logging.Err(err),
 		)
-		return hardcoded, 0
+		return hardcoded, nil, 0
 	}
 	if pt == nil {
-		return hardcoded, 0
+		return hardcoded, nil, 0
 	}
-	return pt.Content, int32(pt.Version)
+	return pt.Content, pt.ResponseSchema, int32(pt.Version)
 }
 
 // extractLangfuseMetadata reads x-langfuse-trace-id and x-langfuse-phase-id from
@@ -886,7 +886,7 @@ func (s *AIServer) TriageContent(ctx context.Context, req *aiv1.TriageContentReq
 	}
 
 	// Build the triage prompt
-	systemPrompt, userPrompt, triagePromptVersion := s.buildTriagePrompt(ctx, req.GetSubject(), req.GetSender(), content, req.GetPromptVersion())
+	systemPrompt, userPrompt, _, triagePromptVersion := s.buildTriagePrompt(ctx, req.GetSubject(), req.GetSender(), content, req.GetPromptVersion())
 
 	messages := []backend.Message{
 		{Role: "system", Content: systemPrompt},
@@ -1385,7 +1385,7 @@ Respond with a JSON object:
     }
   ]
 }`
-	content, version := s.getPrompt(ctx, "extract_assertions", hardcoded, 0)
+	content, _, version := s.getPrompt(ctx, "extract_assertions", hardcoded, 0)
 	return content, version
 }
 

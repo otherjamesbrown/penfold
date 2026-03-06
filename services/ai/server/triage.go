@@ -68,8 +68,8 @@ Respond ONLY with JSON:
 // (forwarding headers consume ~400 chars, so 1500 leaves room for substantive content).
 // It tries the DB prompt store first; falls back to the hardcoded triagePromptTemplate on error.
 // Returns the system prompt, user prompt, and the prompt version (0 when using hardcoded fallback).
-func (s *AIServer) buildTriagePrompt(ctx context.Context, subject, sender, content string, version int32) (systemPrompt, userPrompt string, promptVersion int32) {
-	systemPrompt, promptVersion = s.getPrompt(ctx, "triage", triagePromptTemplate, version)
+func (s *AIServer) buildTriagePrompt(ctx context.Context, subject, sender, content string, version int32) (systemPrompt, userPrompt string, schema json.RawMessage, promptVersion int32) {
+	systemPrompt, schema, promptVersion = s.getPrompt(ctx, "triage", triagePromptTemplate, version)
 
 	// Truncate content to first 1500 characters.
 	// Forwarded emails have ~400 chars of headers before substantive content begins,
@@ -93,7 +93,7 @@ func (s *AIServer) buildTriagePrompt(ctx context.Context, subject, sender, conte
 	}
 
 	userPrompt = strings.Join(parts, "\n")
-	return systemPrompt, userPrompt, promptVersion
+	return systemPrompt, userPrompt, schema, promptVersion
 }
 
 // triageResult holds the parsed triage response.

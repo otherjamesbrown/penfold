@@ -98,14 +98,15 @@ type StageInfo struct {
 
 // PromptTemplate represents a versioned prompt template.
 type PromptTemplate struct {
-	ID          int64
-	Stage       string
-	Version     int
-	Content     string
-	Description *string
-	IsActive    bool
-	CreatedBy   *string
-	CreatedAt   time.Time
+	ID             int64
+	Stage          string
+	Version        int
+	Content        string
+	Description    *string
+	IsActive       bool
+	CreatedBy      *string
+	CreatedAt      time.Time
+	ResponseSchema json.RawMessage `json:"response_schema,omitempty"`
 }
 
 // PipelineRun represents a single pipeline execution.

@@ -513,14 +513,14 @@ func (r *Repository) GetPromptByStage(ctx context.Context, stage string, version
 
 	if version > 0 {
 		query = `
-			SELECT id, stage, version, content, description, is_active, created_by, created_at
+			SELECT id, stage, version, content, description, is_active, created_by, created_at, response_schema
 			FROM prompt_templates
 			WHERE stage = $1 AND version = $2
 		`
 		args = []interface{}{stage, version}
 	} else {
 		query = `
-			SELECT id, stage, version, content, description, is_active, created_by, created_at
+			SELECT id, stage, version, content, description, is_active, created_by, created_at, response_schema
 			FROM prompt_templates
 			WHERE stage = $1 AND is_active = true
 		`
@@ -537,6 +537,7 @@ func (r *Repository) GetPromptByStage(ctx context.Context, stage string, version
 		&pt.IsActive,
 		&pt.CreatedBy,
 		&pt.CreatedAt,
+		&pt.ResponseSchema,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("prompt not found for stage %s: %w", stage, err)
@@ -548,7 +549,7 @@ func (r *Repository) GetPromptByStage(ctx context.Context, stage string, version
 // ListPromptVersions retrieves all prompt versions for a stage.
 func (r *Repository) ListPromptVersions(ctx context.Context, stage string) ([]PromptTemplate, error) {
 	query := `
-		SELECT id, stage, version, content, description, is_active, created_by, created_at
+		SELECT id, stage, version, content, description, is_active, created_by, created_at, response_schema
 		FROM prompt_templates
 		WHERE stage = $1
 		ORDER BY version DESC
@@ -572,6 +573,7 @@ func (r *Repository) ListPromptVersions(ctx context.Context, stage string) ([]Pr
 			&pt.IsActive,
 			&pt.CreatedBy,
 			&pt.CreatedAt,
+			&pt.ResponseSchema,
 		); err != nil {
 			return nil, fmt.Errorf("scanning prompt version: %w", err)
 		}
@@ -609,7 +611,7 @@ func (r *Repository) CreatePromptVersion(ctx context.Context, stage string, cont
 	err = tx.QueryRow(ctx, `
 		INSERT INTO prompt_templates (stage, version, content, description, is_active, created_by, created_at)
 		VALUES ($1, $2, $3, $4, true, $5, NOW())
-		RETURNING id, stage, version, content, description, is_active, created_by, created_at
+		RETURNING id, stage, version, content, description, is_active, created_by, created_at, response_schema
 	`, stage, newVersion, content, description, createdBy).Scan(
 		&pt.ID,
 		&pt.Stage,
@@ -619,6 +621,7 @@ func (r *Repository) CreatePromptVersion(ctx context.Context, stage string, cont
 		&pt.IsActive,
 		&pt.CreatedBy,
 		&pt.CreatedAt,
+		&pt.ResponseSchema,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("inserting new prompt version: %w", err)
