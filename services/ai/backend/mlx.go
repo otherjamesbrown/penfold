@@ -141,7 +141,14 @@ type chatRequest struct {
 }
 
 type chatRespFormat struct {
-	Type string `json:"type"` // "json_object"
+	Type       string          `json:"type"`
+	JSONSchema *chatJSONSchema `json:"json_schema,omitempty"`
+}
+
+type chatJSONSchema struct {
+	Name   string          `json:"name"`
+	Schema json.RawMessage `json:"schema"`
+	Strict bool            `json:"strict"`
 }
 
 // ollamaChatRequest is the native Ollama /api/chat request format.
@@ -153,7 +160,7 @@ type ollamaChatRequest struct {
 	Stream   bool          `json:"stream"`
 	Think    *bool         `json:"think,omitempty"`
 	Options  ollamaOptions `json:"options,omitempty"`
-	Format   string        `json:"format,omitempty"`
+	Format   json.RawMessage `json:"format,omitempty"`
 }
 
 type ollamaOptions struct {
@@ -446,7 +453,16 @@ func (b *MLXBackend) ChatCompletion(ctx context.Context, messages []Message, opt
 		reqBody.Temperature = 0.1 // Low temperature for structured extraction
 	}
 
-	if opts.JSONMode {
+	if opts.ResponseSchema != nil {
+		reqBody.ResponseFormat = &chatRespFormat{
+			Type: "json_schema",
+			JSONSchema: &chatJSONSchema{
+				Name:   "response",
+				Schema: opts.ResponseSchema,
+				Strict: true,
+			},
+		}
+	} else if opts.JSONMode {
 		reqBody.ResponseFormat = &chatRespFormat{Type: "json_object"}
 	}
 
@@ -572,8 +588,10 @@ func (b *MLXBackend) ollamaChatCompletion(ctx context.Context, messages []Messag
 		Options:  ollamaOptions{Temperature: temp, NumPredict: maxTokens},
 	}
 
-	if opts.JSONMode {
-		reqBody.Format = "json"
+	if opts.ResponseSchema != nil {
+		reqBody.Format = opts.ResponseSchema
+	} else if opts.JSONMode {
+		reqBody.Format = json.RawMessage(`"json"`)
 	}
 
 	jsonBody, err := json.Marshal(reqBody)

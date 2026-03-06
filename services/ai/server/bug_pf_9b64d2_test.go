@@ -55,7 +55,7 @@ func TestBuildNERPrompt_BackgroundContext_HasBoundaryInstruction(t *testing.T) {
 		"### Topic Context\n" +
 		"Network Infrastructure: Covers WAN, datacenter fabric, and edge routing."
 
-	prompt, _ := s.buildNERPrompt(context.Background(), emailBody, bgCtx, 0)
+	prompt, _, _ := s.buildNERPrompt(context.Background(), emailBody, bgCtx, 0)
 
 	// Sanity checks: background context and email body must both appear in the
 	// assembled prompt (these pass today and must continue to pass after the fix).
@@ -125,7 +125,7 @@ func TestBuildSemanticPrompt_BackgroundContext_HasBoundaryInstruction(t *testing
 		"### Topic Context\n" +
 		"Network Infrastructure: Covers WAN, datacenter fabric, and edge routing."
 
-	prompt, _ := s.buildSemanticPrompt(context.Background(), emailBody, bgCtx, 0)
+	prompt, _, _ := s.buildSemanticPrompt(context.Background(), emailBody, bgCtx, 0)
 
 	// Sanity checks.
 	if !strings.Contains(prompt, "## Background Context") {
@@ -184,7 +184,7 @@ func TestBuildNERPrompt_NoBoundaryInstruction_WithoutBackgroundContext(t *testin
 	s := &AIServer{}
 	content := "Dan Spataro is the CEO of CLIC. Meeting on January 15th."
 
-	prompt, version := s.buildNERPrompt(context.Background(), content, "", 0)
+	prompt, _, version := s.buildNERPrompt(context.Background(), content, "", 0)
 
 	if version != 0 {
 		t.Errorf("buildNERPrompt() without background context version = %d, want 0", version)
@@ -205,7 +205,7 @@ func TestBuildSemanticPrompt_NoBoundaryInstruction_WithoutBackgroundContext(t *t
 	s := &AIServer{}
 	content := "Alice should fix the bug by next week. We decided to approve the budget."
 
-	prompt, version := s.buildSemanticPrompt(context.Background(), content, "", 0)
+	prompt, _, version := s.buildSemanticPrompt(context.Background(), content, "", 0)
 
 	if version != 0 {
 		t.Errorf("buildSemanticPrompt() without background context version = %d, want 0", version)

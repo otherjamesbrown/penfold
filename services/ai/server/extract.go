@@ -178,32 +178,32 @@ func parseQualityGateResponse(jsonStr string) (*qualityGateResult, error) {
 
 // buildNERPrompt constructs the NER extraction prompt.
 // Tries the DB prompt store for stage "extract_ner"; falls back to nerPromptTemplate on error.
-// Returns the prompt string and the prompt version (0 when using hardcoded fallback).
+// Returns the prompt string, the JSON schema (nil if none), and the prompt version (0 when using hardcoded fallback).
 // When backgroundContext is non-empty, it is prepended as a "Background Context" section
 // before the content, providing glossary and topic definitions (pf-2f0d4b).
-func (s *AIServer) buildNERPrompt(ctx context.Context, content string, backgroundContext string, promptVersion int32) (string, int32) {
-	tmpl, _, version := s.getPrompt(ctx, "extract_ner", nerPromptTemplate, promptVersion)
+func (s *AIServer) buildNERPrompt(ctx context.Context, content string, backgroundContext string, promptVersion int32) (string, json.RawMessage, int32) {
+	tmpl, schema, version := s.getPrompt(ctx, "extract_ner", nerPromptTemplate, promptVersion)
 	if backgroundContext != "" {
 		content = "## Background Context\n" + backgroundContext + "\n\n---\n" + content
 	}
-	return fmt.Sprintf(tmpl, content), version
+	return fmt.Sprintf(tmpl, content), schema, version
 }
 
 // buildSemanticPrompt constructs the semantic extraction prompt.
 // Tries the DB prompt store for stage "extract_semantic"; falls back to semanticPromptTemplate on error.
-// Returns the prompt string and the prompt version (0 when using hardcoded fallback).
+// Returns the prompt string, the JSON schema (nil if none), and the prompt version (0 when using hardcoded fallback).
 // Strips email addresses (From/To/CC) from content before prompt composition (pf-e219c1) —
 // structural metadata is already captured at ingestion; including addresses wastes tokens
 // and may confuse the model into extracting "person X emailed person Y" as semantic findings.
 // When backgroundContext is non-empty, it is prepended as a "Background Context" section
 // before the content, providing glossary and topic definitions (pf-2f8c70).
-func (s *AIServer) buildSemanticPrompt(ctx context.Context, content string, backgroundContext string, promptVersion int32) (string, int32) {
-	tmpl, _, version := s.getPrompt(ctx, "extract_semantic", semanticPromptTemplate, promptVersion)
+func (s *AIServer) buildSemanticPrompt(ctx context.Context, content string, backgroundContext string, promptVersion int32) (string, json.RawMessage, int32) {
+	tmpl, schema, version := s.getPrompt(ctx, "extract_semantic", semanticPromptTemplate, promptVersion)
 	content = stripEmailAddressesKeepSubject(content)
 	if backgroundContext != "" {
 		content = "## Background Context\n" + backgroundContext + "\n\n---\n" + content
 	}
-	return fmt.Sprintf(tmpl, content), version
+	return fmt.Sprintf(tmpl, content), schema, version
 }
 
 // stripEmailAddressesKeepSubject removes From/To/CC lines from the EMAIL METADATA block
@@ -245,10 +245,10 @@ func stripEmailAddressesKeepSubject(content string) string {
 
 // buildQualityGatePrompt constructs the quality gate risk-focused prompt.
 // Tries the DB prompt store for stage "quality_gate_risk"; falls back to qualityGateRiskPromptTemplate on error.
-// Returns the prompt string and the prompt version (0 when using hardcoded fallback).
-func (s *AIServer) buildQualityGatePrompt(ctx context.Context, content string) (string, int32) {
-	tmpl, _, version := s.getPrompt(ctx, "quality_gate_risk", qualityGateRiskPromptTemplate, 0)
-	return fmt.Sprintf(tmpl, content), version
+// Returns the prompt string, the JSON schema (nil if none), and the prompt version (0 when using hardcoded fallback).
+func (s *AIServer) buildQualityGatePrompt(ctx context.Context, content string) (string, json.RawMessage, int32) {
+	tmpl, schema, version := s.getPrompt(ctx, "quality_gate_risk", qualityGateRiskPromptTemplate, 0)
+	return fmt.Sprintf(tmpl, content), schema, version
 }
 
 // ExtractEntities performs two-pass entity extraction from content.
@@ -304,16 +304,18 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 	var nerResult *backend.CompletionResult
 	var nerMessages []backend.Message
 	{
-		nerPrompt, nerPromptVersion = s.buildNERPrompt(ctx, content, req.GetBackgroundContext(), req.GetNerPromptVersion())
+		var nerSchema json.RawMessage
+		nerPrompt, nerSchema, nerPromptVersion = s.buildNERPrompt(ctx, content, req.GetBackgroundContext(), req.GetNerPromptVersion())
 		nerMessages = []backend.Message{
 			{Role: "user", Content: nerPrompt},
 		}
 
 		opts := backend.CompletionOptions{
-			Model:       model,
-			Temperature: nerStageParams.TemperatureOr(0.1),  // fallback: low temperature for consistent extraction
-			MaxTokens:   nerStageParams.MaxTokensOr(8192),   // fallback: accommodate full NER/semantic JSON for large transcripts
-			JSONMode:    true,
+			Model:          model,
+			Temperature:    nerStageParams.TemperatureOr(0.1),  // fallback: low temperature for consistent extraction
+			MaxTokens:      nerStageParams.MaxTokensOr(8192),   // fallback: accommodate full NER/semantic JSON for large transcripts
+			JSONMode:       true,
+			ResponseSchema: nerSchema,
 		}
 
 		maxNERRetries := nerStageParams.MaxRetriesOr(2)
@@ -396,16 +398,18 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 	var semMessages []backend.Message
 	if shouldRunSemantic {
 		semStageParams := s.getStageParams(ctx, "extract_semantic")
-		semPrompt, semPromptVersion = s.buildSemanticPrompt(ctx, content, req.GetBackgroundContext(), req.GetSemanticPromptVersion())
+		var semSchema json.RawMessage
+		semPrompt, semSchema, semPromptVersion = s.buildSemanticPrompt(ctx, content, req.GetBackgroundContext(), req.GetSemanticPromptVersion())
 		semMessages = []backend.Message{
 			{Role: "user", Content: semPrompt},
 		}
 
 		opts := backend.CompletionOptions{
-			Model:       model,
-			Temperature: semStageParams.TemperatureOr(0.1),  // fallback: low temperature for consistent extraction
-			MaxTokens:   semStageParams.MaxTokensOr(8192),   // fallback: accommodate full NER/semantic JSON for large transcripts
-			JSONMode:    true,
+			Model:          model,
+			Temperature:    semStageParams.TemperatureOr(0.1),  // fallback: low temperature for consistent extraction
+			MaxTokens:      semStageParams.MaxTokensOr(8192),   // fallback: accommodate full NER/semantic JSON for large transcripts
+			JSONMode:       true,
+			ResponseSchema: semSchema,
 		}
 
 		maxSemRetries := semStageParams.MaxRetriesOr(2)
@@ -489,16 +493,17 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 		qualityGateTriggered = true
 		qgStageParams := s.getStageParams(ctx, "quality_gate_risk")
 
-		qgPrompt, _ := s.buildQualityGatePrompt(ctx, content)
+		qgPrompt, qgSchema, _ := s.buildQualityGatePrompt(ctx, content)
 		messages := []backend.Message{
 			{Role: "user", Content: qgPrompt},
 		}
 
 		opts := backend.CompletionOptions{
-			Model:       model,
-			Temperature: qgStageParams.TemperatureOr(0.1),  // fallback: low temperature for consistent extraction
-			MaxTokens:   qgStageParams.MaxTokensOr(8192),   // fallback: accommodate full NER/semantic JSON
-			JSONMode:    true,
+			Model:          model,
+			Temperature:    qgStageParams.TemperatureOr(0.1),  // fallback: low temperature for consistent extraction
+			MaxTokens:      qgStageParams.MaxTokensOr(8192),   // fallback: accommodate full NER/semantic JSON
+			JSONMode:       true,
+			ResponseSchema: qgSchema,
 		}
 
 		maxQGRetries := qgStageParams.MaxRetriesOr(2)

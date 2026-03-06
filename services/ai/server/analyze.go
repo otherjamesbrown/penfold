@@ -520,7 +520,7 @@ func (s *AIServer) DeepAnalyze(ctx context.Context, req *aiv1.DeepAnalyzeRequest
 	}
 
 	// Resolve the prompt template from the prompt store (falls back to hardcoded default)
-	tmpl, _, promptVersion := s.getPrompt(ctx, "deep_analysis", deepAnalysisPromptTemplate, req.GetPromptVersion())
+	tmpl, analysisSchema, promptVersion := s.getPrompt(ctx, "deep_analysis", deepAnalysisPromptTemplate, req.GetPromptVersion())
 
 	// Build the deep analysis prompt
 	prompt := buildDeepAnalysisPrompt(tmpl, req)
@@ -531,10 +531,11 @@ func (s *AIServer) DeepAnalyze(ctx context.Context, req *aiv1.DeepAnalyzeRequest
 
 	analyzeStageParams := s.getStageParams(ctx, "analyze")
 	opts := backend.CompletionOptions{
-		Model:       selectedModel,
-		Temperature: analyzeStageParams.TemperatureOr(0.2), // fallback: low temperature for structured analysis
-		MaxTokens:   analyzeStageParams.MaxTokensOr(8192),  // fallback: deep analysis produces substantial output
-		JSONMode:    true,
+		Model:          selectedModel,
+		Temperature:    analyzeStageParams.TemperatureOr(0.2), // fallback: low temperature for structured analysis
+		MaxTokens:      analyzeStageParams.MaxTokensOr(8192),  // fallback: deep analysis produces substantial output
+		JSONMode:       true,
+		ResponseSchema: analysisSchema,
 	}
 
 	// Retry loop with DB-configurable retry count

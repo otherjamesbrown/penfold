@@ -161,7 +161,14 @@ type openaiMessage struct {
 }
 
 type openaiRespFormat struct {
-	Type string `json:"type"` // "text" or "json_object"
+	Type       string            `json:"type"`
+	JSONSchema *openaiJSONSchema `json:"json_schema,omitempty"`
+}
+
+type openaiJSONSchema struct {
+	Name   string          `json:"name"`
+	Schema json.RawMessage `json:"schema"`
+	Strict bool            `json:"strict"`
 }
 
 type openaiChatResponse struct {
@@ -300,8 +307,17 @@ func (b *OpenAIBackend) ChatCompletion(ctx context.Context, messages []Message, 
 		reqBody.Temperature = 0.1 // Low temperature for structured extraction
 	}
 
-	// Enable JSON mode if requested
-	if opts.JSONMode {
+	// Enable JSON mode if requested; prefer schema-constrained output when available
+	if opts.ResponseSchema != nil {
+		reqBody.ResponseFormat = &openaiRespFormat{
+			Type: "json_schema",
+			JSONSchema: &openaiJSONSchema{
+				Name:   "response",
+				Schema: opts.ResponseSchema,
+				Strict: true,
+			},
+		}
+	} else if opts.JSONMode {
 		reqBody.ResponseFormat = &openaiRespFormat{
 			Type: "json_object",
 		}

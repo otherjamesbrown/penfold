@@ -149,9 +149,10 @@ type geminiContent struct {
 }
 
 type geminiGenerationConfig struct {
-	MaxOutputTokens  int     `json:"maxOutputTokens,omitempty"`
-	Temperature      float32 `json:"temperature,omitempty"`
-	ResponseMimeType string  `json:"responseMimeType,omitempty"`
+	MaxOutputTokens  int             `json:"maxOutputTokens,omitempty"`
+	Temperature      float32         `json:"temperature,omitempty"`
+	ResponseMimeType string          `json:"responseMimeType,omitempty"`
+	ResponseSchema   json.RawMessage `json:"responseSchema,omitempty"`
 }
 
 type geminiGenerateResponse struct {
@@ -347,7 +348,11 @@ func (b *GeminiBackend) ChatCompletion(ctx context.Context, messages []Message, 
 		hasConfig = true
 	}
 
-	if opts.JSONMode {
+	if opts.ResponseSchema != nil {
+		genConfig.ResponseMimeType = "application/json"
+		genConfig.ResponseSchema = opts.ResponseSchema
+		hasConfig = true
+	} else if opts.JSONMode {
 		genConfig.ResponseMimeType = "application/json"
 		hasConfig = true
 	}

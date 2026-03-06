@@ -684,8 +684,8 @@ func TestMLXBackend_ChatCompletion_JSONMode(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		if receivedBody.Format != "json" {
-			t.Errorf("expected format 'json', got %q", receivedBody.Format)
+		if string(receivedBody.Format) != `"json"` {
+			t.Errorf("expected format '\"json\"', got %q", receivedBody.Format)
 		}
 	})
 }

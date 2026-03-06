@@ -4,6 +4,7 @@ package backend
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 )
 
@@ -54,6 +55,11 @@ type CompletionOptions struct {
 
 	// JSONMode requests structured JSON output.
 	JSONMode bool
+
+	// ResponseSchema is a JSON Schema for structured output enforcement.
+	// When set, backends translate this to their native format (Gemini responseSchema,
+	// OpenAI json_schema, Ollama format schema object).
+	ResponseSchema json.RawMessage
 }
 
 // EmbeddingResult contains the result of an embedding generation.

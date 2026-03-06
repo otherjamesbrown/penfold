@@ -594,7 +594,7 @@ func (s *AIServer) ExtractAssertions(ctx context.Context, req *aiv1.AssertionReq
 		return nil, err
 	}
 
-	systemPrompt, promptVersion := s.buildAssertionSystemPrompt(ctx)
+	systemPrompt, assertionsSchema, promptVersion := s.buildAssertionSystemPrompt(ctx)
 	userPrompt := fmt.Sprintf("Extract assertions from the following content:\n\n%s", content)
 
 	messages := []backend.Message{
@@ -603,10 +603,11 @@ func (s *AIServer) ExtractAssertions(ctx context.Context, req *aiv1.AssertionReq
 	}
 
 	opts := backend.CompletionOptions{
-		Model:       model,
-		Temperature: 0.1, // Low temperature for structured extraction
-		MaxTokens:   8192, // gemini-2.5-flash thinking tokens consume output budget
-		JSONMode:    true,
+		Model:          model,
+		Temperature:    0.1, // Low temperature for structured extraction
+		MaxTokens:      8192, // gemini-2.5-flash thinking tokens consume output budget
+		JSONMode:       true,
+		ResponseSchema: assertionsSchema,
 	}
 
 	result, err := s.backend.ChatCompletion(ctx, messages, opts)
@@ -886,7 +887,7 @@ func (s *AIServer) TriageContent(ctx context.Context, req *aiv1.TriageContentReq
 	}
 
 	// Build the triage prompt
-	systemPrompt, userPrompt, _, triagePromptVersion := s.buildTriagePrompt(ctx, req.GetSubject(), req.GetSender(), content, req.GetPromptVersion())
+	systemPrompt, userPrompt, triageSchema, triagePromptVersion := s.buildTriagePrompt(ctx, req.GetSubject(), req.GetSender(), content, req.GetPromptVersion())
 
 	messages := []backend.Message{
 		{Role: "system", Content: systemPrompt},
@@ -894,10 +895,11 @@ func (s *AIServer) TriageContent(ctx context.Context, req *aiv1.TriageContentReq
 	}
 
 	opts := backend.CompletionOptions{
-		Model:       model,
-		Temperature: 0.1, // Low temperature for consistent classification
-		MaxTokens:   256, // Small response: just category, importance, reason
-		JSONMode:    true,
+		Model:          model,
+		Temperature:    0.1, // Low temperature for consistent classification
+		MaxTokens:      512, // Increased from 256 to avoid truncation on schema-constrained output
+		JSONMode:       true,
+		ResponseSchema: triageSchema,
 	}
 
 	// Retry loop: up to 2 retries on malformed output
@@ -1343,7 +1345,7 @@ func (s *AIServer) extractKeyPointsFallback(text string) []string {
 	return points
 }
 
-func (s *AIServer) buildAssertionSystemPrompt(ctx context.Context) (string, int32) {
+func (s *AIServer) buildAssertionSystemPrompt(ctx context.Context) (string, json.RawMessage, int32) {
 	const hardcoded = `You are a business intelligence extraction assistant. Extract meaningful business assertions from the content as subject-predicate-object triples.
 
 For each assertion, provide:
@@ -1385,8 +1387,8 @@ Respond with a JSON object:
     }
   ]
 }`
-	content, _, version := s.getPrompt(ctx, "extract_assertions", hardcoded, 0)
-	return content, version
+	content, schema, version := s.getPrompt(ctx, "extract_assertions", hardcoded, 0)
+	return content, schema, version
 }
 
 type assertionsJSON struct {
