@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -304,6 +305,34 @@ func (s *Service) TriggerSchedule(ctx context.Context, req *schedulev1.TriggerSc
 		return nil, status.Errorf(codes.FailedPrecondition, "schedule %s is paused — resume before triggering", req.ScheduleId)
 	}
 
+	// If reference_date is set, use TriggerWithParams for a one-off execution.
+	if req.ReferenceDate != "" {
+		if _, err := time.Parse("2006-01-02", req.ReferenceDate); err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "invalid reference_date format, expected YYYY-MM-DD: %v", err)
+		}
+
+		overrides := map[string]interface{}{
+			"reference_date": req.ReferenceDate,
+		}
+		workflowID, err := s.scheduler.TriggerWithParams(ctx, sched, overrides)
+		if err != nil {
+			s.logger.Error("Error triggering schedule with params",
+				logging.F("schedule_id", req.ScheduleId),
+				logging.Err(err),
+			)
+			return nil, status.Errorf(codes.Internal, "failed to trigger schedule: %v", err)
+		}
+
+		s.logger.Info("Schedule triggered with reference_date",
+			logging.F("schedule_id", req.ScheduleId),
+			logging.F("reference_date", req.ReferenceDate),
+			logging.F("workflow_id", workflowID),
+		)
+
+		return &schedulev1.TriggerScheduleResponse{}, nil
+	}
+
+	// Default: use standard Trigger (no per-run args).
 	if err := s.scheduler.Trigger(ctx, req.ScheduleId); err != nil {
 		s.logger.Error("Error triggering schedule",
 			logging.F("schedule_id", req.ScheduleId),
@@ -320,10 +349,39 @@ func (s *Service) TriggerSchedule(ctx context.Context, req *schedulev1.TriggerSc
 	return &schedulev1.TriggerScheduleResponse{}, nil
 }
 
-// GetScheduleHistory returns execution history for a schedule. Phase 2 implementation.
-func (s *Service) GetScheduleHistory(_ context.Context, _ *schedulev1.GetScheduleHistoryRequest) (*schedulev1.GetScheduleHistoryResponse, error) {
-	// Phase 2: not yet implemented.
-	return &schedulev1.GetScheduleHistoryResponse{}, nil
+// GetScheduleHistory returns execution history for a schedule.
+func (s *Service) GetScheduleHistory(ctx context.Context, req *schedulev1.GetScheduleHistoryRequest) (*schedulev1.GetScheduleHistoryResponse, error) {
+	if req.ScheduleId == "" {
+		return nil, status.Error(codes.InvalidArgument, "schedule_id is required")
+	}
+
+	executions, err := s.repo.GetExecutionHistory(ctx, req.ScheduleId, req.Limit)
+	if err != nil {
+		s.logger.Error("Error getting execution history", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to get execution history: %v", err)
+	}
+
+	protoExecs := make([]*schedulev1.ScheduleExecution, len(executions))
+	for i, e := range executions {
+		protoExec := &schedulev1.ScheduleExecution{
+			ScheduleId:    e.ScheduleID,
+			WorkflowRunId: e.WorkflowRunID,
+			Status:        e.Status,
+			StartedAt:     timestamppb.New(e.StartedAt),
+			Error:         e.Error,
+		}
+		if e.CompletedAt != nil {
+			protoExec.CompletedAt = timestamppb.New(*e.CompletedAt)
+		}
+		if len(e.ResultMetadata) > 0 {
+			protoExec.ResultMetadata = string(e.ResultMetadata)
+		}
+		protoExecs[i] = protoExec
+	}
+
+	return &schedulev1.GetScheduleHistoryResponse{
+		Executions: protoExecs,
+	}, nil
 }
 
 // ==================== Helpers ====================

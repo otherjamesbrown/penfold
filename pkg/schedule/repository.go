@@ -181,6 +181,83 @@ func (r *Repository) SetEnabled(ctx context.Context, tenantID, id string, enable
 	return nil
 }
 
+// ScheduleExecution represents a row in schedule_execution_history.
+type ScheduleExecution struct {
+	ID             int64
+	ScheduleID     string
+	TenantID       string
+	WorkflowRunID  string
+	Status         string // "running", "completed", "failed"
+	StartedAt      time.Time
+	CompletedAt    *time.Time
+	Error          string
+	ResultMetadata json.RawMessage
+	CreatedAt      time.Time
+}
+
+// CreateExecution inserts a new execution history record. Returns the generated ID.
+func (r *Repository) CreateExecution(ctx context.Context, exec *ScheduleExecution) (int64, error) {
+	query := `
+		INSERT INTO schedule_execution_history (schedule_id, tenant_id, workflow_run_id, status, started_at, result_metadata)
+		VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6)
+		RETURNING id
+	`
+	var id int64
+	err := r.pool.QueryRow(ctx, query,
+		exec.ScheduleID, exec.TenantID, exec.WorkflowRunID, exec.Status, exec.StartedAt, exec.ResultMetadata,
+	).Scan(&id)
+	if err != nil {
+		return 0, fmt.Errorf("create execution: %w", err)
+	}
+	return id, nil
+}
+
+// CompleteExecution updates an execution record with completion status and metadata.
+func (r *Repository) CompleteExecution(ctx context.Context, id int64, status string, resultMetadata json.RawMessage, errMsg string) error {
+	query := `
+		UPDATE schedule_execution_history
+		SET status = $2, completed_at = NOW(), result_metadata = $3, error = $4
+		WHERE id = $1
+	`
+	tag, err := r.pool.Exec(ctx, query, id, status, resultMetadata, errMsg)
+	if err != nil {
+		return fmt.Errorf("complete execution: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("execution not found: %d", id)
+	}
+	return nil
+}
+
+// GetExecutionHistory returns recent executions for a schedule.
+func (r *Repository) GetExecutionHistory(ctx context.Context, scheduleID string, limit int32) ([]*ScheduleExecution, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	query := `
+		SELECT id, schedule_id, tenant_id, workflow_run_id, status, started_at, completed_at, error, result_metadata, created_at
+		FROM schedule_execution_history
+		WHERE schedule_id = $1::uuid
+		ORDER BY started_at DESC
+		LIMIT $2
+	`
+	rows, err := r.pool.Query(ctx, query, scheduleID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("get execution history: %w", err)
+	}
+	defer rows.Close()
+
+	var results []*ScheduleExecution
+	for rows.Next() {
+		e := &ScheduleExecution{}
+		if err := rows.Scan(&e.ID, &e.ScheduleID, &e.TenantID, &e.WorkflowRunID, &e.Status, &e.StartedAt, &e.CompletedAt, &e.Error, &e.ResultMetadata, &e.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan execution: %w", err)
+		}
+		results = append(results, e)
+	}
+	return results, nil
+}
+
 // ListEnabled returns all enabled, non-deleted schedules for a tenant (used by reconciliation).
 func (r *Repository) ListEnabled(ctx context.Context, tenantID string) ([]*Schedule, error) {
 	query := `

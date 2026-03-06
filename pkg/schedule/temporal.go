@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
@@ -148,6 +149,46 @@ func (ts *TemporalScheduler) Describe(ctx context.Context, scheduleID string) (*
 		return nil, fmt.Errorf("describe temporal schedule %s: %w", scheduleID, err)
 	}
 	return desc, nil
+}
+
+// TriggerWithParams starts a one-off workflow execution with overridden parameters.
+// Unlike Trigger() which uses handle.Trigger() (no per-run args), this starts a
+// fresh workflow via client.ExecuteWorkflow() with the merged params.
+func (ts *TemporalScheduler) TriggerWithParams(ctx context.Context, s *Schedule, overrides map[string]interface{}) (string, error) {
+	// Parse existing workflow params
+	var params map[string]interface{}
+	if len(s.WorkflowParams) > 0 {
+		if err := json.Unmarshal(s.WorkflowParams, &params); err != nil {
+			return "", fmt.Errorf("unmarshal workflow params: %w", err)
+		}
+	}
+	if params == nil {
+		params = make(map[string]interface{})
+	}
+
+	// Merge overrides
+	for k, v := range overrides {
+		params[k] = v
+	}
+
+	// Generate unique workflow ID for one-off execution
+	workflowID := fmt.Sprintf("%s-manual-%d", s.ID, time.Now().UnixMilli())
+
+	run, err := ts.client.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+		ID:        workflowID,
+		TaskQueue: ts.taskQueue,
+	}, s.WorkflowType, params)
+	if err != nil {
+		return "", fmt.Errorf("trigger workflow with params %s: %w", workflowID, err)
+	}
+
+	ts.logger.Info("Triggered one-off workflow",
+		logging.F("workflow_id", workflowID),
+		logging.F("run_id", run.GetRunID()),
+		logging.F("workflow_type", s.WorkflowType),
+	)
+
+	return workflowID, nil
 }
 
 // Exists checks if a Temporal schedule exists by attempting to Describe it.
