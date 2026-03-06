@@ -1,6 +1,10 @@
 -- Seed ai_models registry with all models currently in use plus Anthropic models
 -- Uses provider/model-name format as canonical ID (matches ai_routing_rules convention)
 
+-- Relax max_output_tokens constraint: embedding models legitimately have 0 output tokens
+ALTER TABLE ai_models DROP CONSTRAINT IF EXISTS ai_models_max_output_check;
+ALTER TABLE ai_models ADD CONSTRAINT ai_models_max_output_check CHECK (max_output_tokens >= 0);
+
 INSERT INTO ai_models (id, name, provider, model_name, context_window, max_output_tokens, capabilities, is_local, is_enabled, priority, metadata, created_at, updated_at)
 VALUES
   ('gemini/gemini-2.5-flash', 'Gemini 2.5 Flash', 'gemini', 'gemini-2.5-flash', 1048576, 65536, '{chat,classification,extraction,summarization,json_schema}', false, true, 10, '{}', NOW(), NOW()),
