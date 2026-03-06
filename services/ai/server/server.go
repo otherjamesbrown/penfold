@@ -198,6 +198,38 @@ func (s *AIServer) getPrompt(ctx context.Context, stage, hardcoded string, versi
 	return pt.Content, pt.ResponseSchema, int32(pt.Version)
 }
 
+// applyModelConstraints adjusts CompletionOptions based on the model's registered
+// capabilities and limits. This prevents sending schemas to models that don't support
+// them and avoids requesting more tokens than a model can produce.
+func (s *AIServer) applyModelConstraints(ctx context.Context, model string, opts *backend.CompletionOptions) {
+	if s.registry == nil {
+		return
+	}
+	modelInfo, err := s.registry.Get(model)
+	if err != nil {
+		// Model not in registry — skip constraints (backward compatibility)
+		return
+	}
+
+	// Clamp MaxTokens to model's limit
+	if modelInfo.Limits.MaxOutputTokens > 0 && opts.MaxTokens > modelInfo.Limits.MaxOutputTokens {
+		s.logger.Warn("clamping MaxTokens to model limit",
+			logging.F("model", model),
+			logging.F("requested", opts.MaxTokens),
+			logging.F("model_limit", modelInfo.Limits.MaxOutputTokens),
+		)
+		opts.MaxTokens = modelInfo.Limits.MaxOutputTokens
+	}
+
+	// Strip schema if model doesn't support it
+	if opts.ResponseSchema != nil && !modelInfo.Capabilities.HasCapability(registry.CapabilityJSONSchema) {
+		s.logger.Warn("model does not support json_schema, falling back to JSONMode hint",
+			logging.F("model", model),
+		)
+		opts.ResponseSchema = nil
+	}
+}
+
 // extractLangfuseMetadata reads x-langfuse-trace-id and x-langfuse-phase-id from
 // incoming gRPC metadata. Returns empty strings if metadata is absent or the keys
 // are not present.
@@ -479,6 +511,7 @@ func (s *AIServer) GenerateSummary(ctx context.Context, req *aiv1.SummaryRequest
 		opts.MaxTokens = int(req.GetMaxLength()) * 2 // Allow room for key points
 	}
 
+	s.applyModelConstraints(ctx, model, &opts)
 	result, err := s.backend.ChatCompletion(ctx, messages, opts)
 	if err != nil {
 		s.logger.Error("GenerateSummary failed",
@@ -610,6 +643,7 @@ func (s *AIServer) ExtractAssertions(ctx context.Context, req *aiv1.AssertionReq
 		ResponseSchema: assertionsSchema,
 	}
 
+	s.applyModelConstraints(ctx, model, &opts)
 	result, err := s.backend.ChatCompletion(ctx, messages, opts)
 	if err != nil {
 		s.logger.Error("ExtractAssertions failed",
@@ -775,6 +809,7 @@ func (s *AIServer) ClassifyContent(ctx context.Context, req *aiv1.ClassifyConten
 		JSONMode:    true,
 	}
 
+	s.applyModelConstraints(ctx, model, &opts)
 	result, err := s.backend.ChatCompletion(ctx, messages, opts)
 	if err != nil {
 		s.logger.Error("ClassifyContent failed",
@@ -902,6 +937,7 @@ func (s *AIServer) TriageContent(ctx context.Context, req *aiv1.TriageContentReq
 		ResponseSchema: triageSchema,
 	}
 
+	s.applyModelConstraints(ctx, model, &opts)
 	// Retry loop: up to 2 retries on malformed output
 	const maxTriageRetries = 2
 	var triageResult *triageResult

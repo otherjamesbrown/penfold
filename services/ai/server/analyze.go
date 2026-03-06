@@ -538,6 +538,7 @@ func (s *AIServer) DeepAnalyze(ctx context.Context, req *aiv1.DeepAnalyzeRequest
 		ResponseSchema: analysisSchema,
 	}
 
+	s.applyModelConstraints(ctx, selectedModel, &opts)
 	// Retry loop with DB-configurable retry count
 	maxAnalysisRetries := analyzeStageParams.MaxRetriesOr(2)
 	var parsed *deepAnalysisResult

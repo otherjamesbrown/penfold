@@ -318,6 +318,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 			ResponseSchema: nerSchema,
 		}
 
+		s.applyModelConstraints(ctx, model, &opts)
 		maxNERRetries := nerStageParams.MaxRetriesOr(2)
 		var lastErr error
 		for attempt := 0; attempt <= maxNERRetries; attempt++ {
@@ -412,6 +413,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 			ResponseSchema: semSchema,
 		}
 
+		s.applyModelConstraints(ctx, model, &opts)
 		maxSemRetries := semStageParams.MaxRetriesOr(2)
 		var lastErr error
 		for attempt := 0; attempt <= maxSemRetries; attempt++ {
@@ -506,6 +508,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 			ResponseSchema: qgSchema,
 		}
 
+		s.applyModelConstraints(ctx, model, &opts)
 		maxQGRetries := qgStageParams.MaxRetriesOr(2)
 		var lastErr error
 		var qgResult *backend.CompletionResult
