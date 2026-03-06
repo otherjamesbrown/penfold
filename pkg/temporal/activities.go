@@ -59,6 +59,18 @@ const (
 	// Journal digest activities
 	ActivityGatherJournalData          = "GatherJournalData"
 	ActivityGenerateJournalNarrative   = "GenerateJournalNarrative"
+
+	// Digest rollup activities
+	ActivityGatherRollupContent     = "GatherRollupContent"
+	ActivityGenerateRollupSummary   = "GenerateRollupSummary"
+	ActivityDeliverRollupResults    = "DeliverRollupResults"
+	ActivityRecordExecutionMetadata = "RecordExecutionMetadata"
+
+	// Journal rollup activities
+	ActivityGatherDailyLedgerEntries = "GatherDailyLedgerEntries"
+	ActivityGenerateDailySummary     = "GenerateDailySummary"
+	ActivityGenerateWeeklySummary    = "GenerateWeeklySummary"
+	ActivityGenerateOverviewSummary  = "GenerateOverviewSummary"
 )
 
 // AI Task Queue activity names (4 unique activities).
@@ -182,6 +194,16 @@ func AllMainQueueActivities() []string {
 		// Journal digest activities
 		ActivityGatherJournalData,
 		ActivityGenerateJournalNarrative,
+		// Digest rollup activities
+		ActivityGatherRollupContent,
+		ActivityGenerateRollupSummary,
+		ActivityDeliverRollupResults,
+		ActivityRecordExecutionMetadata,
+		// Journal rollup activities
+		ActivityGatherDailyLedgerEntries,
+		ActivityGenerateDailySummary,
+		ActivityGenerateWeeklySummary,
+		ActivityGenerateOverviewSummary,
 		// Graph API activities (Outlook + Teams sync + Transcript sync)
 		ActivityCheckGraphAuth,
 		ActivityFetchOutlookMessages,

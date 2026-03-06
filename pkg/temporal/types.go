@@ -1,6 +1,9 @@
 package temporal
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // EmailProcessingInput is the input for email processing workflows.
 type EmailProcessingInput struct {
@@ -435,4 +438,48 @@ type TeamsSyncResult struct {
 	NewThreads     int       `json:"new_threads"`
 	UpdatedThreads int       `json:"updated_threads"`
 	SyncedAt       time.Time `json:"synced_at"`
+}
+
+// DigestRollupInput is the input for DigestRollupWorkflow.
+// Passed as workflow_params from the schedules table.
+type DigestRollupInput struct {
+	TenantID       string          `json:"tenant_id"`
+	ScheduleID     string          `json:"schedule_id"`
+	Name           string          `json:"name"`
+	Window         string          `json:"window"`                   // "7d", "30d", "1m", "since_last_run", or JSON range
+	SourceFilter   json.RawMessage `json:"source_filter"`            // {"subtypes":["NOTIFICATION"],"sources":["aha"]}
+	Prompt         string          `json:"prompt,omitempty"`         // inline prompt override
+	PromptID       string          `json:"prompt_id,omitempty"`      // prompt template stage name
+	Delivery       []string        `json:"delivery"`                 // ["store", "email"]
+	DeliveryTarget string          `json:"delivery_target,omitempty"`
+	MaxItems       int             `json:"max_items"`
+	ReferenceDate  string          `json:"reference_date,omitempty"` // YYYY-MM-DD, injected by TriggerWithParams
+}
+
+// DigestRollupResult is the output of DigestRollupWorkflow.
+type DigestRollupResult struct {
+	ItemsGathered   int               `json:"items_gathered"`
+	ItemsSummarized int               `json:"items_summarized"`
+	WindowFrom      string            `json:"window_from"`
+	WindowTo        string            `json:"window_to"`
+	DigestID        string            `json:"digest_id"`
+	DeliveryStatus  map[string]string `json:"delivery_status"`
+	ModelUsed       string            `json:"model_used"`
+	InputTokens     int               `json:"input_tokens"`
+	OutputTokens    int               `json:"output_tokens"`
+}
+
+// JournalRollupInput is the input for JournalRollupWorkflow.
+type JournalRollupInput struct {
+	TenantID      string `json:"tenant_id"`
+	ReferenceDate string `json:"reference_date,omitempty"` // YYYY-MM-DD, default today
+	ScheduleID    string `json:"schedule_id"`
+}
+
+// JournalRollupResult is the output of JournalRollupWorkflow.
+type JournalRollupResult struct {
+	DailyDigestID    string `json:"daily_digest_id"`
+	WeeklyDigestID   string `json:"weekly_digest_id,omitempty"`
+	OverviewDigestID string `json:"overview_digest_id,omitempty"`
+	Status           string `json:"status"`
 }
