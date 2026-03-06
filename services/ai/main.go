@@ -20,7 +20,6 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/langfuse"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/metrics"
-	"github.com/otherjamesbrown/penfold/pkg/models"
 	"github.com/otherjamesbrown/penfold/pkg/pipeline"
 	"github.com/otherjamesbrown/penfold/pkg/tracing"
 	"github.com/otherjamesbrown/penfold/services/ai/backend"
@@ -70,14 +69,12 @@ func main() {
 	}
 	logger.Debug("gRPC port bound successfully", logging.F("address", cfg.GRPCAddr()))
 
-	// Optionally initialize database connection for dynamic model config and prompt store
+	// Optionally initialize database connection for prompt store and routing registry
 	var dbPool *pgxpool.Pool
-	var modelRepo *models.Repository
 	var promptRepo *pipeline.Repository
-	var dbConfigResolver *config.DBConfigResolver
 	var dbRegistry *registry.DBRegistry
 	if cfg.DBURL != "" {
-		logger.Info("Initializing database connection for model config",
+		logger.Info("Initializing database connection",
 			logging.F("db_url", "<redacted>"),
 		)
 
@@ -108,13 +105,8 @@ func main() {
 			os.Exit(1)
 		}
 
-		modelRepo = models.NewRepository(dbPool, logger)
 		promptRepo = pipeline.NewRepository(dbPool)
-		logger.Info("Database connection established for model config and prompt store")
-
-		// Single-tenant deployment: use the known tenant ID.
-		// This matches the pattern in gateway and worker services.
-		dbConfigResolver = config.NewDBConfigResolver(modelRepo, cfg, pkgconfig.DefaultTenantID())
+		logger.Info("Database connection established for prompt store and routing registry")
 
 		// Initialize DB-backed routing registry for model selection rules.
 		registryRepo := registry.NewPostgresRepository(dbPool, logger)
@@ -271,12 +263,6 @@ func main() {
 		logger.Info("DB-backed prompt store and stage params wired into AI server")
 	} else {
 		logger.Info("No DB configured — AI server will use hardcoded prompt/param fallbacks")
-	}
-	// Wire DB-backed model config resolver if database is configured.
-	// The server falls back to env var config when the resolver is nil or unavailable.
-	if dbConfigResolver != nil {
-		aiServer.WithDBConfigResolver(dbConfigResolver)
-		logger.Info("DB-backed model config resolver wired into AI server")
 	}
 	// Wire DB-backed routing registry for model selection rules (e.g. deep_analyze stage).
 	// The server falls back to hardcoded routing logic when the registry is nil.

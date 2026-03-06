@@ -41,15 +41,14 @@ type StageParamsProvider interface {
 type AIServer struct {
 	aiv1.UnimplementedAICoordinatorServiceServer
 
-	config         *config.Config
-	logger         logging.Logger
-	backend        backend.Backend          // Direct backend for backwards compatibility
-	router         *router.ModelRouter      // Multi-model routing (optional)
-	registry       *registry.DBRegistry     // Model registry (optional)
-	langfuse       *langfuse.Ingestion      // Langfuse generation reporting (optional, nil = disabled)
-	promptStore    PromptStore              // DB-backed prompt store (optional, nil = use hardcoded fallbacks)
-	configResolver *config.DBConfigResolver // DB-backed model config resolver (optional, nil = env vars only)
-	stageParams    StageParamsProvider     // Per-stage LLM params from pipeline_definitions (optional, nil = hardcoded defaults)
+	config      *config.Config
+	logger      logging.Logger
+	backend     backend.Backend         // Direct backend for backwards compatibility
+	router      *router.ModelRouter     // Multi-model routing (optional)
+	registry    *registry.DBRegistry   // Model registry (optional)
+	langfuse    *langfuse.Ingestion     // Langfuse generation reporting (optional, nil = disabled)
+	promptStore PromptStore             // DB-backed prompt store (optional, nil = use hardcoded fallbacks)
+	stageParams StageParamsProvider    // Per-stage LLM params from pipeline_definitions (optional, nil = hardcoded defaults)
 }
 
 // NewAIServer creates a new AI server instance with a single backend.
@@ -118,14 +117,6 @@ func (s *AIServer) WithPromptStore(ps PromptStore) *AIServer {
 	return s
 }
 
-// WithDBConfigResolver sets the DB-backed model config resolver on an existing AIServer.
-// Call this after constructing the server to enable DB-driven model assignments per pipeline stage.
-// When nil, all handlers fall back to env var config (Config.ModelForStage).
-func (s *AIServer) WithDBConfigResolver(r *config.DBConfigResolver) *AIServer {
-	s.configResolver = r
-	return s
-}
-
 // WithRegistry sets the DB-backed model registry on an existing AIServer.
 // Call this after constructing the server to enable DB-driven routing rules for
 // model selection (e.g. deep_analyze stage). When nil, model selection falls back
@@ -159,20 +150,26 @@ func (s *AIServer) getStageParams(ctx context.Context, stage string) *pipeline.S
 	return params
 }
 
-// resolveModel returns the model for a pipeline stage, preferring DB config when available.
-// Priority: explicit request model (caller's responsibility) → DB config → env var stage config →
-// global env var default → hardcoded fallback. The DB config resolver handles levels 2–5;
-// this method delegates to it when present, otherwise falls back to Config.ModelForStage.
+// resolveModel returns the model for a pipeline stage using routing rules first,
+// then falling back to env var config.
+// Priority: routing rules (ai_routing_rules table, default rules with empty conditions)
+// → env var stage config → global env var default → hardcoded fallback.
 func (s *AIServer) resolveModel(ctx context.Context, stage string) string {
-	if s.configResolver != nil {
-		model, err := s.configResolver.ModelForStage(ctx, stage)
-		if err != nil {
-			s.logger.Warn("DB config resolution failed, falling back to env",
-				logging.F("stage", stage), logging.Err(err))
-			return s.config.ModelForStage(stage)
+	// Level 1: Routing rules (with condition matching)
+	if s.registry != nil {
+		rules, err := s.registry.GetRoutingRulesByTask(ctx, stage)
+		if err == nil && len(rules) > 0 {
+			for _, rule := range rules {
+				if registry.MatchesConditions(rule.Conditions, nil) {
+					if len(rule.PreferredModels) > 0 {
+						return rule.PreferredModels[0]
+					}
+				}
+			}
 		}
-		return model
 	}
+
+	// Level 2: Env var fallback (existing behavior)
 	return s.config.ModelForStage(stage)
 }
 

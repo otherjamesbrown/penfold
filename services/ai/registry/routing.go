@@ -51,13 +51,22 @@ type RoutingRule struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// TaskType constants match the database CHECK constraint.
+// TaskType constants for supported pipeline task types.
+// The CHECK constraint on ai_routing_rules has been dropped (migration 131),
+// so new task types can be added here without a schema change.
 const (
-	TaskTypeEmbedding       = "embedding"
-	TaskTypeSummarization   = "summarization"
-	TaskTypeExtraction      = "extraction"
-	TaskTypeClassification  = "classification"
-	TaskTypeDeepAnalysis    = "deep_analysis"
+	TaskTypeEmbedding             = "embedding"
+	TaskTypeSummarization         = "summarization"
+	TaskTypeExtraction            = "extraction"
+	TaskTypeClassification        = "classification"
+	TaskTypeDeepAnalysis          = "deep_analysis"
+	TaskTypeTriage                = "triage"
+	TaskTypeAnalyze               = "analyze"
+	TaskTypeExtractNER            = "extract_ner"
+	TaskTypeExtractSemantic       = "extract_semantic"
+	TaskTypeExtractAssertions     = "extract_assertions"
+	TaskTypeConversationSummarize = "conversation_summarize"
+	TaskTypeSummary               = "summary"
 )
 
 // OptimizationMode constants match the database CHECK constraint.
@@ -69,18 +78,13 @@ const (
 )
 
 // Validate checks if the routing rule is valid.
+// The task_type CHECK constraint was dropped in migration 131, so any non-empty
+// task type is now valid — no hardcoded switch needed.
 func (r *RoutingRule) Validate() error {
 	if r.Name == "" {
 		return ErrInvalidRoutingRule
 	}
 	if r.TaskType == "" {
-		return ErrInvalidRoutingRule
-	}
-	// Validate task type
-	switch r.TaskType {
-	case TaskTypeEmbedding, TaskTypeSummarization, TaskTypeExtraction, TaskTypeClassification, TaskTypeDeepAnalysis:
-		// Valid
-	default:
 		return ErrInvalidRoutingRule
 	}
 	// Validate optimization mode

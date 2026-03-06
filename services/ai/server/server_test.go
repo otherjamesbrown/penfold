@@ -7,7 +7,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1304,88 +1303,154 @@ func TestConvertError_RegistryErrors(t *testing.T) {
 }
 
 // =============================================================================
-// resolveModel Tests (pf-7a0fb0)
+// resolveModel Tests (pf-fe1d01)
 // =============================================================================
 
-// mockModelConfigQuerier is a simple in-memory implementation of config.ModelConfigQuerier for testing.
-type mockModelConfigQuerier struct {
-	data  map[string]string // configKey -> modelName
-	dbErr error             // if set, all queries return this error
+// stubRoutingRepository implements registry.Repository for resolveModel tests.
+// Only GetRoutingRulesByTask is meaningful; all other methods return errors.
+type stubRoutingRepository struct {
+	rules []*registry.RoutingRule
+	err   error
 }
 
-func (m *mockModelConfigQuerier) GetModelConfig(ctx context.Context, tenantID uuid.UUID, configKey string) (string, error) {
-	if m.dbErr != nil {
-		return "", m.dbErr
+func (s *stubRoutingRepository) GetRoutingRulesByTask(_ context.Context, taskType string) ([]*registry.RoutingRule, error) {
+	if s.err != nil {
+		return nil, s.err
 	}
-	if v, ok := m.data[configKey]; ok {
-		return v, nil
+	var result []*registry.RoutingRule
+	for _, r := range s.rules {
+		if r.TaskType == taskType && r.IsEnabled {
+			result = append(result, r)
+		}
 	}
-	return "", errors.New("model config not found")
+	return result, nil
 }
 
-func TestResolveModel_NilResolver_FallsBackToEnv(t *testing.T) {
-	// When configResolver is nil, resolveModel must delegate to config.ModelForStage.
+func (s *stubRoutingRepository) CreateModel(_ context.Context, _ *registry.ModelConfig) error {
+	return errors.New("not implemented")
+}
+func (s *stubRoutingRepository) GetModel(_ context.Context, _ string) (*registry.ModelConfig, error) {
+	return nil, errors.New("not implemented")
+}
+func (s *stubRoutingRepository) UpdateModel(_ context.Context, _ *registry.ModelConfig) error {
+	return errors.New("not implemented")
+}
+func (s *stubRoutingRepository) DeleteModel(_ context.Context, _ string) error {
+	return errors.New("not implemented")
+}
+func (s *stubRoutingRepository) ListModels(_ context.Context, _ *registry.ModelFilter) ([]*registry.ModelConfig, error) {
+	return nil, errors.New("not implemented")
+}
+func (s *stubRoutingRepository) GetHealth(_ context.Context, _ string) (*registry.ModelHealth, error) {
+	return nil, errors.New("not implemented")
+}
+func (s *stubRoutingRepository) UpdateHealth(_ context.Context, _ string, _ *registry.ModelHealth) error {
+	return errors.New("not implemented")
+}
+func (s *stubRoutingRepository) GetModelContextWindowByName(_ context.Context, _ string) (int, error) {
+	return 0, errors.New("not implemented")
+}
+func (s *stubRoutingRepository) GetModelProviderByName(_ context.Context, _ string) (string, error) {
+	return "", errors.New("not implemented")
+}
+func (s *stubRoutingRepository) GetRoutingRules(_ context.Context) ([]*registry.RoutingRule, error) {
+	return nil, errors.New("not implemented")
+}
+func (s *stubRoutingRepository) GetRoutingRuleByName(_ context.Context, _ string) (*registry.RoutingRule, error) {
+	return nil, errors.New("not implemented")
+}
+func (s *stubRoutingRepository) CreateRoutingRule(_ context.Context, _ *registry.RoutingRule) error {
+	return errors.New("not implemented")
+}
+func (s *stubRoutingRepository) UpdateRoutingRule(_ context.Context, _ *registry.RoutingRule) error {
+	return errors.New("not implemented")
+}
+func (s *stubRoutingRepository) DeleteRoutingRule(_ context.Context, _ string) error {
+	return errors.New("not implemented")
+}
+
+func newTestDBRegistry(rules []*registry.RoutingRule) *registry.DBRegistry {
+	return registry.NewDBRegistry(&stubRoutingRepository{rules: rules}, nil)
+}
+
+func TestResolveModel_NilRegistry_FallsBackToEnv(t *testing.T) {
+	// When registry is nil, resolveModel must delegate to config.ModelForStage.
 	cfg := testConfig()
 	cfg.StageModels = map[string]string{"triage": "env-triage-model"}
 	srv := &AIServer{
-		config:         cfg,
-		logger:         testLogger(),
-		configResolver: nil,
+		config:   cfg,
+		logger:   testLogger(),
+		registry: nil,
 	}
 
 	got := srv.resolveModel(context.Background(), "triage")
-	assert.Equal(t, "env-triage-model", got, "should return env var model when resolver is nil")
+	assert.Equal(t, "env-triage-model", got, "should return env var model when registry is nil")
 }
 
-func TestResolveModel_DBResolverPreferredOverEnv(t *testing.T) {
-	// When configResolver is set and the DB has a stage-specific override, it takes priority over env var.
+func TestResolveModel_RoutingRulePreferredOverEnv(t *testing.T) {
+	// When a routing rule exists for the stage, it takes priority over env var.
 	cfg := testConfig()
 	cfg.StageModels = map[string]string{"triage": "env-triage-model"}
 
-	querier := &mockModelConfigQuerier{
-		data: map[string]string{"stage.triage": "db-triage-model"},
+	rules := []*registry.RoutingRule{
+		{
+			Name:            "triage-default",
+			TaskType:        "triage",
+			PreferredModels: []string{"gemini/gemini-2.5-flash"},
+			FallbackModels:  []string{"gemini/gemini-2.5-pro"},
+			IsEnabled:       true,
+			Conditions:      map[string][]string{}, // empty = matches all
+		},
 	}
-
-	dbResolver := config.NewDBConfigResolverWithTTL(querier, cfg, uuid.Nil, 0)
+	reg := newTestDBRegistry(rules)
 	srv := &AIServer{
-		config:         cfg,
-		logger:         testLogger(),
-		configResolver: dbResolver,
+		config:   cfg,
+		logger:   testLogger(),
+		registry: reg,
 	}
 
 	got := srv.resolveModel(context.Background(), "triage")
-	assert.Equal(t, "db-triage-model", got, "DB config should take priority over env var")
+	assert.Equal(t, "gemini/gemini-2.5-flash", got, "routing rule preferred model should take priority over env var")
 }
 
-func TestResolveModel_DBUnavailableFallsBackToEnv(t *testing.T) {
-	// When the DB resolver cannot find a stage config (not found), resolveModel falls through to env var.
+func TestResolveModel_NoMatchingRule_FallsBackToEnv(t *testing.T) {
+	// When no routing rule exists for the requested stage, fall back to env var.
 	cfg := testConfig()
 	cfg.StageModels = map[string]string{"triage": "env-triage-fallback"}
 
-	// DB has no entry for stage.triage so getCachedOrFetch returns ""
-	querier := &mockModelConfigQuerier{
-		data: map[string]string{}, // empty — nothing configured in DB
+	rules := []*registry.RoutingRule{
+		{
+			Name:            "embedding-default",
+			TaskType:        "embedding", // different stage
+			PreferredModels: []string{"some-embedding-model"},
+			IsEnabled:       true,
+			Conditions:      map[string][]string{},
+		},
 	}
-
-	dbResolver := config.NewDBConfigResolverWithTTL(querier, cfg, uuid.Nil, 0)
+	reg := newTestDBRegistry(rules)
 	srv := &AIServer{
-		config:         cfg,
-		logger:         testLogger(),
-		configResolver: dbResolver,
+		config:   cfg,
+		logger:   testLogger(),
+		registry: reg,
 	}
 
 	got := srv.resolveModel(context.Background(), "triage")
-	assert.Equal(t, "env-triage-fallback", got, "should fall back to env var when DB has no entry")
+	assert.Equal(t, "env-triage-fallback", got, "should fall back to env var when no rule matches stage")
 }
 
-func TestWithDBConfigResolver_ChainMethod(t *testing.T) {
-	// Verify the fluent builder method sets the field and returns the same server.
-	srv := newTestServer(&mockBackend{})
+func TestResolveModel_RegistryError_FallsBackToEnv(t *testing.T) {
+	// When the registry returns an error, resolveModel falls back to env var.
 	cfg := testConfig()
-	querier := &mockModelConfigQuerier{data: map[string]string{}}
-	resolver := config.NewDBConfigResolver(querier, cfg, uuid.Nil)
+	cfg.StageModels = map[string]string{"triage": "env-triage-fallback"}
 
-	returned := srv.WithDBConfigResolver(resolver)
-	assert.Same(t, srv, returned, "WithDBConfigResolver must return the same server for chaining")
-	assert.Equal(t, resolver, srv.configResolver, "configResolver field must be set")
+	stub := &stubRoutingRepository{err: errors.New("db error")}
+	reg := registry.NewDBRegistry(stub, nil)
+	srv := &AIServer{
+		config:   cfg,
+		logger:   testLogger(),
+		registry: reg,
+	}
+
+	got := srv.resolveModel(context.Background(), "triage")
+	assert.Equal(t, "env-triage-fallback", got, "should fall back to env var on registry error")
 }

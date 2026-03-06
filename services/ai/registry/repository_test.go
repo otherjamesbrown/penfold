@@ -292,13 +292,16 @@ func TestRoutingRule_Validate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "invalid task type",
+			// The CHECK constraint was dropped in migration 131 — arbitrary task types are now valid.
+			// Any non-empty task_type string is accepted so new pipeline stages don't require
+			// schema changes to add routing rules.
+			name: "arbitrary task type is valid",
 			rule: &RoutingRule{
 				Name:            "test",
-				TaskType:        "invalid",
+				TaskType:        "some_new_pipeline_stage",
 				PreferredModels: []string{"model-1"},
 			},
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name: "no preferred models",
