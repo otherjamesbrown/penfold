@@ -108,11 +108,13 @@ message ScheduleExecution {
   google.protobuf.Timestamp completed_at = 4;
   string error = 5;
   string workflow_run_id = 6;
+  string result_metadata = 7;
 }
 
 message TriggerScheduleRequest {
   string tenant_id = 1;
   string schedule_id = 2;
+  string reference_date = 3;
 }
 
 message TriggerScheduleResponse {}

@@ -4,6 +4,7 @@ package digest
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -235,6 +236,87 @@ func GatherDailyDigests(ctx context.Context, pool *pgxpool.Pool, tenantID string
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("gather daily digests rows: %w", err)
+	}
+
+	return result, nil
+}
+
+// SourceFilter defines content filtering criteria for digest rollup.
+type SourceFilter struct {
+	Subtypes []string `json:"subtypes,omitempty"` // e.g. ["NOTIFICATION"]
+	Sources  []string `json:"sources,omitempty"`  // e.g. ["aha"] — matched with ILIKE
+}
+
+// GatherContentBySourceFilter queries content matching the given source filter within a time window.
+// Filters on content_enrichment.content_subtype (exact match, ANY) and/or
+// content_enrichment.notification_source (ILIKE, ANY).
+// Returns up to maxItems results ordered by source_timestamp DESC.
+// Returns an empty slice (not nil) if no results are found.
+func GatherContentBySourceFilter(ctx context.Context, pool *pgxpool.Pool,
+	tenantID string, window TimeWindow, filter SourceFilter, maxItems int) ([]ContentSummary, error) {
+
+	if maxItems <= 0 {
+		maxItems = 50
+	}
+
+	// Build dynamic WHERE clauses based on filter
+	conditions := []string{
+		"s.tenant_id = $1::uuid",
+		"s.source_timestamp >= $2",
+		"s.source_timestamp < $3",
+	}
+	args := []interface{}{tenantID, window.From, window.To}
+	argIdx := 4
+
+	if len(filter.Subtypes) > 0 {
+		conditions = append(conditions, fmt.Sprintf("ce.content_subtype = ANY($%d)", argIdx))
+		args = append(args, filter.Subtypes)
+		argIdx++
+	}
+
+	if len(filter.Sources) > 0 {
+		// Build ILIKE ANY pattern matching for sources
+		patterns := make([]string, len(filter.Sources))
+		for i, src := range filter.Sources {
+			patterns[i] = "%" + src + "%"
+		}
+		conditions = append(conditions, fmt.Sprintf("ce.notification_source ILIKE ANY($%d)", argIdx))
+		args = append(args, patterns)
+		argIdx++
+	}
+
+	where := strings.Join(conditions, " AND ")
+
+	query := fmt.Sprintf(`
+		SELECT s.id,
+		       COALESCE(s.ingestion_metadata->>'subject', ''),
+		       COALESCE(s.ingestion_metadata->>'from_address', ''),
+		       s.source_timestamp,
+		       COALESCE(ce.extracted_data->>'summary', '')
+		FROM sources s
+		LEFT JOIN content_enrichment ce ON ce.source_id = s.id AND ce.tenant_id = s.tenant_id::text
+		WHERE %s
+		ORDER BY s.source_timestamp DESC
+		LIMIT $%d
+	`, where, argIdx)
+	args = append(args, maxItems)
+
+	rows, err := pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("gather content by source filter: %w", err)
+	}
+	defer rows.Close()
+
+	result := []ContentSummary{}
+	for rows.Next() {
+		var cs ContentSummary
+		if err := rows.Scan(&cs.SourceID, &cs.Subject, &cs.From, &cs.Date, &cs.Summary); err != nil {
+			return nil, fmt.Errorf("scan content by source filter: %w", err)
+		}
+		result = append(result, cs)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("gather content by source filter rows: %w", err)
 	}
 
 	return result, nil
