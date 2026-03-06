@@ -71,11 +71,26 @@ STOP immediately. Do NOT grind through fixing caller after caller. Instead:
 
 ---
 
-## Implementation Loop (Ralph Loop Pattern)
+## Implementation Loop
 
-Every sub-agent launch — Mode A or Mode B — runs inside a retry loop. This implements
-the Ralph Loop concept at the orchestrator level: same prompt, fresh context, persistent
-code changes.
+Two retry mechanisms, depending on execution mode:
+
+### Mode: Dispatched Sessions (Agent Factory)
+
+When work is dispatched as a standalone Claude session (via dispatch-agent or the poller),
+use the **ralph-loop plugin** for session-level retry:
+
+```bash
+/ralph-loop "Run /ingest.implement pf-XXX. Follow it exactly. Output <promise>DONE</promise> when complete, or <promise>BLOCKED</promise> if stuck." --max-iterations 5 --completion-promise "DONE"
+```
+
+The stop hook blocks session exit and re-feeds the prompt. Each iteration sees the
+previous attempt's file changes and can course-correct with full context.
+
+### Mode: Sub-Agent (Orchestrator Retry)
+
+When launched as sub-agents via the Task tool (current model), the orchestrator manages
+retries externally. Same prompt, fresh context, persistent code changes.
 
 **Why this matters:** Sub-agents that fail on the first attempt have already modified files.
 A fresh sub-agent sees those changes, plus the error output from the previous attempt, and

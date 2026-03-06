@@ -235,6 +235,39 @@ penf relationship entity show ent-person-123 -o json
 If the CLI binary needs rebuilding to pick up proto changes, that's part of the fix.
 Include `penf update` or `go build ./cmd/penf/...` in the deployment steps.
 
+## Step 2.7: Automated Code Review
+
+Run the **code-review plugin** for automated review with confidence-based scoring.
+This launches 4 parallel agents that independently audit the changes:
+
+- **2x CLAUDE.md compliance agents** — check against project coding standards
+- **1x bug detector** — scan for obvious bugs in changes only (not pre-existing)
+- **1x history analyzer** — context from git blame and history
+
+```bash
+# Commit changes to a branch first (code-review needs a PR diff)
+git checkout -b impl/pf-SHARD-ID
+git add [modified files]
+git commit -m "feat: [description]"
+git push -u origin impl/pf-SHARD-ID
+gh pr create --title "[description]" --body "Automated PR for code review" --draft
+
+# Run the review
+/code-review
+```
+
+Each issue is scored 0-100. Only issues scoring 80+ are flagged (high confidence).
+
+**Action on findings:**
+- **Score 80+**: Fix before deploy. These are real issues.
+- **No findings posted**: Code passed review — proceed to deploy.
+- After fixing issues, re-run `/code-review` to verify.
+
+**Skip conditions** (don't run code-review if):
+- Changes are config-only or documentation-only
+- Changes are migration-only (SQL files)
+- The PR is trivial (< 10 lines changed)
+
 ## Step 3: Trace Back to Original Message
 
 Follow edges from impl shard → investigation/analysis → original message:
@@ -343,6 +376,7 @@ cxp session checkpoint "$(cat <<'CKPT'
 **Penfold acceptance tests:** [N/N pass / none provided]
 **Integration:** [pass/fail/N/A]
 **Go vet:** [clean/warnings]
+**Code review:** [N issues at 80+ confidence / no issues / skipped (reason)]
 **Shards in needs-review:** [shard IDs]
 **Failures encountered:** [list any — pre-existing or new, with bug shard IDs filed]
 **Files to commit:** [count, list paths]

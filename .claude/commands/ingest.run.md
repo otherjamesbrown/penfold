@@ -79,6 +79,21 @@ Parse the user's input to determine which mode to run:
 
 **If input is ambiguous, ask a clarifying question. Otherwise proceed.**
 
+## Prerequisites: Plugins
+
+Three plugins must be installed (`claude plugin list` to verify):
+
+| Plugin | Purpose | How it works |
+|--------|---------|-------------|
+| **ralph-loop** | Session-level retry loop | Stop hook blocks exit, re-feeds prompt. Use for dispatched sessions (Agent Factory). |
+| **code-simplifier** | Auto-simplify modified code | Background agent (opus) — runs autonomously on modified files. No invocation needed. |
+| **code-review** | PR review with confidence scoring | `/code-review` launches 4 parallel agents. Used in Phase 5 before deploy. |
+
+If missing: `claude plugin install ralph-loop@claude-plugins-official` (etc.)
+
+**code-simplifier** runs automatically — it will refine code after sub-agents modify files.
+No explicit step needed, but be aware it may make additional changes between phases.
+
 ## Configuration
 
 ```yaml
@@ -187,14 +202,18 @@ Phase 6+7: /ingest.deploy        — Loop for unblocked work, then commit/deploy
 - **Feedback:** For HIGH items, send decomposition plan to penfold (poll_hint: "review").
 
 **After Phase 4 (Implement):**
-- Phase 4 now includes automatic retry (Ralph Loop pattern) — up to MAX_RETRIES fresh
-  attempts per shard before escalating. See `/ingest.implement` for details.
+- Phase 4 uses the **ralph-loop plugin** for dispatched sessions (Agent Factory mode)
+  or orchestrator-level retry for sub-agent mode — up to MAX_RETRIES fresh attempts per
+  shard before escalating. See `/ingest.implement` for details.
+- **code-simplifier** runs automatically on modified files between phases — review its
+  changes before proceeding to ensure they don't break anything.
 - If all shards complete (with or without retries) → proceed to Phase 5 (Verify)
 - If any shards exhausted retries → penfold has already been notified. Proceed with
   successful shards; leave failed ones for `/ingest next` after penfold provides guidance.
 
 **After Phase 5 (Verify):**
-- If all builds + unit tests + integration tests pass → check evidence gate below
+- If all builds + unit tests + integration tests pass → run `/code-review` for automated
+  review with confidence scoring → check evidence gate below
 - Proceed to Phase 6+7 (Deploy)
 
 **Evidence gate (after Phase 5, before Phase 6+7):**
