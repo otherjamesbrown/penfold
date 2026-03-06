@@ -30,10 +30,17 @@ func (b *CompositeBackend) GenerateEmbedding(ctx context.Context, text string, m
 }
 
 func (b *CompositeBackend) ChatCompletion(ctx context.Context, messages []Message, opts CompletionOptions) (*CompletionResult, error) {
-	if strings.Contains(strings.ToLower(opts.Model), "gemini") {
+	provider := extractProvider(opts.Model)
+	switch provider {
+	case "gemini":
 		return b.gemini.ChatCompletion(ctx, messages, opts)
+	default:
+		// Backward compat: if no provider prefix but contains "gemini", route to gemini
+		if provider == "" && strings.Contains(strings.ToLower(opts.Model), "gemini") {
+			return b.gemini.ChatCompletion(ctx, messages, opts)
+		}
+		return b.ollama.ChatCompletion(ctx, messages, opts)
 	}
-	return b.ollama.ChatCompletion(ctx, messages, opts)
 }
 
 func (b *CompositeBackend) CheckEmbeddingsHealth(ctx context.Context) error {

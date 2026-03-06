@@ -4,6 +4,7 @@ package backend
 
 import (
 	"context"
+	"strings"
 )
 
 // Backend defines the interface for AI backend operations.
@@ -87,4 +88,22 @@ type CompletionResult struct {
 	// FinishReason indicates why the model stopped generating.
 	// "stop" = natural end, "length" = hit max_tokens limit.
 	FinishReason string
+}
+
+// extractProvider returns the provider portion of a "provider/model-name" string.
+// Returns empty string if no "/" is present.
+func extractProvider(modelID string) string {
+	if idx := strings.Index(modelID, "/"); idx >= 0 {
+		return modelID[:idx]
+	}
+	return ""
+}
+
+// extractModelName returns the model name portion of a "provider/model-name" string.
+// Returns the whole string if no "/" is present (backward compatibility).
+func extractModelName(modelID string) string {
+	if idx := strings.Index(modelID, "/"); idx >= 0 {
+		return modelID[idx+1:]
+	}
+	return modelID
 }

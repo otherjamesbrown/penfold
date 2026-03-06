@@ -205,8 +205,9 @@ func (b *OpenAIBackend) GenerateEmbedding(ctx context.Context, text string, mode
 
 	url := b.buildURL("/embeddings")
 
+	// Strip provider prefix before sending to OpenAI API (e.g. "openai/text-embedding-3-small" -> "text-embedding-3-small")
 	reqBody := openaiEmbedRequest{
-		Model: model,
+		Model: extractModelName(model),
 		Input: text,
 	}
 
@@ -281,8 +282,9 @@ func (b *OpenAIBackend) ChatCompletion(ctx context.Context, messages []Message, 
 		}
 	}
 
+	// Strip provider prefix before sending to OpenAI API (e.g. "openai/gpt-4o-mini" -> "gpt-4o-mini")
 	reqBody := openaiChatRequest{
-		Model:    model,
+		Model:    extractModelName(model),
 		Messages: openaiMsgs,
 	}
 

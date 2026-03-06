@@ -183,11 +183,14 @@ func (b *GeminiBackend) GenerateEmbedding(ctx context.Context, text string, mode
 		model = b.defaultEmbeddingModel
 	}
 
+	// Strip provider prefix before sending to Gemini API (e.g. "gemini/text-embedding-004" -> "text-embedding-004")
+	bareModel := extractModelName(model)
+
 	// Gemini embedding endpoint: /models/{model}:embedContent
-	url := fmt.Sprintf("%s/models/%s:embedContent?key=%s", b.endpoint, model, b.apiKey)
+	url := fmt.Sprintf("%s/models/%s:embedContent?key=%s", b.endpoint, bareModel, b.apiKey)
 
 	reqBody := geminiEmbedRequest{
-		Model: fmt.Sprintf("models/%s", model),
+		Model: fmt.Sprintf("models/%s", bareModel),
 		Content: geminiEmbedContent{
 			Parts: []geminiPart{{Text: text}},
 		},
@@ -285,8 +288,11 @@ func (b *GeminiBackend) ChatCompletion(ctx context.Context, messages []Message, 
 		model = b.defaultLLMModel
 	}
 
+	// Strip provider prefix before sending to Gemini API (e.g. "gemini/gemini-2.5-flash" -> "gemini-2.5-flash")
+	bareModel := extractModelName(model)
+
 	// Gemini content generation endpoint: /models/{model}:generateContent
-	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", b.endpoint, model, b.apiKey)
+	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", b.endpoint, bareModel, b.apiKey)
 
 	// Convert messages to Gemini format
 	// Gemini uses "user" and "model" roles (not "assistant")

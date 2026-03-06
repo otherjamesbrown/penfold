@@ -291,8 +291,9 @@ func (b *MLXBackend) GenerateEmbedding(ctx context.Context, text string, model s
 func (b *MLXBackend) doEmbeddingRequest(ctx context.Context, text string, model string) (*EmbeddingResult, error) {
 	url := b.embeddingsURL + "/v1/embeddings"
 
+	// Strip provider prefix before sending to Ollama API (e.g. "ollama/mxbai-embed-large" -> "mxbai-embed-large")
 	reqBody := openaiEmbedRequest{
-		Model: model,
+		Model: extractModelName(model),
 		Input: text,
 	}
 
@@ -408,10 +409,13 @@ func (b *MLXBackend) ChatCompletion(ctx context.Context, messages []Message, opt
 		model = b.defaultLLMModel
 	}
 
+	// Strip provider prefix for API requests (e.g. "ollama/qwen3:8b" -> "qwen3:8b")
+	bareModel := extractModelName(model)
+
 	// qwen3 models require the native Ollama API to disable thinking mode.
 	// The OpenAI-compatible endpoint ignores think:false.
-	if strings.HasPrefix(strings.ToLower(model), "qwen3") {
-		return b.ollamaChatCompletion(ctx, messages, model, opts)
+	if strings.HasPrefix(strings.ToLower(bareModel), "qwen3") {
+		return b.ollamaChatCompletion(ctx, messages, bareModel, opts)
 	}
 
 	url := b.llmURL + "/v1/chat/completions"
@@ -426,7 +430,7 @@ func (b *MLXBackend) ChatCompletion(ctx context.Context, messages []Message, opt
 	}
 
 	reqBody := chatRequest{
-		Model:    model,
+		Model:    bareModel,
 		Messages: chatMsgs,
 	}
 
