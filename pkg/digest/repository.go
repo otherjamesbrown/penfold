@@ -18,6 +18,12 @@ const (
 	DigestTypeDaily   = "daily"
 	DigestTypeWeekly  = "weekly"
 	DigestTypeJournal = "journal"
+
+	// Rollup and journal rollup digest types.
+	DigestTypeRollup          = "rollup"
+	DigestTypeJournalDaily    = "journal_daily"
+	DigestTypeJournalWeekly   = "journal_weekly"
+	DigestTypeJournalOverview = "journal_overview"
 )
 
 // Digest represents a generated digest record.

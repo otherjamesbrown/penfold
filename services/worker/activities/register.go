@@ -41,6 +41,8 @@ type Registrar struct {
 	instructionEvaluationActivities   *InstructionEvaluationActivities
 	digestActivities                  *DigestActivities
 	newsletterExtractActivities       *NewsletterExtractActivities
+	digestRollupActivities            *DigestRollupActivities
+	journalRollupActivities           *JournalRollupActivities
 }
 
 // NewRegistrar creates a new activity registrar.
@@ -197,6 +199,18 @@ func (r *Registrar) WithDigestActivities(da *DigestActivities) *Registrar {
 // WithNewsletterExtractActivities adds newsletter structured extraction activities to the registrar.
 func (r *Registrar) WithNewsletterExtractActivities(nea *NewsletterExtractActivities) *Registrar {
 	r.newsletterExtractActivities = nea
+	return r
+}
+
+// WithDigestRollupActivities adds digest rollup activities to the registrar.
+func (r *Registrar) WithDigestRollupActivities(dra *DigestRollupActivities) *Registrar {
+	r.digestRollupActivities = dra
+	return r
+}
+
+// WithJournalRollupActivities adds journal rollup activities to the registrar.
+func (r *Registrar) WithJournalRollupActivities(jra *JournalRollupActivities) *Registrar {
+	r.journalRollupActivities = jra
 	return r
 }
 
@@ -509,6 +523,40 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		})
 	}
 
+	// Digest rollup activities (GatherRollupContent, GenerateRollupSummary, DeliverRollupResults)
+	// RecordExecutionMetadata is registered once — from digestRollupActivities if available,
+	// otherwise from journalRollupActivities as a fallback.
+	if r.digestRollupActivities != nil {
+		w.RegisterActivityWithOptions(r.digestRollupActivities.GatherRollupContent, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityGatherRollupContent,
+		})
+		w.RegisterActivityWithOptions(r.digestRollupActivities.GenerateRollupSummary, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityGenerateRollupSummary,
+		})
+		w.RegisterActivityWithOptions(r.digestRollupActivities.DeliverRollupResults, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityDeliverRollupResults,
+		})
+		w.RegisterActivityWithOptions(r.digestRollupActivities.RecordExecutionMetadata, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityRecordExecutionMetadata,
+		})
+	}
+
+	// Journal rollup activities (GatherDailyLedgerEntries, GenerateDailySummary, GenerateWeeklySummary, GenerateOverviewSummary)
+	if r.journalRollupActivities != nil {
+		w.RegisterActivityWithOptions(r.journalRollupActivities.GatherDailyLedgerEntries, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityGatherDailyLedgerEntries,
+		})
+		w.RegisterActivityWithOptions(r.journalRollupActivities.GenerateDailySummary, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityGenerateDailySummary,
+		})
+		w.RegisterActivityWithOptions(r.journalRollupActivities.GenerateWeeklySummary, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityGenerateWeeklySummary,
+		})
+		w.RegisterActivityWithOptions(r.journalRollupActivities.GenerateOverviewSummary, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityGenerateOverviewSummary,
+		})
+	}
+
 	// Graph activities for Outlook and Teams sync workflows
 	r.registerGraphActivities(w)
 }
@@ -766,6 +814,14 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		// NewsletterExtract, PersistExtractedData
 		if r.newsletterExtractActivities != nil {
 			count += 2
+		}
+		// GatherRollupContent, GenerateRollupSummary, DeliverRollupResults, RecordExecutionMetadata
+		if r.digestRollupActivities != nil {
+			count += 4
+		}
+		// GatherDailyLedgerEntries, GenerateDailySummary, GenerateWeeklySummary, GenerateOverviewSummary
+		if r.journalRollupActivities != nil {
+			count += 4
 		}
 		// CheckGraphAuth, FetchOutlookMessages, ProcessOutlookMessage, UpdateOutlookSyncState, RollbackOutlookSync,
 		// FetchTeamChannels, FetchChannelMessages, ProcessTeamsThread, UpdateTeamsSyncState, RollbackTeamsSync,

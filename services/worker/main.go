@@ -857,6 +857,25 @@ func main() {
 		logger.Info("Digest activities initialized with database and AI client")
 	}
 
+	// Initialize Digest Rollup Activities (schedule-driven content rollup with delivery)
+	if dbPool != nil && aiClient != nil {
+		digestRepo := digest.NewRepository(dbPool)
+		schedRepo := schedule.NewRepository(dbPool)
+		promptRepo := pipeline.NewRepository(dbPool)
+		digestRollupActivities := activities.NewDigestRollupActivities(dbPool, digestRepo, schedRepo, aiClient, promptRepo, logger)
+		activityRegistrar.WithDigestRollupActivities(digestRollupActivities)
+		logger.Info("Digest rollup activities initialized with database and AI client")
+	}
+
+	// Initialize Journal Rollup Activities (daily/weekly/overview journal generation)
+	if dbPool != nil && aiClient != nil {
+		digestRepo := digest.NewRepository(dbPool)
+		promptRepo := pipeline.NewRepository(dbPool)
+		journalRollupActivities := activities.NewJournalRollupActivities(dbPool, digestRepo, aiClient, promptRepo, logger)
+		activityRegistrar.WithJournalRollupActivities(journalRollupActivities)
+		logger.Info("Journal rollup activities initialized with database and AI client")
+	}
+
 	// Initialize Threading Activities (Stage 2.5: email threading)
 	if dbPool != nil {
 		sourceRepo := activities.NewPostgresSourceRepository(dbPool, logger)
