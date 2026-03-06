@@ -57,6 +57,8 @@ func ParseEmailBody(bodyText, bodyHTML string) *EmailParseResult {
 	// Step 1: Convert HTML to text if present
 	if bodyHTML != "" {
 		result.CleanBody = htmlToText(bodyHTML)
+	} else if looksLikeHTML(bodyText) {
+		result.CleanBody = htmlToText(bodyText)
 	} else {
 		result.CleanBody = bodyText
 	}
@@ -76,6 +78,24 @@ func ParseEmailBody(bodyText, bodyHTML string) *EmailParseResult {
 	result.QuotedReplyDetected = detected
 
 	return result
+}
+
+// looksLikeHTML returns true if the string appears to contain an HTML document.
+// It checks the first 500 characters (case-insensitive) for common HTML document
+// markers: <html, <!doctype html, or <body. This heuristic is used when bodyHTML
+// is empty but bodyText may contain raw HTML (pre-pf-dfbc24 emails).
+func looksLikeHTML(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	sample := s
+	if len(sample) > 500 {
+		sample = sample[:500]
+	}
+	lower := strings.ToLower(sample)
+	return strings.Contains(lower, "<html") ||
+		strings.Contains(lower, "<!doctype html") ||
+		strings.Contains(lower, "<body")
 }
 
 // htmlToText converts HTML to plain text.

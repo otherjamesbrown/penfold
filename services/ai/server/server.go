@@ -922,17 +922,18 @@ func (s *AIServer) TriageContent(ctx context.Context, req *aiv1.TriageContentReq
 		{Role: "user", Content: userPrompt},
 	}
 
+	triageStageParams := s.getStageParams(ctx, "triage")
 	opts := backend.CompletionOptions{
 		Model:          model,
-		Temperature:    0.1, // Low temperature for consistent classification
-		MaxTokens:      512, // Increased from 256 to avoid truncation on schema-constrained output
+		Temperature:    triageStageParams.TemperatureOr(0.1), // Low temperature for consistent classification
+		MaxTokens:      triageStageParams.MaxTokensOr(512),   // Avoid truncation on schema-constrained output
 		JSONMode:       true,
 		ResponseSchema: triageSchema,
 	}
 
 	s.applyModelConstraints(ctx, model, &opts)
 	// Retry loop: up to 2 retries on malformed output
-	const maxTriageRetries = 2
+	maxTriageRetries := triageStageParams.MaxRetriesOr(2)
 	var triageResult *triageResult
 	var result *backend.CompletionResult
 	var lastErr error

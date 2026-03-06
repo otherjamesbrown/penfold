@@ -819,6 +819,51 @@ Here is the original message content.`
 	}
 }
 
+// TestParseEmailBody_HtmlInBodyText is a REPRODUCTION TEST for bug pf-d09430.
+//
+// BUG: ParseEmailBody lines 57-62 — when bodyHTML is empty, raw HTML in bodyText passes
+// through to CleanBody without detection or stripping. This happens for pre-pf-dfbc24 emails
+// where body_html is absent from ingestion_metadata, so the caller passes the raw body_text
+// value which may itself contain HTML markup.
+//
+// The existing htmlToText() function at line 87 already strips HTML correctly. The bug is
+// that it is never called when bodyHTML == "" even if bodyText contains HTML.
+//
+// EXPECTED BEHAVIOR: CleanBody should contain the plain text content ("Newsletter content")
+// and must NOT contain any HTML tags (<html>, <style>, <body>, <p>, etc.).
+//
+// This test MUST FAIL against the current code because the raw HTML passes through unchanged.
+func TestParseEmailBody_HtmlInBodyText(t *testing.T) {
+	// Realistic HTML newsletter content as it would appear in body_text for a pre-pf-dfbc24
+	// email where body_html was never stored separately.
+	bodyText := `<html><head><style>body { font-family: Arial; color: #333; } .header { background: #0066cc; }</style></head><body><div class="header"><h1>Monthly Newsletter</h1></div><p>Newsletter content</p><p>Please click <a href="https://example.com">here</a> to unsubscribe.</p></body></html>`
+	bodyHTML := "" // Simulates pre-pf-dfbc24 email: body_html absent from ingestion_metadata
+
+	result := ParseEmailBody(bodyText, bodyHTML)
+
+	// CleanBody must NOT contain raw HTML tags
+	htmlTags := []string{"<html>", "<head>", "<style>", "<body>", "<div", "<h1>", "<p>", "<a "}
+	for _, tag := range htmlTags {
+		if strings.Contains(result.CleanBody, tag) {
+			t.Errorf("CleanBody contains raw HTML tag %q — htmlToText was not called on bodyText.\nCleanBody:\n%s", tag, result.CleanBody)
+		}
+	}
+
+	// CleanBody MUST contain the actual text content
+	if !strings.Contains(result.CleanBody, "Newsletter content") {
+		t.Errorf("CleanBody is missing expected text content 'Newsletter content'.\nCleanBody:\n%s", result.CleanBody)
+	}
+
+	if !strings.Contains(result.CleanBody, "Monthly Newsletter") {
+		t.Errorf("CleanBody is missing expected heading text 'Monthly Newsletter'.\nCleanBody:\n%s", result.CleanBody)
+	}
+
+	// CSS/style content must NOT appear in CleanBody
+	if strings.Contains(result.CleanBody, "font-family") || strings.Contains(result.CleanBody, "background:") {
+		t.Errorf("CleanBody contains raw CSS from <style> block — style block was not stripped.\nCleanBody:\n%s", result.CleanBody)
+	}
+}
+
 // TestOutlookQuotedReply_QuotedNameInFrom is a REPRODUCTION TEST for bug pf-d34d8f.
 //
 // BUG: When Outlook HTML uses <b>From: </b>"Dunn, Tim" the HTML tokenizer
