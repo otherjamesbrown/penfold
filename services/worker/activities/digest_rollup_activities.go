@@ -13,7 +13,6 @@ import (
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	"github.com/otherjamesbrown/penfold/pkg/digest"
-	pferrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/pipeline"
 	"github.com/otherjamesbrown/penfold/pkg/schedule"
@@ -506,9 +505,6 @@ func (a *DigestRollupActivities) RecordExecutionMetadata(ctx context.Context, in
 			logging.F("schedule_id", input.ScheduleID),
 		)
 	}
-
-	// Fix ErrNotFound wrapping: ignore not-found on schedule update (may have been deleted)
-	_ = pferrors.IsNotFound(err)
 
 	logger.Info("Execution metadata recorded",
 		logging.F("execution_id", execID),

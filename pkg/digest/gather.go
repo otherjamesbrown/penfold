@@ -53,7 +53,7 @@ func GatherAttributedContent(ctx context.Context, pool *pgxpool.Pool, tenantID s
 		       COALESCE(s.ingestion_metadata->>'subject', ''),
 		       COALESCE(s.ingestion_metadata->>'from_address', ''),
 		       s.source_timestamp,
-		       COALESCE(ce.extracted_data->>'summary', '')
+		       COALESCE(ce.extracted_data->>'summary', ce.extracted_data->'newsletter'->>'summary', '')
 		FROM sources s
 		LEFT JOIN content_enrichment ce ON ce.source_id = s.id AND ce.tenant_id = s.tenant_id::text
 		WHERE s.tenant_id = $1::uuid
@@ -292,7 +292,7 @@ func GatherContentBySourceFilter(ctx context.Context, pool *pgxpool.Pool,
 		       COALESCE(s.ingestion_metadata->>'subject', ''),
 		       COALESCE(s.ingestion_metadata->>'from_address', ''),
 		       s.source_timestamp,
-		       COALESCE(ce.extracted_data->>'summary', '')
+		       COALESCE(ce.extracted_data->>'summary', ce.extracted_data->'newsletter'->>'summary', '')
 		FROM sources s
 		LEFT JOIN content_enrichment ce ON ce.source_id = s.id AND ce.tenant_id = s.tenant_id::text
 		WHERE %s
