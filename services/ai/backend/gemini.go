@@ -185,7 +185,7 @@ func (b *GeminiBackend) GenerateEmbedding(ctx context.Context, text string, mode
 	}
 
 	// Strip provider prefix before sending to Gemini API (e.g. "gemini/text-embedding-004" -> "text-embedding-004")
-	bareModel := extractModelName(model)
+	bareModel := ExtractModelName(model)
 
 	// Gemini embedding endpoint: /models/{model}:embedContent
 	url := fmt.Sprintf("%s/models/%s:embedContent?key=%s", b.endpoint, bareModel, b.apiKey)
@@ -290,7 +290,7 @@ func (b *GeminiBackend) ChatCompletion(ctx context.Context, messages []Message, 
 	}
 
 	// Strip provider prefix before sending to Gemini API (e.g. "gemini/gemini-2.5-flash" -> "gemini-2.5-flash")
-	bareModel := extractModelName(model)
+	bareModel := ExtractModelName(model)
 
 	// Gemini content generation endpoint: /models/{model}:generateContent
 	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", b.endpoint, bareModel, b.apiKey)

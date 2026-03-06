@@ -3,6 +3,7 @@ package backend
 
 import (
 	"context"
+	"fmt"
 	"strings"
 )
 
@@ -39,7 +40,7 @@ func (b *CompositeBackend) ChatCompletion(ctx context.Context, messages []Messag
 		return b.gemini.ChatCompletion(ctx, messages, opts)
 	case "anthropic":
 		if b.anthropic == nil {
-			return nil, ErrRequestFailed
+			return nil, fmt.Errorf("%w: anthropic backend not configured — set ANTHROPIC_API_KEY", ErrRequestFailed)
 		}
 		return b.anthropic.ChatCompletion(ctx, messages, opts)
 	default:

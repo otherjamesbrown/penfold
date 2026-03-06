@@ -105,9 +105,9 @@ func extractProvider(modelID string) string {
 	return ""
 }
 
-// extractModelName returns the model name portion of a "provider/model-name" string.
+// ExtractModelName returns the model name portion of a "provider/model-name" string.
 // Returns the whole string if no "/" is present (backward compatibility).
-func extractModelName(modelID string) string {
+func ExtractModelName(modelID string) string {
 	if idx := strings.Index(modelID, "/"); idx >= 0 {
 		return modelID[idx+1:]
 	}

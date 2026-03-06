@@ -14,6 +14,6 @@ VALUES
   ('ollama/mxbai-embed-large', 'mxbai-embed-large', 'ollama', 'mxbai-embed-large', 512, 0, '{embedding}', true, true, 10, '{"embedding_dimensions": 1024}', NOW(), NOW()),
   ('ollama/qwen3:8b', 'Qwen3 8B', 'ollama', 'qwen3:8b', 32768, 8192, '{chat,classification,extraction,summarization}', true, true, 3, '{}', NOW(), NOW()),
   ('anthropic/claude-haiku-4-5', 'Claude Haiku 4.5', 'anthropic', 'claude-haiku-4-5-20251001', 200000, 8192, '{chat,classification,extraction,summarization,json_schema,code_generation,vision}', false, true, 7, '{}', NOW(), NOW()),
-  ('anthropic/claude-sonnet-4-6', 'Claude Sonnet 4.6', 'anthropic', 'claude-sonnet-4-6', 200000, 16384, '{chat,classification,extraction,summarization,json_schema,code_generation,vision}', false, true, 6, '{}', NOW(), NOW()),
+  ('anthropic/claude-sonnet-4-6', 'Claude Sonnet 4.6', 'anthropic', 'claude-sonnet-4-6-20250514', 200000, 16384, '{chat,classification,extraction,summarization,json_schema,code_generation,vision}', false, true, 6, '{}', NOW(), NOW()),
   ('ollama/nomic-embed-text', 'Nomic Embed Text', 'ollama', 'nomic-embed-text', 8192, 0, '{embedding}', true, true, 5, '{"embedding_dimensions": 768}', NOW(), NOW())
 ON CONFLICT (id) DO NOTHING;

@@ -283,9 +283,9 @@ func (s *AIServer) resolveEmbeddingModel(ctx context.Context) (model string, fal
 		if err == nil && len(rules) > 0 {
 			rule := rules[0] // Highest priority (sorted by priority DESC)
 			if len(rule.PreferredModels) > 0 {
-				model = stripProviderPrefix(rule.PreferredModels[0])
+				model = backend.ExtractModelName(rule.PreferredModels[0])
 				for _, fb := range rule.FallbackModels {
-					fallbacks = append(fallbacks, stripProviderPrefix(fb))
+					fallbacks = append(fallbacks, backend.ExtractModelName(fb))
 				}
 				s.logger.Debug("RoutingRule matched for embedding",
 					logging.F("rule_name", rule.Name),
@@ -304,14 +304,6 @@ func (s *AIServer) resolveEmbeddingModel(ctx context.Context) (model string, fal
 	return s.resolveModel(ctx, "embed"), nil, ""
 }
 
-// stripProviderPrefix removes the provider prefix from a model name.
-// e.g., "ollama/mxbai-embed-large" → "mxbai-embed-large"
-func stripProviderPrefix(model string) string {
-	if idx := strings.LastIndex(model, "/"); idx >= 0 {
-		return model[idx+1:]
-	}
-	return model
-}
 
 // GenerateEmbedding creates a vector embedding for the given text.
 // Used for semantic search and similarity matching.
@@ -446,7 +438,7 @@ func (s *AIServer) GenerateSummary(ctx context.Context, req *aiv1.SummaryRequest
 				for _, rule := range rules {
 					if registry.MatchesConditions(rule.Conditions, attrs) {
 						if len(rule.PreferredModels) > 0 {
-							model = stripProviderPrefix(rule.PreferredModels[0])
+							model = backend.ExtractModelName(rule.PreferredModels[0])
 							break
 						}
 					}
@@ -794,7 +786,7 @@ func (s *AIServer) ClassifyContent(ctx context.Context, req *aiv1.ClassifyConten
 		multiLabel = req.GetMultiLabel()
 	}
 
-	systemPrompt := s.buildClassificationSystemPrompt(ctx, categories, multiLabel)
+	systemPrompt, classificationSchema := s.buildClassificationSystemPrompt(ctx, categories, multiLabel)
 	userPrompt := fmt.Sprintf("Classify the following content:\n\n%s", content)
 
 	messages := []backend.Message{
@@ -803,10 +795,11 @@ func (s *AIServer) ClassifyContent(ctx context.Context, req *aiv1.ClassifyConten
 	}
 
 	opts := backend.CompletionOptions{
-		Model:       model,
-		Temperature: 0.1,
-		MaxTokens:   1024,
-		JSONMode:    true,
+		Model:          model,
+		Temperature:    0.1,
+		MaxTokens:      1024,
+		JSONMode:       true,
+		ResponseSchema: classificationSchema,
 	}
 
 	s.applyModelConstraints(ctx, model, &opts)
@@ -1480,7 +1473,11 @@ func (s *AIServer) parseAssertionsFallback(content string) []*aiv1.Assertion {
 	return []*aiv1.Assertion{}
 }
 
-func (s *AIServer) buildClassificationSystemPrompt(ctx context.Context, categories []string, multiLabel bool) string {
+// buildClassificationSystemPrompt builds the system prompt for content classification.
+// It returns the prompt text and a response schema (nil when using the hardcoded fallback).
+// The schema is threaded through to CompletionOptions.ResponseSchema so that models that
+// support json_schema capability can use it for structured output.
+func (s *AIServer) buildClassificationSystemPrompt(ctx context.Context, categories []string, multiLabel bool) (string, json.RawMessage) {
 	categoryInstruction := ""
 	if len(categories) > 0 {
 		categoryInstruction = fmt.Sprintf("Classify into these categories: %s\n", strings.Join(categories, ", "))
@@ -1510,21 +1507,19 @@ Respond with a JSON object:
 
 Order classifications by confidence (highest first).`, categoryInstruction, multiLabelInstruction)
 
-	if s.promptStore != nil {
-		pt, err := s.promptStore.GetPromptByStage(ctx, "classification", 0)
-		if err == nil && pt != nil {
-			// Replace runtime placeholders in the DB template.
-			r := strings.NewReplacer(
-				"{category_instruction}", categoryInstruction,
-				"{multi_label_instruction}", multiLabelInstruction,
-			)
-			return r.Replace(pt.Content)
-		}
-		if err != nil {
-			s.logger.Warn("prompt store lookup failed for classification, using hardcoded fallback", logging.Err(err))
-		}
+	// Use getPrompt to retrieve the DB-backed prompt and its associated response schema.
+	// getPrompt handles nil promptStore, DB errors, and missing prompts with a graceful fallback.
+	rawPrompt, schema, _ := s.getPrompt(ctx, "classification", hardcoded, 0)
+
+	// The DB prompt may contain runtime placeholders — replace them before returning.
+	if rawPrompt != hardcoded {
+		r := strings.NewReplacer(
+			"{category_instruction}", categoryInstruction,
+			"{multi_label_instruction}", multiLabelInstruction,
+		)
+		return r.Replace(rawPrompt), schema
 	}
-	return hardcoded
+	return hardcoded, nil
 }
 
 type classificationsJSON struct {

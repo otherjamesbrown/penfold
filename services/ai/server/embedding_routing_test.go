@@ -278,10 +278,10 @@ func TestGenerateEmbedding_AllModelsFailReturnsError(t *testing.T) {
 }
 
 // =============================================================================
-// stripProviderPrefix Tests
+// backend.ExtractModelName Tests
 // =============================================================================
 
-func TestStripProviderPrefix(t *testing.T) {
+func TestExtractModelName(t *testing.T) {
 	tests := []struct {
 		input string
 		want  string
@@ -294,7 +294,7 @@ func TestStripProviderPrefix(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			assert.Equal(t, tt.want, stripProviderPrefix(tt.input))
+			assert.Equal(t, tt.want, backend.ExtractModelName(tt.input))
 		})
 	}
 }

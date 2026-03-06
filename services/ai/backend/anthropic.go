@@ -147,7 +147,7 @@ func (b *AnthropicBackend) ChatCompletion(ctx context.Context, messages []Messag
 	}
 
 	// Strip provider prefix before sending to Anthropic API (e.g. "anthropic/claude-haiku-4-5-20251001" -> "claude-haiku-4-5-20251001")
-	bareModel := extractModelName(model)
+	bareModel := ExtractModelName(model)
 
 	// Separate system prompt from messages — Anthropic uses a top-level system field
 	var systemPrompt string
@@ -261,24 +261,34 @@ func (b *AnthropicBackend) ChatCompletion(ctx context.Context, messages []Messag
 		return nil, ErrNoChoices
 	}
 
-	// Extract content from response blocks
-	var content string
+	// Extract content from response blocks.
+	// tool_use blocks take priority over text blocks — if both appear (e.g. a
+	// thinking preamble followed by a tool call), the structured JSON wins.
+	var textContent, toolContent string
 	for _, block := range anthResp.Content {
 		switch block.Type {
 		case "tool_use":
-			// Tool use response — the structured JSON is in Input
-			content = string(block.Input)
+			toolContent = string(block.Input)
 		case "text":
-			content = block.Text
+			textContent = block.Text
 		}
 	}
+	var content string
+	if toolContent != "" {
+		content = toolContent
+	} else {
+		content = textContent
+	}
 
-	// Normalize stop reason to OpenAI-compatible format
-	finishReason := anthResp.StopReason
-	if finishReason == "max_tokens" {
+	// Normalize stop reason to OpenAI-compatible format.
+	var finishReason string
+	switch anthResp.StopReason {
+	case "max_tokens":
 		finishReason = "length"
-	} else if finishReason == "end_turn" {
+	case "end_turn", "tool_use", "stop_sequence":
 		finishReason = "stop"
+	default:
+		finishReason = anthResp.StopReason
 	}
 
 	return &CompletionResult{

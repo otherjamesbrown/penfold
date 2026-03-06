@@ -110,9 +110,6 @@ type ModelCapabilities struct {
 	// SupportsJSON indicates if the model supports structured JSON output.
 	SupportsJSON bool `json:"supports_json"`
 
-	// SupportsJSONSchema indicates the model supports schema-enforced JSON output
-	// (Gemini responseSchema, OpenAI json_schema, Ollama format with schema object).
-	SupportsJSONSchema bool `json:"supports_json_schema"`
 }
 
 // HasCapability checks if the model has a specific capability.

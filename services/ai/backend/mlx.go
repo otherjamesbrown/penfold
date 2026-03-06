@@ -300,7 +300,7 @@ func (b *MLXBackend) doEmbeddingRequest(ctx context.Context, text string, model 
 
 	// Strip provider prefix before sending to Ollama API (e.g. "ollama/mxbai-embed-large" -> "mxbai-embed-large")
 	reqBody := openaiEmbedRequest{
-		Model: extractModelName(model),
+		Model: ExtractModelName(model),
 		Input: text,
 	}
 
@@ -417,7 +417,7 @@ func (b *MLXBackend) ChatCompletion(ctx context.Context, messages []Message, opt
 	}
 
 	// Strip provider prefix for API requests (e.g. "ollama/qwen3:8b" -> "qwen3:8b")
-	bareModel := extractModelName(model)
+	bareModel := ExtractModelName(model)
 
 	// qwen3 models require the native Ollama API to disable thinking mode.
 	// The OpenAI-compatible endpoint ignores think:false.
