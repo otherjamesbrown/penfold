@@ -196,8 +196,25 @@ func main() {
 		logging.F("default_model", cfg.DefaultLLMModel),
 	)
 
-	// Create composite backend: MLX for embeddings, MLX/Ollama for local LLM, Gemini for gemini-* models
-	compositeBackend := backend.NewCompositeBackend(mlxBackend, mlxBackend, geminiBackend)
+	// Create Anthropic backend (optional — graceful degradation if API key not set)
+	var anthropicBackend backend.Backend
+	if cfg.AnthropicAPIKey != "" {
+		ab, err := backend.NewAnthropicBackend(&backend.AnthropicConfig{
+			APIKey:          cfg.AnthropicAPIKey,
+			DefaultLLMModel: "claude-haiku-4-5-20251001",
+		})
+		if err != nil {
+			logger.Warn("Anthropic backend not configured", logging.Err(err))
+		} else {
+			anthropicBackend = ab
+			logger.Info("Anthropic backend configured",
+				logging.F("default_model", "claude-haiku-4-5-20251001"),
+			)
+		}
+	}
+
+	// Create composite backend: MLX for embeddings, MLX/Ollama for local LLM, Gemini for gemini-* models, Anthropic for anthropic-* models
+	compositeBackend := backend.NewCompositeBackend(mlxBackend, mlxBackend, geminiBackend, anthropicBackend)
 	defer func() { _ = compositeBackend.Close() }()
 
 	// Register MLX embeddings health check (non-critical)

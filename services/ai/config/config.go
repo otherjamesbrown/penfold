@@ -64,6 +64,9 @@ type Config struct {
 	// DBURL is the PostgreSQL connection string for dynamic model config (optional).
 	// If not set, model config resolution falls back to env vars only.
 	DBURL string
+
+	// AnthropicAPIKey is the API key for Anthropic Claude.
+	AnthropicAPIKey string
 }
 
 // Default configuration values.
@@ -211,6 +214,10 @@ func Load() (*Config, error) {
 	// Load optional DB URL for dynamic model config
 	if v := os.Getenv("AI_DB_URL"); v != "" {
 		cfg.DBURL = v
+	}
+
+	if v := os.Getenv("ANTHROPIC_API_KEY"); v != "" {
+		cfg.AnthropicAPIKey = v
 	}
 
 	if err := cfg.Validate(); err != nil {
