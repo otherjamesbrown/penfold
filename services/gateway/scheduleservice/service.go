@@ -281,6 +281,45 @@ func (s *Service) DeleteSchedule(ctx context.Context, req *schedulev1.DeleteSche
 	return &schedulev1.DeleteScheduleResponse{}, nil
 }
 
+// TriggerSchedule forces an immediate execution of a schedule.
+func (s *Service) TriggerSchedule(ctx context.Context, req *schedulev1.TriggerScheduleRequest) (*schedulev1.TriggerScheduleResponse, error) {
+	s.logger.Debug("TriggerSchedule called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("schedule_id", req.ScheduleId),
+	)
+
+	if req.TenantId == "" || req.ScheduleId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id and schedule_id are required")
+	}
+
+	sched, err := s.repo.Get(ctx, req.TenantId, req.ScheduleId)
+	if err != nil {
+		if isNotFound(err) {
+			return nil, status.Error(codes.NotFound, "schedule not found")
+		}
+		s.logger.Error("Error fetching schedule", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to fetch schedule: %v", err)
+	}
+	if !sched.Enabled {
+		return nil, status.Errorf(codes.FailedPrecondition, "schedule %s is paused — resume before triggering", req.ScheduleId)
+	}
+
+	if err := s.scheduler.Trigger(ctx, req.ScheduleId); err != nil {
+		s.logger.Error("Error triggering schedule",
+			logging.F("schedule_id", req.ScheduleId),
+			logging.Err(err),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to trigger schedule: %v", err)
+	}
+
+	s.logger.Info("Schedule triggered",
+		logging.F("schedule_id", req.ScheduleId),
+		logging.F("tenant_id", req.TenantId),
+	)
+
+	return &schedulev1.TriggerScheduleResponse{}, nil
+}
+
 // GetScheduleHistory returns execution history for a schedule. Phase 2 implementation.
 func (s *Service) GetScheduleHistory(_ context.Context, _ *schedulev1.GetScheduleHistoryRequest) (*schedulev1.GetScheduleHistoryResponse, error) {
 	// Phase 2: not yet implemented.

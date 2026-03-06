@@ -196,6 +196,49 @@ func TestE2E_SchedulingInfra_Phase1(t *testing.T) {
 	})
 
 	// =====================================================================
+	// Subtest: trigger_schedule
+	// =====================================================================
+	t.Run("trigger_schedule", func(t *testing.T) {
+		// Trigger the schedule — should succeed since it's enabled
+		_, err := scheduleClient.TriggerSchedule(ctx, &schedulev1.TriggerScheduleRequest{
+			TenantId:   env.TenantID,
+			ScheduleId: createdScheduleID,
+		})
+		require.NoError(t, err, "TriggerSchedule RPC should succeed for enabled schedule")
+		t.Log("Schedule triggered successfully")
+
+		// Trigger a non-existent schedule — should return NotFound
+		_, err = scheduleClient.TriggerSchedule(ctx, &schedulev1.TriggerScheduleRequest{
+			TenantId:   env.TenantID,
+			ScheduleId: "non-existent-schedule-id",
+		})
+		require.Error(t, err, "TriggerSchedule should fail for non-existent schedule")
+		assert.Contains(t, err.Error(), "not found", "error should indicate schedule not found")
+
+		// Pause the schedule, then try to trigger — should return FailedPrecondition
+		_, err = scheduleClient.PauseSchedule(ctx, &schedulev1.PauseScheduleRequest{
+			TenantId:   env.TenantID,
+			ScheduleId: createdScheduleID,
+		})
+		require.NoError(t, err, "PauseSchedule should succeed")
+
+		_, err = scheduleClient.TriggerSchedule(ctx, &schedulev1.TriggerScheduleRequest{
+			TenantId:   env.TenantID,
+			ScheduleId: createdScheduleID,
+		})
+		require.Error(t, err, "TriggerSchedule should fail for paused schedule")
+		assert.Contains(t, err.Error(), "paused", "error should mention schedule is paused")
+
+		// Resume so subsequent tests aren't affected
+		_, err = scheduleClient.ResumeSchedule(ctx, &schedulev1.ResumeScheduleRequest{
+			TenantId:   env.TenantID,
+			ScheduleId: createdScheduleID,
+		})
+		require.NoError(t, err, "ResumeSchedule should succeed")
+		t.Log("Schedule resumed after trigger-paused test")
+	})
+
+	// =====================================================================
 	// Subtest: update_schedule
 	// =====================================================================
 	t.Run("update_schedule", func(t *testing.T) {

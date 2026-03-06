@@ -129,6 +129,17 @@ func (ts *TemporalScheduler) Resume(ctx context.Context, scheduleID string) erro
 	return nil
 }
 
+// Trigger forces an immediate execution of a Temporal schedule.
+func (ts *TemporalScheduler) Trigger(ctx context.Context, scheduleID string) error {
+	handle := ts.client.ScheduleClient().GetHandle(ctx, scheduleID)
+	if err := handle.Trigger(ctx, client.ScheduleTriggerOptions{
+		Overlap: enums.SCHEDULE_OVERLAP_POLICY_ALLOW_ALL,
+	}); err != nil {
+		return fmt.Errorf("trigger temporal schedule %s: %w", scheduleID, err)
+	}
+	return nil
+}
+
 // Describe returns the description of a Temporal schedule.
 func (ts *TemporalScheduler) Describe(ctx context.Context, scheduleID string) (*client.ScheduleDescription, error) {
 	handle := ts.client.ScheduleClient().GetHandle(ctx, scheduleID)
