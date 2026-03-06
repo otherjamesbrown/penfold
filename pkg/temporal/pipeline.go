@@ -97,6 +97,9 @@ var StageActivityMap = map[string][]string{
 	"embed":               {ActivityGenerateContentEmbedding},
 	"attribute_project":      {ActivityAttributeProject},
 	"instruction_evaluate":   {ActivityInstructionEvaluate},
+	// newsletter_extract: structured JSON extraction stored in extracted_data['newsletter'].
+	// Uses two activities: LLM call + JSONB persist. No assertions or entity mentions created.
+	"newsletter_extract": {ActivityNewsletterExtract, ActivityPersistExtractedData},
 }
 
 // ValidateStageRegistry compares pipeline_definitions stage names against registered

@@ -11,8 +11,9 @@ import (
 
 func TestFullPipelineTotalSteps(t *testing.T) {
 	got := FullPipelineTotalSteps()
-	if got != 7 {
-		t.Errorf("FullPipelineTotalSteps() = %d, want 7", got)
+	// Parse, Triage, Extract, Context, EnrichEntities, Analyze, Persist, Embed
+	if got != 8 {
+		t.Errorf("FullPipelineTotalSteps() = %d, want 8", got)
 	}
 }
 
@@ -25,7 +26,7 @@ func TestSkipDeepTotalSteps(t *testing.T) {
 }
 
 func TestStageNames(t *testing.T) {
-	expected := []string{"Parse", "Triage", "Extract", "Context", "Analyze", "Persist", "Embed"}
+	expected := []string{"Parse", "Triage", "Extract", "Context", "EnrichEntities", "Analyze", "Persist", "Embed"}
 	got := StageNames()
 
 	if len(got) != len(expected) {
@@ -59,11 +60,12 @@ func TestRequiredActivities(t *testing.T) {
 
 func TestDeepProcessingActivities(t *testing.T) {
 	got := DeepProcessingActivities()
-	// Deep = SkipWhenLow stages: Extract, Context, Analyze, Persist
+	// Deep = SkipWhenLow stages: Extract, Context, EnrichEntities, Analyze, Persist
 	expected := map[string]bool{
 		ActivityExtractEntitiesActivity: true,
 		ActivityExtractAssertions:       true,
 		ActivityBuildContextPackage:     true,
+		ActivityEnrichEntities:          true,
 		ActivityDeepAnalyze:             true,
 		ActivityPersistFindings:         true,
 	}

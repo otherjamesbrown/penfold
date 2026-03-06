@@ -71,6 +71,10 @@ const (
 	ActivityGenerateDailySummary     = "GenerateDailySummary"
 	ActivityGenerateWeeklySummary    = "GenerateWeeklySummary"
 	ActivityGenerateOverviewSummary  = "GenerateOverviewSummary"
+
+	// Newsletter enrichment activities
+	ActivityNewsletterExtract    = "NewsletterExtract"
+	ActivityPersistExtractedData = "PersistExtractedData"
 )
 
 // AI Task Queue activity names (4 unique activities).
@@ -204,6 +208,9 @@ func AllMainQueueActivities() []string {
 		ActivityGenerateDailySummary,
 		ActivityGenerateWeeklySummary,
 		ActivityGenerateOverviewSummary,
+		// Newsletter enrichment activities
+		ActivityNewsletterExtract,
+		ActivityPersistExtractedData,
 		// Graph API activities (Outlook + Teams sync + Transcript sync)
 		ActivityCheckGraphAuth,
 		ActivityFetchOutlookMessages,

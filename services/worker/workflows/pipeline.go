@@ -629,6 +629,34 @@ type PersistFindingsOutput struct {
 	AffinityUpdates        int `json:"affinity_updates"`
 }
 
+// NewsletterExtractInput is the input for the NewsletterExtract activity.
+type NewsletterExtractInput struct {
+	TenantID string `json:"tenant_id"`
+	SourceID int64  `json:"source_id"`
+	Content  string `json:"content"`
+}
+
+// NewsletterExtractOutput is the output from the NewsletterExtract activity.
+type NewsletterExtractOutput struct {
+	RawJSON          []byte `json:"raw_json"`
+	ModelUsed        string `json:"model_used"`
+	InputTokenCount  int    `json:"input_token_count"`
+	OutputTokenCount int    `json:"output_token_count"`
+}
+
+// PersistExtractedDataInput is the input for the PersistExtractedData activity.
+type PersistExtractedDataInput struct {
+	TenantID string `json:"tenant_id"`
+	SourceID int64  `json:"source_id"`
+	Key      string `json:"key"`
+	Data     []byte `json:"data"`
+}
+
+// PersistExtractedDataOutput is the output from the PersistExtractedData activity.
+type PersistExtractedDataOutput struct {
+	Updated bool `json:"updated"`
+}
+
 // EnrichPersonMetadataInput is the input for the EnrichPersonMetadata activity (Stage 3.5).
 type EnrichPersonMetadataInput struct {
 	TenantID             string            `json:"tenant_id"`
@@ -2425,6 +2453,78 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			}
 		} // End of resolve stage block (stages 3-3.6)
 	} // End of skipExtract block (stages 2-3.6)
+
+	// Stage 2.5: Newsletter Extract
+	// Runs for pipelines with "newsletter_extract" stage (e.g. newsletter pipeline).
+	// Calls the LLM with the newsletter_extract prompt and stores structured JSON
+	// in content_enrichment.extracted_data['newsletter']. No assertions are created.
+	// This stage is mutually exclusive with extract_ner/extract_semantic — newsletter
+	// pipeline uses newsletter_extract instead.
+	if stageInPipeline(stageConfigMap, "newsletter_extract") {
+		newsletterStart := workflow.Now(ctx)
+		logger.Info("pipeline stage starting",
+			"source_id", input.SourceID,
+			"stage", "newsletter_extract",
+			"total_steps", state.status.TotalSteps,
+		)
+
+		var newsletterOutput NewsletterExtractOutput
+		newsletterOpts := stageOpts("newsletter_extract", llmOpts)
+		ctxNewsletter := workflow.WithActivityOptions(ctx, newsletterOpts)
+		newsletterErr := workflow.ExecuteActivity(ctxNewsletter, pkgtemporal.ActivityNewsletterExtract, NewsletterExtractInput{
+			TenantID: input.TenantID,
+			SourceID: input.SourceID,
+			Content:  parsedContent,
+		}).Get(ctx, &newsletterOutput)
+
+		if newsletterErr != nil {
+			logger.Warn("pipeline stage failed (non-blocking)",
+				"source_id", input.SourceID,
+				"stage", "newsletter_extract",
+				"duration_ms", workflow.Now(ctx).Sub(newsletterStart).Milliseconds(),
+				"error", newsletterErr.Error(),
+			)
+		} else {
+			logger.Info("pipeline stage completed",
+				"source_id", input.SourceID,
+				"stage", "newsletter_extract",
+				"duration_ms", workflow.Now(ctx).Sub(newsletterStart).Milliseconds(),
+				"model_used", newsletterOutput.ModelUsed,
+				"output_length", len(newsletterOutput.RawJSON),
+			)
+
+			// Persist the structured JSON to content_enrichment.extracted_data['newsletter'].
+			ctxPersistJSON := workflow.WithActivityOptions(ctx, fastOpts)
+			var persistJSONOutput PersistExtractedDataOutput
+			persistJSONErr := workflow.ExecuteActivity(ctxPersistJSON, pkgtemporal.ActivityPersistExtractedData, PersistExtractedDataInput{
+				TenantID: input.TenantID,
+				SourceID: input.SourceID,
+				Key:      "newsletter",
+				Data:     newsletterOutput.RawJSON,
+			}).Get(ctx, &persistJSONOutput)
+
+			if persistJSONErr != nil {
+				logger.Warn("persist extracted_data failed (non-blocking)",
+					"source_id", input.SourceID,
+					"key", "newsletter",
+					"error", persistJSONErr.Error(),
+				)
+			} else {
+				logger.Info("newsletter extracted data persisted",
+					"source_id", input.SourceID,
+					"updated", persistJSONOutput.Updated,
+				)
+			}
+		}
+
+		state.status.StepsCompleted++
+
+		if checkCancellation() {
+			state.result.Status = "cancelled"
+			state.result.Error = state.cancelReason
+			return state.result, nil
+		}
+	}
 
 	if checkCancellation() {
 		state.result.Status = "cancelled"

@@ -158,15 +158,15 @@ func TestStageInPipeline_StagePresent(t *testing.T) {
 }
 
 // TestExtractGate_SemanticOnlyPipeline verifies that the extraction block runs
-// for pipelines with extract_semantic but not extract_ner (e.g. newsletter).
+// for pipelines with extract_semantic but not extract_ner (e.g. legacy semantic pipelines).
 // Bug fix pf-9fd0fd: extraction gate was too narrow, only checking extract_ner.
+// Note: the newsletter pipeline migrated from extract_semantic to newsletter_extract (pf-8e97ff).
 func TestExtractGate_SemanticOnlyPipeline(t *testing.T) {
-	// Newsletter pipeline: has extract_semantic but not extract_ner
+	// A semantic-only pipeline (not newsletter): has extract_semantic but not extract_ner
 	m := map[string]PipelineStageConfig{
 		"parse":            {Stage: "parse", Enabled: true},
 		"triage":           {Stage: "triage", Enabled: true},
 		"extract_semantic": {Stage: "extract_semantic", Enabled: true},
-		"persist":          {Stage: "persist", Enabled: true},
 		"embed":            {Stage: "embed", Enabled: true},
 	}
 
@@ -175,9 +175,47 @@ func TestExtractGate_SemanticOnlyPipeline(t *testing.T) {
 	semanticInPipeline := stageInPipeline(m, "extract_semantic")
 	extractionShouldRun := nerInPipeline || semanticInPipeline
 
-	assert.False(t, nerInPipeline, "extract_ner not in newsletter pipeline")
-	assert.True(t, semanticInPipeline, "extract_semantic is in newsletter pipeline")
+	assert.False(t, nerInPipeline, "extract_ner not in semantic-only pipeline")
+	assert.True(t, semanticInPipeline, "extract_semantic is in semantic-only pipeline")
 	assert.True(t, extractionShouldRun, "extraction block should run for semantic-only pipeline")
+}
+
+// TestNewsletterPipeline_StageShape verifies that the newsletter pipeline uses
+// newsletter_extract instead of extract_semantic, and does not include persist.
+// Migration 136 replaced extract_semantic+persist with newsletter_extract (pf-8e97ff).
+func TestNewsletterPipeline_StageShape(t *testing.T) {
+	// Newsletter pipeline after migration 136: parse → triage → newsletter_extract → embed
+	m := map[string]PipelineStageConfig{
+		"parse":              {Stage: "parse", Enabled: true},
+		"triage":             {Stage: "triage", Enabled: true},
+		"newsletter_extract": {Stage: "newsletter_extract", Enabled: true},
+		"embed":              {Stage: "embed", Enabled: true},
+	}
+
+	assert.True(t, stageInPipeline(m, "newsletter_extract"), "newsletter_extract should be in newsletter pipeline")
+	assert.False(t, stageInPipeline(m, "extract_semantic"), "extract_semantic should NOT be in newsletter pipeline (replaced by newsletter_extract)")
+	assert.False(t, stageInPipeline(m, "persist"), "persist should NOT be in newsletter pipeline (no assertions to write)")
+	assert.True(t, stageInPipeline(m, "embed"), "embed should still run for newsletter pipeline")
+}
+
+// TestNewsletterExtractGate_DoesNotTriggerStandardExtract verifies that the newsletter_extract
+// stage does not trigger the standard extract block (which writes entity mentions).
+func TestNewsletterExtractGate_DoesNotTriggerStandardExtract(t *testing.T) {
+	// Newsletter pipeline
+	m := map[string]PipelineStageConfig{
+		"parse":              {Stage: "parse", Enabled: true},
+		"triage":             {Stage: "triage", Enabled: true},
+		"newsletter_extract": {Stage: "newsletter_extract", Enabled: true},
+		"embed":              {Stage: "embed", Enabled: true},
+	}
+
+	// The standard extract gate checks for extract_ner or extract_semantic — NOT newsletter_extract
+	nerInPipeline := stageInPipeline(m, "extract_ner")
+	semanticInPipeline := stageInPipeline(m, "extract_semantic")
+	standardExtractShouldRun := nerInPipeline || semanticInPipeline
+
+	assert.False(t, standardExtractShouldRun, "standard extract block should NOT run for newsletter pipeline")
+	assert.True(t, stageInPipeline(m, "newsletter_extract"), "newsletter_extract gate should open instead")
 }
 
 // TestExtractGate_NEROnlyPipeline verifies the extraction gate for

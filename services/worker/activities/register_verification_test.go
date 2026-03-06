@@ -383,6 +383,15 @@ func newFullRegistrar() *Registrar {
 		}).
 		WithGraphActivities(&GraphActivities{
 			logger: logger,
+		}).
+		WithInstructionEvaluationActivities(&InstructionEvaluationActivities{
+			logger: logger,
+		}).
+		WithDigestActivities(&DigestActivities{
+			logger: logger,
+		}).
+		WithNewsletterExtractActivities(&NewsletterExtractActivities{
+			logger: logger,
 		})
 }
 

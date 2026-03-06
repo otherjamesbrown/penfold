@@ -40,6 +40,7 @@ type Registrar struct {
 	graphActivities                   *GraphActivities
 	instructionEvaluationActivities   *InstructionEvaluationActivities
 	digestActivities                  *DigestActivities
+	newsletterExtractActivities       *NewsletterExtractActivities
 }
 
 // NewRegistrar creates a new activity registrar.
@@ -190,6 +191,12 @@ func (r *Registrar) WithInstructionEvaluationActivities(iea *InstructionEvaluati
 // WithDigestActivities adds digest generation activities to the registrar.
 func (r *Registrar) WithDigestActivities(da *DigestActivities) *Registrar {
 	r.digestActivities = da
+	return r
+}
+
+// WithNewsletterExtractActivities adds newsletter structured extraction activities to the registrar.
+func (r *Registrar) WithNewsletterExtractActivities(nea *NewsletterExtractActivities) *Registrar {
+	r.newsletterExtractActivities = nea
 	return r
 }
 
@@ -492,6 +499,16 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		})
 	}
 
+	// Newsletter extraction activities for newsletter_extract pipeline stage
+	if r.newsletterExtractActivities != nil {
+		w.RegisterActivityWithOptions(r.newsletterExtractActivities.NewsletterExtract, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityNewsletterExtract,
+		})
+		w.RegisterActivityWithOptions(r.newsletterExtractActivities.PersistExtractedData, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityPersistExtractedData,
+		})
+	}
+
 	// Graph activities for Outlook and Teams sync workflows
 	r.registerGraphActivities(w)
 }
@@ -745,6 +762,10 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		// GatherJournalData, GenerateJournalNarrative
 		if r.digestActivities != nil {
 			count += 8
+		}
+		// NewsletterExtract, PersistExtractedData
+		if r.newsletterExtractActivities != nil {
+			count += 2
 		}
 		// CheckGraphAuth, FetchOutlookMessages, ProcessOutlookMessage, UpdateOutlookSyncState, RollbackOutlookSync,
 		// FetchTeamChannels, FetchChannelMessages, ProcessTeamsThread, UpdateTeamsSyncState, RollbackTeamsSync,

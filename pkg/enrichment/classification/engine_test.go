@@ -222,6 +222,46 @@ func buildSeededRules() []ClassificationRule {
 				{ID: 25, Field: "from_address", MatchType: "exact", Value: "thesolutioncenter@akamai.com", CaseSensitive: false},
 			},
 		},
+		// --- Broad newsletter patterns (migration 135) ---
+		{
+			ID:               16,
+			TenantID:         "tenant-a",
+			Name:             "newsletter_comms_pattern",
+			Priority:         85,
+			ContentTypeScope: "EMAIL",
+			ContentType:      "EMAIL",
+			ContentSubtype:   "NEWSLETTER",
+			Active:           true,
+			Conditions: []MatchCondition{
+				{ID: 26, Field: "from_address", MatchType: "glob", Value: "*comms@*", CaseSensitive: false},
+			},
+		},
+		{
+			ID:               17,
+			TenantID:         "tenant-a",
+			Name:             "newsletter_wave_pattern",
+			Priority:         85,
+			ContentTypeScope: "EMAIL",
+			ContentType:      "EMAIL",
+			ContentSubtype:   "NEWSLETTER",
+			Active:           true,
+			Conditions: []MatchCondition{
+				{ID: 27, Field: "from_address", MatchType: "glob", Value: "*wave@*", CaseSensitive: false},
+			},
+		},
+		{
+			ID:               18,
+			TenantID:         "tenant-a",
+			Name:             "newsletter_addr_pattern",
+			Priority:         85,
+			ContentTypeScope: "EMAIL",
+			ContentType:      "EMAIL",
+			ContentSubtype:   "NEWSLETTER",
+			Active:           true,
+			Conditions: []MatchCondition{
+				{ID: 28, Field: "from_address", MatchType: "glob", Value: "*newsletter@*", CaseSensitive: false},
+			},
+		},
 	}
 }
 
@@ -1163,5 +1203,50 @@ func TestRuleEngine_NewsletterNotOverrideNotification(t *testing.T) {
 	}
 	if result.RuleName != "jira" {
 		t.Errorf("expected RuleName=jira (priority 10 beats newsletter priority 90), got %q", result.RuleName)
+	}
+}
+
+// TestRuleEngine_BroadNewsletterPatterns verifies that broad glob patterns
+// (migration 135) catch newsletters by from_address pattern.
+func TestRuleEngine_BroadNewsletterPatterns(t *testing.T) {
+	engine := NewEngine(buildSeededRules())
+
+	tests := []struct {
+		name        string
+		fromAddress string
+		wantRule    string
+	}{
+		{"comms@ pattern", "ctgcomms@wavecorp.com", "newsletter_comms_pattern"},
+		{"wave@ pattern", "servicewave@partner.com", "newsletter_wave_pattern"},
+		{"newsletter@ pattern", "newsletter@example.org", "newsletter_addr_pattern"},
+		{"comms@ subdomain", "teamcomms@sub.domain.com", "newsletter_comms_pattern"},
+		{"no match stays unclassified", "bob@acme.com", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := engine.Classify("EMAIL", map[string]string{
+				"from_address": tt.fromAddress,
+				"subject":      "Weekly Update",
+			})
+
+			if tt.wantRule == "" {
+				if result.RuleName != "" {
+					t.Errorf("expected no match for %q, got rule %q", tt.fromAddress, result.RuleName)
+				}
+				return
+			}
+
+			if result.RuleName == "" {
+				t.Errorf("expected match for %q, got no match", tt.fromAddress)
+				return
+			}
+			if result.ContentSubtype != "NEWSLETTER" {
+				t.Errorf("expected NEWSLETTER subtype, got %q", result.ContentSubtype)
+			}
+			if result.RuleName != tt.wantRule {
+				t.Errorf("expected rule %q, got %q", tt.wantRule, result.RuleName)
+			}
+		})
 	}
 }
