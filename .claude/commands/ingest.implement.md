@@ -540,9 +540,12 @@ FAILED (retries exhausted):
 
 ## Checkpoint (MANDATORY)
 
-Before returning to the orchestrator, write a checkpoint:
+Before returning to the orchestrator, append progress to each work shard and write a checkpoint:
 
 ```bash
+# For each shard processed:
+cxp shard append pf-SHARD-ID --body "[$(date -u +%H:%M)] Phase 4 (Implement): [outcome — DONE/FAILED/BLOCKED] (attempt N/3). Next: Phase 5."
+
 cxp session checkpoint "$(cat <<'CKPT'
 ## Phase 4 Complete: Implementation
 

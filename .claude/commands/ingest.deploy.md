@@ -248,6 +248,9 @@ cxp shard close pf-SHARD-ID
 ### Checkpoint (MANDATORY)
 
 ```bash
+# For each shard deployed:
+cxp shard append pf-SHARD-ID --body "[$(date -u +%H:%M)] Phase 6 (Deploy): Deployed [commit], version verified."
+
 cxp session checkpoint "$(cat <<'CKPT'
 ## Phase 6+7 Complete: Deploy
 

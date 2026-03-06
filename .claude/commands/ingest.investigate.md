@@ -245,9 +245,12 @@ All N items complete. Returning to orchestrator for triage...
 
 ## Checkpoint (MANDATORY)
 
-Before returning to the orchestrator, write a checkpoint:
+Before returning to the orchestrator, append progress to each work shard and write a checkpoint:
 
 ```bash
+# For each shard processed:
+cxp shard append pf-SHARD-ID --body "[$(date -u +%H:%M)] Phase 2 (Investigate): [1-line finding]. Next: Phase 3."
+
 cxp session checkpoint "$(cat <<'CKPT'
 ## Phase 2 Complete: Investigate & Analyze
 

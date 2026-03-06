@@ -502,9 +502,12 @@ Decomposition plan sent to penfold (non-blocking).
 
 ## Checkpoint (MANDATORY)
 
-Before returning to the orchestrator, write a checkpoint:
+Before returning to the orchestrator, append progress to each work shard and write a checkpoint:
 
 ```bash
+# For each shard processed:
+cxp shard append pf-SHARD-ID --body "[$(date -u +%H:%M)] Phase 3 (Triage): [complexity] — [routing decision]. Next: Phase 3.5."
+
 cxp session checkpoint "$(cat <<'CKPT'
 ## Phase 3 Complete: Triage & Decompose
 

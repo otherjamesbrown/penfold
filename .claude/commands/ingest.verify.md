@@ -365,9 +365,12 @@ SHARDS IN needs-review:
 
 ## Checkpoint (MANDATORY)
 
-Before returning to the orchestrator, write a checkpoint:
+Before returning to the orchestrator, append progress to each work shard and write a checkpoint:
 
 ```bash
+# For each shard processed:
+cxp shard append pf-SHARD-ID --body "[$(date -u +%H:%M)] Phase 5 (Verify): Build + tests + code-review [outcome]. Next: Phase 6."
+
 cxp session checkpoint "$(cat <<'CKPT'
 ## Phase 5 Complete: Verify & Review
 

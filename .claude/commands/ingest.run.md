@@ -246,9 +246,37 @@ Skill(skill="ingest.deploy")
 
 ## MANDATORY: Checkpoint After Every Phase
 
-**Before invoking the next phase, write a structured checkpoint to Context Palace.**
-This is non-negotiable. Checkpoints serve as decision gates that survive context compression
-and session death.
+**Before invoking the next phase, do TWO things:**
+
+### 1. Append progress to each work shard
+
+Every shard being worked on gets a timestamped progress line. This gives visibility
+without attaching to tmux — anyone can `cxp shard show` to see where work stands.
+
+```bash
+# For each shard being processed in this phase:
+cxp shard append pf-SHARD-ID --body "$(cat <<'EOF'
+
+[$(date -u +%H:%M)] Phase [N] ([name]): [1-line outcome]. Next: Phase [N+1].
+EOF
+)"
+```
+
+Example progression on a shard:
+```
+[12:01] Phase 0 (Preflight): All services healthy. Next: Phase 1.
+[12:04] Phase 1 (Classify): BUG — pipeline crash on NULL source. Next: Phase 2.
+[12:08] Phase 2 (Investigate): Root cause in gateway/classify.go:142. Next: Phase 3.
+[12:12] Phase 3 (Triage): LOW complexity, single agent. Next: Phase 3.5.
+[12:15] Phase 3.5 (Tests): Wrote TestClassifyNullSource. Next: Phase 4.
+[12:25] Phase 4 (Implement): Fixed, tests passing (attempt 1/3). Next: Phase 5.
+[12:30] Phase 5 (Verify): Build + tests + code-review clean. Next: Phase 6.
+[12:35] Phase 6 (Deploy): Deployed f318918, version verified.
+```
+
+This enables stale-session detection — if no update in N minutes, something is stuck.
+
+### 2. Write session checkpoint
 
 ```bash
 cxp session checkpoint "$(cat <<'CKPT'
