@@ -2,6 +2,7 @@
 package workflows
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -638,18 +639,18 @@ type NewsletterExtractInput struct {
 
 // NewsletterExtractOutput is the output from the NewsletterExtract activity.
 type NewsletterExtractOutput struct {
-	RawJSON          []byte `json:"raw_json"`
-	ModelUsed        string `json:"model_used"`
-	InputTokenCount  int    `json:"input_token_count"`
-	OutputTokenCount int    `json:"output_token_count"`
+	RawJSON          json.RawMessage `json:"raw_json"`
+	ModelUsed        string          `json:"model_used"`
+	InputTokenCount  int             `json:"input_token_count"`
+	OutputTokenCount int             `json:"output_token_count"`
 }
 
 // PersistExtractedDataInput is the input for the PersistExtractedData activity.
 type PersistExtractedDataInput struct {
-	TenantID string `json:"tenant_id"`
-	SourceID int64  `json:"source_id"`
-	Key      string `json:"key"`
-	Data     []byte `json:"data"`
+	TenantID string          `json:"tenant_id"`
+	SourceID int64           `json:"source_id"`
+	Key      string          `json:"key"`
+	Data     json.RawMessage `json:"data"`
 }
 
 // PersistExtractedDataOutput is the output from the PersistExtractedData activity.
