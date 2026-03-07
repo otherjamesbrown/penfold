@@ -876,6 +876,14 @@ func main() {
 		logger.Info("Journal rollup activities initialized with database and AI client")
 	}
 
+	// Initialize Newsletter Extract Activities (newsletter_extract pipeline stage)
+	if dbPool != nil && aiClient != nil {
+		promptRepo := pipeline.NewRepository(dbPool)
+		newsletterExtractActivities := activities.NewNewsletterExtractActivities(dbPool, aiClient, promptRepo, logger)
+		activityRegistrar.WithNewsletterExtractActivities(newsletterExtractActivities)
+		logger.Info("Newsletter extract activities initialized with database and AI client")
+	}
+
 	// Initialize Threading Activities (Stage 2.5: email threading)
 	if dbPool != nil {
 		sourceRepo := activities.NewPostgresSourceRepository(dbPool, logger)
