@@ -176,6 +176,7 @@ func (s *SLMPipelineTestSuite) SetupTest() {
 	s.env.RegisterActivityWithOptions(s.activities.CreateEnrichmentRecord, activity.RegisterOptions{Name: "CreateEnrichmentRecord"})
 	s.env.RegisterActivityWithOptions(s.activities.GenerateContentSummary, activity.RegisterOptions{Name: pkgtemporal.ActivityGenerateContentSummary})
 	s.env.RegisterActivityWithOptions(s.activities.DeleteAssertions, activity.RegisterOptions{Name: pkgtemporal.ActivityDeleteAssertions})
+	s.env.RegisterActivityWithOptions(s.activities.FetchPipelineDefinition, activity.RegisterOptions{Name: pkgtemporal.ActivityFetchPipelineDefinition})
 
 	// Default mock expectations for enrichment/threading activities (blocking since pf-67502c fix).
 	// Individual tests can override these with more specific expectations.
@@ -185,6 +186,9 @@ func (s *SLMPipelineTestSuite) SetupTest() {
 	s.activities.On("GenerateContentSummary", mock.Anything, mock.Anything).Maybe().Return(int64(0), nil)
 	// pf-91b00d: DeleteAssertions is best-effort; default to no-op so tests that don't care about it pass.
 	s.activities.On("DeleteAssertions", mock.Anything, mock.Anything).Maybe().Return(&DeleteAssertionsOutput{Deleted: 0}, nil)
+	// FetchPipelineDefinition: default to not-found so tests that don't set input.Pipeline skip the early fetch.
+	// Tests that explicitly set input.Pipeline must override this with specific expectations.
+	s.activities.On("FetchPipelineDefinition", mock.Anything, mock.Anything).Maybe().Return(&FetchPipelineDefinitionOutput{Found: false}, nil)
 }
 
 func (s *SLMPipelineTestSuite) AfterTest(suiteName, testName string) {
@@ -2040,6 +2044,150 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_DeleteAssertions_NotCalledOnFullP
 	s.activities.AssertNotCalled(s.T(), "DeleteAssertions", mock.Anything, mock.MatchedBy(func(in DeleteAssertionsInput) bool {
 		return in.SourceID == 9200
 	}))
+}
+
+// TestSLMPipeline_ReprocessPrefersTriageRouting verifies that when reprocessing,
+// fresh triage routing always wins over the stale pipeline carried in input.Pipeline (pf-cb63c1).
+// Scenario: input.Pipeline="standard" (stale from previous run), triage returns Pipelines=["newsletter"].
+// The post-triage FetchPipelineDefinition must be called with pipeline="newsletter", NOT "standard".
+func (s *SLMPipelineTestSuite) TestSLMPipeline_ReprocessPrefersTriageRouting() {
+	input := PipelineInput{
+		TenantID:    "tenant-1",
+		SourceID:    9301,
+		ContentID:   "em-reprocess01",
+		JobID:       "job-9301",
+		ContentType: "email",
+		BodyText:    "Weekly newsletter content with lots of interesting articles and links.",
+		Subject:     "Weekly Digest",
+		SenderEmail: "newsletter@example.com",
+		Pipeline:    "standard", // Stale pipeline from previous triage run
+	}
+
+	// Early fetch: called with "standard" because input.Pipeline="standard"
+	s.activities.On("FetchPipelineDefinition", mock.Anything, mock.MatchedBy(func(in FetchPipelineDefinitionInput) bool {
+		return in.Pipeline == "standard"
+	})).Return(&FetchPipelineDefinitionOutput{Found: false}, nil)
+
+	// ParseEmail
+	s.activities.On("ParseEmail", mock.Anything, mock.MatchedBy(func(in ParseEmailInput) bool {
+		return in.SourceID == 9301
+	})).Return(&ParseEmailOutput{
+		CleanBody:  "Weekly newsletter content with lots of interesting articles and links.",
+		NewContent: "Weekly newsletter content with lots of interesting articles and links.",
+	}, nil)
+
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.Anything).Return(nil)
+
+	// Triage returns fresh routing to "newsletter" pipeline
+	s.activities.On("Triage", mock.Anything, mock.MatchedBy(func(in TriageInput) bool {
+		return in.SourceID == 9301
+	})).Return(&TriageOutput{
+		Category:           "NEWSLETTER",
+		Importance:         "LOW",
+		SkipDeep:           true,
+		ModelUsed:          "llama-3.2-1b",
+		RoutingContentType: "EMAIL",
+		RoutingSubtype:     "NEWSLETTER",
+		Pipelines:          []string{"newsletter"},
+	}, nil)
+
+	// Post-triage FetchPipelineDefinition MUST be called with "newsletter" (not "standard").
+	// This is the key assertion: fresh triage routing wins.
+	s.activities.On("FetchPipelineDefinition", mock.Anything, mock.MatchedBy(func(in FetchPipelineDefinitionInput) bool {
+		return in.Pipeline == "newsletter"
+	})).Return(&FetchPipelineDefinitionOutput{Found: false}, nil)
+
+	// Downstream stages: stageConfigMap is nil (no pipeline def found), so all default stages run.
+	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.Anything).Return(&SLMPipelineExtractEntitiesOutput{}, nil)
+	s.activities.On("ExtractAssertions", mock.Anything, mock.Anything).Return(0, nil)
+	s.activities.On("BuildContextPackage", mock.Anything, mock.Anything).Return(&BuildContextOutput{}, nil)
+	s.activities.On("DeepAnalyze", mock.Anything, mock.Anything).Return(&DeepAnalyzeOutput{
+		Summary: "Newsletter summary", ModelUsed: "gemini-2.0-flash",
+	}, nil)
+	s.activities.On("PersistFindings", mock.Anything, mock.Anything).Return(&PersistFindingsOutput{}, nil)
+	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.Anything).Return(int64(9301), nil)
+
+	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)
+
+	require.True(s.T(), s.env.IsWorkflowCompleted())
+	require.NoError(s.T(), s.env.GetWorkflowError())
+
+	var result PipelineResult
+	require.NoError(s.T(), s.env.GetWorkflowResult(&result))
+	s.Equal("completed", result.Status)
+
+	// Verify FetchPipelineDefinition was called with "newsletter" (post-triage fetch).
+	s.activities.AssertCalled(s.T(), "FetchPipelineDefinition", mock.Anything, mock.MatchedBy(func(in FetchPipelineDefinitionInput) bool {
+		return in.Pipeline == "newsletter"
+	}))
+}
+
+// TestSLMPipeline_ReprocessFallsBackToInputPipeline verifies that when triage returns
+// no pipeline routing, input.Pipeline is used as fallback (pf-cb63c1).
+// Scenario: input.Pipeline="standard", triage returns empty Pipelines=[].
+// The post-triage FetchPipelineDefinition must be called with pipeline="standard" (fallback).
+func (s *SLMPipelineTestSuite) TestSLMPipeline_ReprocessFallsBackToInputPipeline() {
+	input := PipelineInput{
+		TenantID:    "tenant-1",
+		SourceID:    9302,
+		ContentID:   "em-reprocess02",
+		JobID:       "job-9302",
+		ContentType: "email",
+		BodyText:    "A regular email about project updates and next steps.",
+		Subject:     "Project Update",
+		SenderEmail: "colleague@example.com",
+		Pipeline:    "standard", // input.Pipeline should be fallback when triage has no routing
+	}
+
+	// Early fetch: called with "standard" because input.Pipeline="standard"
+	earlyFetchDef := &FetchPipelineDefinitionOutput{Found: false}
+	s.activities.On("FetchPipelineDefinition", mock.Anything, mock.MatchedBy(func(in FetchPipelineDefinitionInput) bool {
+		return in.Pipeline == "standard"
+	})).Return(earlyFetchDef, nil)
+
+	// ParseEmail
+	s.activities.On("ParseEmail", mock.Anything, mock.MatchedBy(func(in ParseEmailInput) bool {
+		return in.SourceID == 9302
+	})).Return(&ParseEmailOutput{
+		CleanBody:  "A regular email about project updates and next steps.",
+		NewContent: "A regular email about project updates and next steps.",
+	}, nil)
+
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.Anything).Return(nil)
+
+	// Triage returns empty Pipelines (no routing result)
+	s.activities.On("Triage", mock.Anything, mock.MatchedBy(func(in TriageInput) bool {
+		return in.SourceID == 9302
+	})).Return(&TriageOutput{
+		Category:   "INTERNAL_COMMS",
+		Importance: "MEDIUM",
+		SkipDeep:   false,
+		ModelUsed:  "llama-3.2-1b",
+		Pipelines:  []string{}, // Empty — no routing
+	}, nil)
+
+	// Post-triage: pipelineName falls back to input.Pipeline="standard".
+	// earlyPipelineDef is nil (because Found=false above), so the post-triage branch
+	// calls FetchPipelineDefinition again with "standard". The default Maybe() mock handles it.
+
+	// Downstream stages
+	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.Anything).Return(&SLMPipelineExtractEntitiesOutput{}, nil)
+	s.activities.On("ExtractAssertions", mock.Anything, mock.Anything).Return(0, nil)
+	s.activities.On("BuildContextPackage", mock.Anything, mock.Anything).Return(&BuildContextOutput{}, nil)
+	s.activities.On("DeepAnalyze", mock.Anything, mock.Anything).Return(&DeepAnalyzeOutput{
+		Summary: "Project update summary", ModelUsed: "gemini-2.0-flash",
+	}, nil)
+	s.activities.On("PersistFindings", mock.Anything, mock.Anything).Return(&PersistFindingsOutput{}, nil)
+	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.Anything).Return(int64(9302), nil)
+
+	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)
+
+	require.True(s.T(), s.env.IsWorkflowCompleted())
+	require.NoError(s.T(), s.env.GetWorkflowError())
+
+	var result PipelineResult
+	require.NoError(s.T(), s.env.GetWorkflowResult(&result))
+	s.Equal("completed", result.Status)
 }
 
 func TestSLMPipelineTestSuite(t *testing.T) {

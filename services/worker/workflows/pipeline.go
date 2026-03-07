@@ -1564,9 +1564,11 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// Determine the pipeline name and fetch its definition from the database.
 	// If not provided in input, use the first routed pipeline (or "standard" as default).
 	// Falls back to SLMPipelineStages if no definition found.
-	pipelineName := input.Pipeline
-	if pipelineName == "" && len(triageOutput.Pipelines) > 0 {
+	pipelineName := ""
+	if len(triageOutput.Pipelines) > 0 {
 		pipelineName = triageOutput.Pipelines[0]
+	} else if input.Pipeline != "" {
+		pipelineName = input.Pipeline
 	}
 	if pipelineName == "" {
 		pipelineName = "standard"
