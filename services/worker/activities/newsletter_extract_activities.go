@@ -194,7 +194,7 @@ func (a *NewsletterExtractActivities) PersistExtractedData(ctx context.Context, 
 	// This preserves any existing keys and adds/overwrites the specified key.
 	query := `
 		UPDATE content_enrichment
-		SET extracted_data = COALESCE(extracted_data, '{}')::jsonb || jsonb_build_object($1, $2::jsonb),
+		SET extracted_data = COALESCE(extracted_data, '{}')::jsonb || jsonb_build_object($1::text, $2::jsonb),
 		    updated_at = NOW()
 		WHERE source_id = $3 AND tenant_id = $4
 	`
