@@ -110,6 +110,9 @@ type DigestRollupActivities struct {
 	aiClient     AIClient
 	promptRepo   *pipeline.Repository
 	logger       logging.Logger
+	configReader OperationalConfigReader // for per-send whitelist queries
+	emailCreds   *EmailCredentials       // nil = email not configured (WARNING at startup, not crash)
+	senderAddr   string                  // loaded from DB at startup
 }
 
 // NewDigestRollupActivities creates a new DigestRollupActivities instance.
@@ -120,6 +123,7 @@ func NewDigestRollupActivities(
 	aiClient AIClient,
 	promptRepo *pipeline.Repository,
 	logger logging.Logger,
+	configReader OperationalConfigReader,
 ) *DigestRollupActivities {
 	if logger == nil {
 		panic("NewDigestRollupActivities: logger is required")
@@ -143,7 +147,16 @@ func NewDigestRollupActivities(
 		aiClient:     aiClient,
 		promptRepo:   promptRepo,
 		logger:       logger.With(logging.F("component", "digest_rollup_activities")),
+		configReader: configReader,
 	}
+}
+
+// WithEmailCredentials configures email delivery credentials and sender address.
+// Call this after construction when email config is available.
+// emailCreds or senderAddr may remain unset — missing config logs a warning but does not crash.
+func (a *DigestRollupActivities) WithEmailCredentials(creds *EmailCredentials, senderAddr string) {
+	a.emailCreds = creds
+	a.senderAddr = senderAddr
 }
 
 // GatherRollupContent gathers content matching the source filter within the configured window.
@@ -403,9 +416,53 @@ func (a *DigestRollupActivities) DeliverRollupResults(ctx context.Context, input
 			}
 
 		case "email":
-			// Email delivery not yet implemented
-			logger.Info("Email delivery not yet implemented, skipping")
-			deliveryStatus["email"] = "not_yet_implemented"
+			if a.emailCreds == nil {
+				logger.Warn("Email delivery skipped — email not configured")
+				deliveryStatus["email"] = "error: email not configured"
+				continue
+			}
+			// Check outbound whitelist per-send (queried from DB, not cached at startup)
+			whitelistJSON, err := a.configReader.GetString(ctx, input.TenantID, "email.outbound_whitelist")
+			if err != nil {
+				logger.Error("Failed to read outbound whitelist", logging.Err(err))
+				deliveryStatus["email"] = fmt.Sprintf("error: whitelist check failed: %s", err.Error())
+				continue
+			}
+			var whitelist []string
+			if err := json.Unmarshal([]byte(whitelistJSON), &whitelist); err != nil {
+				logger.Error("Failed to parse outbound whitelist", logging.Err(err))
+				deliveryStatus["email"] = fmt.Sprintf("error: invalid whitelist format: %s", err.Error())
+				continue
+			}
+			recipient := input.DeliveryTarget
+			if err := checkOutboundWhitelist(whitelist, recipient); err != nil {
+				logger.Warn("Email recipient not in whitelist", logging.F("recipient", recipient))
+				deliveryStatus["email"] = fmt.Sprintf("error: %s", err.Error())
+				continue
+			}
+			// Render subject from digest name and window
+			subject := fmt.Sprintf("%s — %s to %s", input.Name, input.WindowFrom, input.WindowTo)
+			// Convert body JSON to HTML string
+			var bodyHTML string
+			if err := json.Unmarshal(input.Body, &bodyHTML); err != nil {
+				// If body is not a JSON string, use raw JSON as fallback
+				bodyHTML = string(input.Body)
+			}
+			emailInput := SendEmailInput{
+				From:    a.senderAddr,
+				To:      recipient,
+				Subject: subject,
+				Body:    bodyHTML,
+			}
+			recordHeartbeat(ctx, "sending email")
+			result, err := SendEmail(ctx, *a.emailCreds, emailInput)
+			if err != nil {
+				logger.Error("Failed to send email", logging.Err(err))
+				deliveryStatus["email"] = fmt.Sprintf("error: %s", err.Error())
+			} else {
+				deliveryStatus["email"] = fmt.Sprintf("ok: message_id=%s", result.MessageID)
+				logger.Info("Email sent", logging.F("message_id", result.MessageID), logging.F("recipient", recipient))
+			}
 
 		default:
 			logger.Warn("Unknown delivery type, skipping", logging.F("delivery_type", delivery))

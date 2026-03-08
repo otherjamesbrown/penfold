@@ -862,7 +862,16 @@ func main() {
 		digestRepo := digest.NewRepository(dbPool)
 		schedRepo := schedule.NewRepository(dbPool)
 		promptRepo := pipeline.NewRepository(dbPool)
-		digestRollupActivities := activities.NewDigestRollupActivities(dbPool, digestRepo, schedRepo, aiClient, promptRepo, logger)
+		rollupConfigReader := activities.NewPostgresOperationalConfigReader(dbPool)
+		digestRollupActivities := activities.NewDigestRollupActivities(dbPool, digestRepo, schedRepo, aiClient, promptRepo, logger, rollupConfigReader)
+		// Load email credentials from DB (optional — missing config logs warning, doesn't crash)
+		emailCreds, senderAddr, err := loadEmailCredentials(ctx, rollupConfigReader, "c3170310-78bd-409c-b186-126f40bfa6ad")
+		if err != nil {
+			logger.Warn("Email delivery not configured — email sends will be skipped", logging.F("error", err.Error()))
+		} else {
+			digestRollupActivities.WithEmailCredentials(emailCreds, senderAddr)
+			logger.Info("Email delivery configured", logging.F("sender", senderAddr))
+		}
 		activityRegistrar.WithDigestRollupActivities(digestRollupActivities)
 		logger.Info("Digest rollup activities initialized with database and AI client")
 	}
@@ -1173,4 +1182,30 @@ func (wm *workerManager) createWorkerHealthCheck(taskQueue string) func(ctx cont
 		// More sophisticated health checks can be added here
 		return nil
 	}
+}
+
+// loadEmailCredentials reads Gmail OAuth credentials and sender address from the operational config.
+// Returns an error if any required key is missing — the caller should log a warning and skip email delivery.
+func loadEmailCredentials(ctx context.Context, configReader activities.OperationalConfigReader, tenantID string) (*activities.EmailCredentials, string, error) {
+	senderAddr, err := configReader.GetString(ctx, tenantID, "email.sender_address")
+	if err != nil {
+		return nil, "", fmt.Errorf("email.sender_address: %w", err)
+	}
+	clientID, err := configReader.GetString(ctx, tenantID, "email.oauth_client_id")
+	if err != nil {
+		return nil, "", fmt.Errorf("email.oauth_client_id: %w", err)
+	}
+	clientSecret, err := configReader.GetString(ctx, tenantID, "email.oauth_client_secret")
+	if err != nil {
+		return nil, "", fmt.Errorf("email.oauth_client_secret: %w", err)
+	}
+	refreshToken, err := configReader.GetString(ctx, tenantID, "email.oauth_refresh_token")
+	if err != nil {
+		return nil, "", fmt.Errorf("email.oauth_refresh_token: %w", err)
+	}
+	return &activities.EmailCredentials{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		RefreshToken: refreshToken,
+	}, senderAddr, nil
 }
