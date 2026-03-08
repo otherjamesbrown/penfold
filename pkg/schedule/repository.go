@@ -199,7 +199,7 @@ type ScheduleExecution struct {
 func (r *Repository) CreateExecution(ctx context.Context, exec *ScheduleExecution) (int64, error) {
 	query := `
 		INSERT INTO schedule_execution_history (schedule_id, tenant_id, workflow_run_id, status, started_at, result_metadata)
-		VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6)
+		VALUES ($1, $2::uuid, $3, $4, $5, $6)
 		RETURNING id
 	`
 	var id int64
@@ -237,7 +237,7 @@ func (r *Repository) GetExecutionHistory(ctx context.Context, scheduleID string,
 	query := `
 		SELECT id, schedule_id, tenant_id, workflow_run_id, status, started_at, completed_at, error, result_metadata, created_at
 		FROM schedule_execution_history
-		WHERE schedule_id = $1::uuid
+		WHERE schedule_id = $1
 		ORDER BY started_at DESC
 		LIMIT $2
 	`
