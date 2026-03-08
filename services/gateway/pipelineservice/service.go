@@ -1595,6 +1595,78 @@ func (s *Service) SetConcurrencyConfig(ctx context.Context, req *pipelinev1.SetC
 	}, nil
 }
 
+// GetOperationalConfig retrieves a single operational config value by key.
+func (s *Service) GetOperationalConfig(ctx context.Context, req *pipelinev1.GetOperationalConfigRequest) (*pipelinev1.GetOperationalConfigResponse, error) {
+	s.logger.Debug("GetOperationalConfig called",
+		logging.F("key", req.Key),
+	)
+
+	if req.Key == "" {
+		return nil, status.Error(codes.InvalidArgument, "key is required")
+	}
+
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "database not available")
+	}
+
+	tenantID := s.defaultTenantID(ctx)
+
+	var value string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT value
+		FROM pipeline_operational_config
+		WHERE tenant_id = $1 AND key = $2
+	`, tenantID, req.Key).Scan(&value)
+
+	if err == sql.ErrNoRows {
+		return nil, status.Errorf(codes.NotFound, "config key %q not found", req.Key)
+	}
+	if err != nil {
+		s.logger.Error("Error querying operational config", logging.F("key", req.Key), logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to query operational config: %v", err)
+	}
+
+	s.logger.Info("OperationalConfig retrieved", logging.F("key", req.Key))
+
+	return &pipelinev1.GetOperationalConfigResponse{
+		Key:   req.Key,
+		Value: value,
+	}, nil
+}
+
+// SetOperationalConfig upserts an operational config value by key.
+func (s *Service) SetOperationalConfig(ctx context.Context, req *pipelinev1.SetOperationalConfigRequest) (*pipelinev1.SetOperationalConfigResponse, error) {
+	s.logger.Info("SetOperationalConfig called",
+		logging.F("key", req.Key),
+	)
+
+	if req.Key == "" {
+		return nil, status.Error(codes.InvalidArgument, "key is required")
+	}
+
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "database not available")
+	}
+
+	tenantID := s.defaultTenantID(ctx)
+
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO pipeline_operational_config (tenant_id, key, value)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (tenant_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+	`, tenantID, req.Key, req.Value)
+	if err != nil {
+		s.logger.Error("Error upserting operational config", logging.F("key", req.Key), logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to upsert operational config: %v", err)
+	}
+
+	s.logger.Info("OperationalConfig updated", logging.F("key", req.Key))
+
+	return &pipelinev1.SetOperationalConfigResponse{
+		Updated: true,
+	}, nil
+}
+
 // ListPendingSources lists pending sources in the processing queue.
 func (s *Service) ListPendingSources(ctx context.Context, req *pipelinev1.ListPendingSourcesRequest) (*pipelinev1.ListPendingSourcesResponse, error) {
 	s.logger.Debug("ListPendingSources called",

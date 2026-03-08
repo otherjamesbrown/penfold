@@ -48,6 +48,8 @@ const (
 	PipelineService_DiffPipelineRuns_FullMethodName          = "/penfold.pipeline.v1.PipelineService/DiffPipelineRuns"
 	PipelineService_GetConcurrencyConfig_FullMethodName      = "/penfold.pipeline.v1.PipelineService/GetConcurrencyConfig"
 	PipelineService_SetConcurrencyConfig_FullMethodName      = "/penfold.pipeline.v1.PipelineService/SetConcurrencyConfig"
+	PipelineService_GetOperationalConfig_FullMethodName      = "/penfold.pipeline.v1.PipelineService/GetOperationalConfig"
+	PipelineService_SetOperationalConfig_FullMethodName      = "/penfold.pipeline.v1.PipelineService/SetOperationalConfig"
 	PipelineService_ListPendingSources_FullMethodName        = "/penfold.pipeline.v1.PipelineService/ListPendingSources"
 	PipelineService_GetStageConfig_FullMethodName            = "/penfold.pipeline.v1.PipelineService/GetStageConfig"
 	PipelineService_StartBatchPipeline_FullMethodName        = "/penfold.pipeline.v1.PipelineService/StartBatchPipeline"
@@ -126,6 +128,10 @@ type PipelineServiceClient interface {
 	GetConcurrencyConfig(ctx context.Context, in *GetConcurrencyConfigRequest, opts ...grpc.CallOption) (*GetConcurrencyConfigResponse, error)
 	// SetConcurrencyConfig updates the maximum concurrent processing limit.
 	SetConcurrencyConfig(ctx context.Context, in *SetConcurrencyConfigRequest, opts ...grpc.CallOption) (*SetConcurrencyConfigResponse, error)
+	// GetOperationalConfig retrieves a single operational config value by key.
+	GetOperationalConfig(ctx context.Context, in *GetOperationalConfigRequest, opts ...grpc.CallOption) (*GetOperationalConfigResponse, error)
+	// SetOperationalConfig upserts an operational config value by key.
+	SetOperationalConfig(ctx context.Context, in *SetOperationalConfigRequest, opts ...grpc.CallOption) (*SetOperationalConfigResponse, error)
 	// ListPendingSources lists pending sources in the processing queue.
 	ListPendingSources(ctx context.Context, in *ListPendingSourcesRequest, opts ...grpc.CallOption) (*ListPendingSourcesResponse, error)
 	// GetStageConfig retrieves unified per-stage configuration (model + timeout).
@@ -433,6 +439,26 @@ func (c *pipelineServiceClient) SetConcurrencyConfig(ctx context.Context, in *Se
 	return out, nil
 }
 
+func (c *pipelineServiceClient) GetOperationalConfig(ctx context.Context, in *GetOperationalConfigRequest, opts ...grpc.CallOption) (*GetOperationalConfigResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetOperationalConfigResponse)
+	err := c.cc.Invoke(ctx, PipelineService_GetOperationalConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pipelineServiceClient) SetOperationalConfig(ctx context.Context, in *SetOperationalConfigRequest, opts ...grpc.CallOption) (*SetOperationalConfigResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetOperationalConfigResponse)
+	err := c.cc.Invoke(ctx, PipelineService_SetOperationalConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *pipelineServiceClient) ListPendingSources(ctx context.Context, in *ListPendingSourcesRequest, opts ...grpc.CallOption) (*ListPendingSourcesResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListPendingSourcesResponse)
@@ -671,6 +697,10 @@ type PipelineServiceServer interface {
 	GetConcurrencyConfig(context.Context, *GetConcurrencyConfigRequest) (*GetConcurrencyConfigResponse, error)
 	// SetConcurrencyConfig updates the maximum concurrent processing limit.
 	SetConcurrencyConfig(context.Context, *SetConcurrencyConfigRequest) (*SetConcurrencyConfigResponse, error)
+	// GetOperationalConfig retrieves a single operational config value by key.
+	GetOperationalConfig(context.Context, *GetOperationalConfigRequest) (*GetOperationalConfigResponse, error)
+	// SetOperationalConfig upserts an operational config value by key.
+	SetOperationalConfig(context.Context, *SetOperationalConfigRequest) (*SetOperationalConfigResponse, error)
 	// ListPendingSources lists pending sources in the processing queue.
 	ListPendingSources(context.Context, *ListPendingSourcesRequest) (*ListPendingSourcesResponse, error)
 	// GetStageConfig retrieves unified per-stage configuration (model + timeout).
@@ -795,6 +825,12 @@ func (UnimplementedPipelineServiceServer) GetConcurrencyConfig(context.Context, 
 }
 func (UnimplementedPipelineServiceServer) SetConcurrencyConfig(context.Context, *SetConcurrencyConfigRequest) (*SetConcurrencyConfigResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetConcurrencyConfig not implemented")
+}
+func (UnimplementedPipelineServiceServer) GetOperationalConfig(context.Context, *GetOperationalConfigRequest) (*GetOperationalConfigResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetOperationalConfig not implemented")
+}
+func (UnimplementedPipelineServiceServer) SetOperationalConfig(context.Context, *SetOperationalConfigRequest) (*SetOperationalConfigResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetOperationalConfig not implemented")
 }
 func (UnimplementedPipelineServiceServer) ListPendingSources(context.Context, *ListPendingSourcesRequest) (*ListPendingSourcesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListPendingSources not implemented")
@@ -1339,6 +1375,42 @@ func _PipelineService_SetConcurrencyConfig_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PipelineService_GetOperationalConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetOperationalConfigRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).GetOperationalConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_GetOperationalConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).GetOperationalConfig(ctx, req.(*GetOperationalConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PipelineService_SetOperationalConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetOperationalConfigRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).SetOperationalConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_SetOperationalConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).SetOperationalConfig(ctx, req.(*SetOperationalConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _PipelineService_ListPendingSources_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListPendingSourcesRequest)
 	if err := dec(in); err != nil {
@@ -1773,6 +1845,14 @@ var PipelineService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetConcurrencyConfig",
 			Handler:    _PipelineService_SetConcurrencyConfig_Handler,
+		},
+		{
+			MethodName: "GetOperationalConfig",
+			Handler:    _PipelineService_GetOperationalConfig_Handler,
+		},
+		{
+			MethodName: "SetOperationalConfig",
+			Handler:    _PipelineService_SetOperationalConfig_Handler,
 		},
 		{
 			MethodName: "ListPendingSources",

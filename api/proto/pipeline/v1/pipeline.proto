@@ -93,6 +93,12 @@ service PipelineService {
   // SetConcurrencyConfig updates the maximum concurrent processing limit.
   rpc SetConcurrencyConfig(SetConcurrencyConfigRequest) returns (SetConcurrencyConfigResponse);
 
+  // GetOperationalConfig retrieves a single operational config value by key.
+  rpc GetOperationalConfig(GetOperationalConfigRequest) returns (GetOperationalConfigResponse);
+
+  // SetOperationalConfig upserts an operational config value by key.
+  rpc SetOperationalConfig(SetOperationalConfigRequest) returns (SetOperationalConfigResponse);
+
   // ListPendingSources lists pending sources in the processing queue.
   rpc ListPendingSources(ListPendingSourcesRequest) returns (ListPendingSourcesResponse);
 
@@ -1095,6 +1101,28 @@ message SetConcurrencyConfigResponse {
 
   // Success message.
   string message = 3;
+}
+
+// GetOperationalConfigRequest retrieves a single operational config value.
+message GetOperationalConfigRequest {
+  string key = 1;
+}
+
+// GetOperationalConfigResponse contains the value for the requested key.
+message GetOperationalConfigResponse {
+  string key = 1;
+  string value = 2;
+}
+
+// SetOperationalConfigRequest upserts an operational config value.
+message SetOperationalConfigRequest {
+  string key = 1;
+  string value = 2;
+}
+
+// SetOperationalConfigResponse confirms the upsert.
+message SetOperationalConfigResponse {
+  bool updated = 1;
 }
 
 // ListPendingSourcesRequest lists pending sources.
