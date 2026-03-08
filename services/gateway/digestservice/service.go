@@ -159,7 +159,7 @@ func (s *Service) GetDigest(ctx context.Context, req *digestv1.GetDigestRequest)
 		return nil, status.Errorf(codes.Internal, "failed to get digest: %v", err)
 	}
 
-	projectName := s.lookupProjectName(ctx, req.TenantId, d.ProjectID)
+	projectName := s.lookupProjectName(ctx, req.TenantId, derefInt64(d.ProjectID))
 
 	return &digestv1.GetDigestResponse{
 		Digest: digestToDetailProto(d, projectName),
@@ -186,7 +186,7 @@ func (s *Service) GetLatestDigest(ctx context.Context, req *digestv1.GetLatestDi
 		return nil, status.Errorf(codes.Internal, "failed to get latest digest: %v", err)
 	}
 
-	projectName := s.lookupProjectName(ctx, req.TenantId, d.ProjectID)
+	projectName := s.lookupProjectName(ctx, req.TenantId, derefInt64(d.ProjectID))
 
 	return &digestv1.GetLatestDigestResponse{
 		Digest: digestToDetailProto(d, projectName),
@@ -231,7 +231,7 @@ func (s *Service) ListDigests(ctx context.Context, req *digestv1.ListDigestsRequ
 	for i, d := range digests {
 		summaries[i] = &digestv1.DigestSummary{
 			Id:          d.ID,
-			ProjectId:   d.ProjectID,
+			ProjectId:   derefInt64(d.ProjectID),
 			ProjectName: projectName,
 			DigestType:  d.DigestType,
 			PeriodStart: d.PeriodStart.Format("2006-01-02"),
@@ -280,12 +280,20 @@ func (s *Service) lookupProjectName(ctx context.Context, tenantID string, projec
 	return name
 }
 
+// derefInt64 dereferences a *int64, returning 0 if nil.
+func derefInt64(p *int64) int64 {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
 // digestToDetailProto converts a domain Digest to a proto DigestDetail.
 func digestToDetailProto(d *digest.Digest, projectName string) *digestv1.DigestDetail {
 	return &digestv1.DigestDetail{
 		Id:               d.ID,
 		TenantId:         d.TenantID,
-		ProjectId:        d.ProjectID,
+		ProjectId:        derefInt64(d.ProjectID),
 		ProjectName:      projectName,
 		DigestType:       d.DigestType,
 		PeriodStart:      d.PeriodStart.Format("2006-01-02"),

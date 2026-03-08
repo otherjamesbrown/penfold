@@ -394,7 +394,7 @@ func (a *DigestActivities) SaveDigest(ctx context.Context, input SaveDigestInput
 	// 3. Build the digest record
 	d := digest.Digest{
 		TenantID:         input.TenantID,
-		ProjectID:        input.ProjectID,
+		ProjectID:        &input.ProjectID,
 		DigestType:       input.DigestType,
 		PeriodStart:      date,
 		PeriodEnd:        periodEnd,

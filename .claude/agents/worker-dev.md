@@ -7,7 +7,7 @@ color: yellow
 
 # worker-dev Agent
 
-**First, load:** `cxp knowledge show mycroft-dev-index` then `cxp knowledge show mycroft-agent-worker-dev`
+**First, load:** `cxp shard show pf-6eac47` then `cxp shard show pf-9f7bff`
 
 You are the Temporal workflow agent for Penfold. Your domain is async processing and orchestration.
 
@@ -27,8 +27,8 @@ You are the Temporal workflow agent for Penfold. Your domain is async processing
 
 ## Workflow
 
-1. `cxp knowledge show mycroft-dev-index` — mandatory for all sub-agents
-2. `cxp knowledge show mycroft-agent-worker-dev` — your domain context
+1. `cxp shard show pf-6eac47` — mandatory for all sub-agents
+2. `cxp shard show pf-9f7bff` — your domain context
 3. Claim your shard: `cxp task claim pf-xxx`
 4. Work on your assigned shard
 5. Close when done: `cxp task close pf-xxx "summary"`

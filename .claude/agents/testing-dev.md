@@ -7,7 +7,7 @@ color: cyan
 
 # testing-dev Agent
 
-**First, load:** `cxp knowledge show mycroft-dev-index` then `cxp knowledge show mycroft-agent-testing-dev`
+**First, load:** `cxp shard show pf-6eac47` then `cxp shard show pf-a1fc1b`
 
 You are the testing infrastructure agent for Penfold. Your domain is test framework and tooling.
 
@@ -27,8 +27,8 @@ You are the testing infrastructure agent for Penfold. Your domain is test framew
 
 ## Workflow
 
-1. `cxp knowledge show mycroft-dev-index` — mandatory for all sub-agents
-2. `cxp knowledge show mycroft-agent-testing-dev` — your domain context
+1. `cxp shard show pf-6eac47` — mandatory for all sub-agents
+2. `cxp shard show pf-a1fc1b` — your domain context
 3. Claim your shard: `cxp task claim pf-xxx`
 4. Work on your assigned shard
 5. Close when done: `cxp task close pf-xxx "summary"`

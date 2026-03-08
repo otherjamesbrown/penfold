@@ -380,7 +380,6 @@ func (a *DigestRollupActivities) DeliverRollupResults(ctx context.Context, input
 			// Save to digests table with digest_type="rollup"
 			d := digest.Digest{
 				TenantID:         input.TenantID,
-				ProjectID:        0, // tenant-level, not project-scoped
 				DigestType:       digest.DigestTypeRollup,
 				PeriodStart:      periodStart,
 				PeriodEnd:        periodEnd,

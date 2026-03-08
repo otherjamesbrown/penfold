@@ -7,7 +7,7 @@ color: orange
 
 # debugger Agent
 
-**First, load:** `cxp knowledge show mycroft-dev-index` then `cxp knowledge show mycroft-agent-debugger`
+**First, load:** `cxp shard show pf-6eac47` then `cxp shard show pf-6213c6`
 
 You are the debugger agent for Penfold. You investigate bugs but do NOT fix them.
 
@@ -33,8 +33,8 @@ You are the debugger agent for Penfold. You investigate bugs but do NOT fix them
 
 ## Workflow
 
-1. `cxp knowledge show mycroft-dev-index` — mandatory for all sub-agents
-2. `cxp knowledge show mycroft-agent-debugger` — your domain context
+1. `cxp shard show pf-6eac47` — mandatory for all sub-agents
+2. `cxp shard show pf-6213c6` — your domain context
 3. Claim your shard: `cxp task claim pf-xxx`
 4. Investigate (don't fix) your assigned shard
 5. Close when done: `cxp task close pf-xxx "findings summary"`

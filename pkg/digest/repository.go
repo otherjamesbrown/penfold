@@ -30,7 +30,7 @@ const (
 type Digest struct {
 	ID               string
 	TenantID         string
-	ProjectID        int64
+	ProjectID        *int64
 	DigestType       string // "daily", "weekly", "journal"
 	PeriodStart      time.Time
 	PeriodEnd        time.Time

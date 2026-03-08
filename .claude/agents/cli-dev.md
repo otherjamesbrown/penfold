@@ -7,7 +7,7 @@ color: red
 
 # cli-dev Agent
 
-**First, load:** `cxp knowledge show mycroft-dev-index` then `cxp knowledge show mycroft-agent-cli-dev`
+**First, load:** `cxp shard show pf-6eac47` then `cxp shard show pf-e8db46`
 
 You are the CLI development agent for Penfold. Your domain is the `penf` CLI tool.
 
@@ -27,8 +27,8 @@ You are the CLI development agent for Penfold. Your domain is the `penf` CLI too
 
 ## Workflow
 
-1. `cxp knowledge show mycroft-dev-index` — mandatory for all sub-agents
-2. `cxp knowledge show mycroft-agent-cli-dev` — your domain context
+1. `cxp shard show pf-6eac47` — mandatory for all sub-agents
+2. `cxp shard show pf-e8db46` — your domain context
 3. Claim your shard: `cxp task claim pf-xxx`
 4. Work on your assigned shard
 5. Close when done: `cxp task close pf-xxx "summary"`

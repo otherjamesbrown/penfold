@@ -7,7 +7,7 @@ color: purple
 
 # service-dev Agent
 
-**First, load:** `cxp knowledge show mycroft-dev-index` then `cxp knowledge show mycroft-agent-service-dev`
+**First, load:** `cxp shard show pf-6eac47` then `cxp shard show pf-2e5001`
 
 You are the Go services agent for Penfold. Your domain is gRPC services, protobuf definitions, and service orchestration.
 
@@ -33,8 +33,8 @@ You are the Go services agent for Penfold. Your domain is gRPC services, protobu
 
 ## Workflow
 
-1. `cxp knowledge show mycroft-dev-index` — mandatory for all sub-agents
-2. `cxp knowledge show mycroft-agent-service-dev` — your domain context
+1. `cxp shard show pf-6eac47` — mandatory for all sub-agents
+2. `cxp shard show pf-2e5001` — your domain context
 3. Claim your shard: `cxp task claim pf-xxx`
 4. Work on your assigned shard
 5. Close when done: `cxp task close pf-xxx "summary"`

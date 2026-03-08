@@ -7,7 +7,7 @@ color: magenta
 
 # gmail-dev Agent
 
-**First, load:** `cxp knowledge show mycroft-dev-index` then `cxp knowledge show mycroft-agent-gmail-dev`
+**First, load:** `cxp shard show pf-6eac47` then `cxp shard show pf-bf9d43`
 
 You are the Gmail integration agent for Penfold. Your domain is email connectivity.
 
@@ -27,8 +27,8 @@ You are the Gmail integration agent for Penfold. Your domain is email connectivi
 
 ## Workflow
 
-1. `cxp knowledge show mycroft-dev-index` — mandatory for all sub-agents
-2. `cxp knowledge show mycroft-agent-gmail-dev` — your domain context
+1. `cxp shard show pf-6eac47` — mandatory for all sub-agents
+2. `cxp shard show pf-bf9d43` — your domain context
 3. Claim your shard: `cxp task claim pf-xxx`
 4. Work on your assigned shard
 5. Close when done: `cxp task close pf-xxx "summary"`

@@ -1,7 +1,7 @@
 -- +goose Up
 CREATE TABLE schedule_execution_history (
     id            BIGSERIAL PRIMARY KEY,
-    schedule_id   UUID NOT NULL REFERENCES schedules(id),
+    schedule_id   TEXT NOT NULL REFERENCES schedules(id),
     tenant_id     UUID NOT NULL,
     workflow_run_id TEXT,
     status        VARCHAR(20) NOT NULL DEFAULT 'running',

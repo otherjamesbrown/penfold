@@ -271,11 +271,10 @@ func (a *JournalRollupActivities) GenerateDailySummary(ctx context.Context, inpu
 		outputTokens = int(*resp.OutputTokens)
 	}
 
-	// 6. Save as digest with digest_type="journal_daily", project_id=0 (tenant-level)
+	// 6. Save as digest with digest_type="journal_daily", project_id=NULL (tenant-level)
 	periodStart := time.Date(refDate.Year(), refDate.Month(), refDate.Day(), 0, 0, 0, 0, time.UTC)
 	d := digest.Digest{
 		TenantID:         input.TenantID,
-		ProjectID:        0, // tenant-level
 		DigestType:       digest.DigestTypeJournalDaily,
 		PeriodStart:      periodStart,
 		PeriodEnd:        periodStart,
@@ -415,7 +414,6 @@ func (a *JournalRollupActivities) GenerateWeeklySummary(ctx context.Context, inp
 	// 8. Save as digest_type="journal_weekly"
 	d := digest.Digest{
 		TenantID:         input.TenantID,
-		ProjectID:        0,
 		DigestType:       digest.DigestTypeJournalWeekly,
 		PeriodStart:      weekStart,
 		PeriodEnd:        weekEnd,
@@ -560,7 +558,6 @@ func (a *JournalRollupActivities) GenerateOverviewSummary(ctx context.Context, i
 	// 7. Save as digest_type="journal_overview" (always creates new; old overview is superseded)
 	d := digest.Digest{
 		TenantID:         input.TenantID,
-		ProjectID:        0,
 		DigestType:       digest.DigestTypeJournalOverview,
 		PeriodStart:      periodStart,
 		PeriodEnd:        periodStart,
