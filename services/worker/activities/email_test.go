@@ -2,6 +2,7 @@ package activities
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -60,6 +61,37 @@ func TestSendEmail_NilCreds(t *testing.T) {
 
 	_, err := SendEmail(context.Background(), creds, input)
 	require.Error(t, err, "SendEmail with empty credentials should return an error")
+}
+
+func TestRenderDigestHTML(t *testing.T) {
+	body := json.RawMessage(`{"summary": "Line one\nLine two", "items_count": 4, "model_used": "gpt-4"}`)
+	got := renderDigestHTML(body, "Weekly Digest", "2026-03-01", "2026-03-07")
+
+	assert.Contains(t, got, "<h2")
+	assert.Contains(t, got, "Weekly Digest")
+	assert.Contains(t, got, "2026-03-01")
+	assert.Contains(t, got, "2026-03-07")
+	assert.Contains(t, got, "Line one")
+	assert.Contains(t, got, "Line two")
+	assert.Contains(t, got, "font-family")
+	assert.Contains(t, got, "<br>")
+	assert.NotContains(t, got, "Line one\nLine two", "newlines in summary should be replaced with <br>")
+}
+
+func TestRenderDigestHTML_Fallback(t *testing.T) {
+	body := json.RawMessage(`not valid json`)
+	got := renderDigestHTML(body, "My Digest", "2026-03-01", "2026-03-07")
+
+	assert.Contains(t, got, "<pre>")
+	assert.Contains(t, got, "not valid json")
+}
+
+func TestRenderDigestHTML_MissingSummary(t *testing.T) {
+	body := json.RawMessage(`{"items_count": 4, "model_used": "gpt-4"}`)
+	got := renderDigestHTML(body, "My Digest", "2026-03-01", "2026-03-07")
+
+	assert.Contains(t, got, "<div")
+	assert.Contains(t, got, "My Digest")
 }
 
 func TestRFC2822MessageConstruction(t *testing.T) {

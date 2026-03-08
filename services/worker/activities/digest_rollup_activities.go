@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
+	"strings"
 	"text/template"
 	"time"
 
@@ -387,7 +389,12 @@ func (a *DigestRollupActivities) DeliverRollupResults(ctx context.Context, input
 		}
 	}
 
-	for _, delivery := range input.Delivery {
+	delivery := input.Delivery
+	if len(delivery) == 0 {
+		delivery = []string{"store"}
+	}
+
+	for _, delivery := range delivery {
 		switch delivery {
 		case "store":
 			// Save to digests table with digest_type="rollup"
@@ -411,7 +418,7 @@ func (a *DigestRollupActivities) DeliverRollupResults(ctx context.Context, input
 				deliveryStatus["store"] = fmt.Sprintf("error: %s", err.Error())
 			} else {
 				digestID = id
-				deliveryStatus["store"] = "ok"
+				deliveryStatus["store"] = fmt.Sprintf("ok:%s", id)
 				logger.Info("Rollup digest saved", logging.F("digest_id", id))
 			}
 
@@ -419,6 +426,11 @@ func (a *DigestRollupActivities) DeliverRollupResults(ctx context.Context, input
 			if a.emailCreds == nil {
 				logger.Warn("Email delivery skipped — email not configured")
 				deliveryStatus["email"] = "error: email not configured"
+				continue
+			}
+			if input.DeliveryTarget == "" {
+				deliveryStatus["email"] = "error: no delivery target"
+				logger.Error("email delivery failed: no delivery target")
 				continue
 			}
 			// Check outbound whitelist per-send (queried from DB, not cached at startup)
@@ -442,17 +454,12 @@ func (a *DigestRollupActivities) DeliverRollupResults(ctx context.Context, input
 			}
 			// Render subject from digest name and window
 			subject := fmt.Sprintf("%s — %s to %s", input.Name, input.WindowFrom, input.WindowTo)
-			// Convert body JSON to HTML string
-			var bodyHTML string
-			if err := json.Unmarshal(input.Body, &bodyHTML); err != nil {
-				// If body is not a JSON string, use raw JSON as fallback
-				bodyHTML = string(input.Body)
-			}
+			htmlBody := renderDigestHTML(input.Body, input.Name, input.WindowFrom, input.WindowTo)
 			emailInput := SendEmailInput{
 				From:    a.senderAddr,
 				To:      recipient,
 				Subject: subject,
-				Body:    bodyHTML,
+				Body:    htmlBody,
 			}
 			recordHeartbeat(ctx, "sending email")
 			result, err := SendEmail(ctx, *a.emailCreds, emailInput)
@@ -460,7 +467,7 @@ func (a *DigestRollupActivities) DeliverRollupResults(ctx context.Context, input
 				logger.Error("Failed to send email", logging.Err(err))
 				deliveryStatus["email"] = fmt.Sprintf("error: %s", err.Error())
 			} else {
-				deliveryStatus["email"] = fmt.Sprintf("ok: message_id=%s", result.MessageID)
+				deliveryStatus["email"] = fmt.Sprintf("sent:%s", result.MessageID)
 				logger.Info("Email sent", logging.F("message_id", result.MessageID), logging.F("recipient", recipient))
 			}
 
@@ -481,6 +488,21 @@ func (a *DigestRollupActivities) DeliverRollupResults(ctx context.Context, input
 	)
 
 	return output, nil
+}
+
+func renderDigestHTML(body json.RawMessage, name, from, to string) string {
+	var parsed struct {
+		Summary string `json:"summary"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return "<pre>" + html.EscapeString(string(body)) + "</pre>"
+	}
+	escaped := strings.ReplaceAll(html.EscapeString(parsed.Summary), "\n", "<br>")
+	return fmt.Sprintf(`<div style="font-family: -apple-system, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <h2 style="margin: 0 0 4px 0;">%s</h2>
+  <p style="color: #666; margin: 0 0 16px 0;">%s to %s</p>
+  <div style="line-height: 1.5;">%s</div>
+</div>`, html.EscapeString(name), html.EscapeString(from), html.EscapeString(to), escaped)
 }
 
 // RecordExecutionMetadata records schedule execution history for rollup workflows.
