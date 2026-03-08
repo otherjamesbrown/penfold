@@ -645,6 +645,21 @@ type NewsletterExtractOutput struct {
 	OutputTokenCount int             `json:"output_token_count"`
 }
 
+// NotificationExtractInput is the input for the NotificationExtract activity.
+type NotificationExtractInput struct {
+	TenantID string `json:"tenant_id"`
+	SourceID int64  `json:"source_id"`
+	Content  string `json:"content"`
+}
+
+// NotificationExtractOutput is the output from the NotificationExtract activity.
+type NotificationExtractOutput struct {
+	RawJSON          json.RawMessage `json:"raw_json"`
+	ModelUsed        string          `json:"model_used"`
+	InputTokenCount  int             `json:"input_token_count"`
+	OutputTokenCount int             `json:"output_token_count"`
+}
+
 // PersistExtractedDataInput is the input for the PersistExtractedData activity.
 type PersistExtractedDataInput struct {
 	TenantID string          `json:"tenant_id"`
@@ -2514,6 +2529,76 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				)
 			} else {
 				logger.Info("newsletter extracted data persisted",
+					"source_id", input.SourceID,
+					"updated", persistJSONOutput.Updated,
+				)
+			}
+		}
+
+		state.status.StepsCompleted++
+
+		if checkCancellation() {
+			state.result.Status = "cancelled"
+			state.result.Error = state.cancelReason
+			return state.result, nil
+		}
+	}
+
+	// Stage 2.6: Notification Extract
+	// Runs for pipelines with "notification_extract" stage (e.g. notification pipeline).
+	// Calls the LLM with the notification_extract prompt and stores structured JSON
+	// in content_enrichment.extracted_data['notification']. No assertions are created.
+	if stageInPipeline(stageConfigMap, "notification_extract") {
+		notificationStart := workflow.Now(ctx)
+		logger.Info("pipeline stage starting",
+			"source_id", input.SourceID,
+			"stage", "notification_extract",
+			"total_steps", state.status.TotalSteps,
+		)
+
+		var notificationOutput NotificationExtractOutput
+		notificationOpts := stageOpts("notification_extract", llmOpts)
+		ctxNotification := workflow.WithActivityOptions(ctx, notificationOpts)
+		notificationErr := workflow.ExecuteActivity(ctxNotification, pkgtemporal.ActivityNotificationExtract, NotificationExtractInput{
+			TenantID: input.TenantID,
+			SourceID: input.SourceID,
+			Content:  parsedContent,
+		}).Get(ctx, &notificationOutput)
+
+		if notificationErr != nil {
+			logger.Warn("pipeline stage failed (non-blocking)",
+				"source_id", input.SourceID,
+				"stage", "notification_extract",
+				"duration_ms", workflow.Now(ctx).Sub(notificationStart).Milliseconds(),
+				"error", notificationErr.Error(),
+			)
+		} else {
+			logger.Info("pipeline stage completed",
+				"source_id", input.SourceID,
+				"stage", "notification_extract",
+				"duration_ms", workflow.Now(ctx).Sub(notificationStart).Milliseconds(),
+				"model_used", notificationOutput.ModelUsed,
+				"output_length", len(notificationOutput.RawJSON),
+			)
+
+			// Persist the structured JSON to content_enrichment.extracted_data['notification'].
+			ctxPersistJSON := workflow.WithActivityOptions(ctx, fastOpts)
+			var persistJSONOutput PersistExtractedDataOutput
+			persistJSONErr := workflow.ExecuteActivity(ctxPersistJSON, pkgtemporal.ActivityPersistExtractedData, PersistExtractedDataInput{
+				TenantID: input.TenantID,
+				SourceID: input.SourceID,
+				Key:      "notification",
+				Data:     notificationOutput.RawJSON,
+			}).Get(ctx, &persistJSONOutput)
+
+			if persistJSONErr != nil {
+				logger.Warn("persist extracted_data failed (non-blocking)",
+					"source_id", input.SourceID,
+					"key", "notification",
+					"error", persistJSONErr.Error(),
+				)
+			} else {
+				logger.Info("notification extracted data persisted",
 					"source_id", input.SourceID,
 					"updated", persistJSONOutput.Updated,
 				)

@@ -393,6 +393,9 @@ func newFullRegistrar() *Registrar {
 		WithNewsletterExtractActivities(&NewsletterExtractActivities{
 			logger: logger,
 		}).
+		WithNotificationExtractActivities(&NotificationExtractActivities{
+			logger: logger,
+		}).
 		WithDigestRollupActivities(&DigestRollupActivities{
 			logger: logger,
 		}).

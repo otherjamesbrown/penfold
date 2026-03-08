@@ -893,6 +893,14 @@ func main() {
 		logger.Info("Newsletter extract activities initialized with database and AI client")
 	}
 
+	// Initialize Notification Extract Activities (notification_extract pipeline stage)
+	if dbPool != nil && aiClient != nil {
+		promptRepo := pipeline.NewRepository(dbPool)
+		notificationExtractActivities := activities.NewNotificationExtractActivities(dbPool, aiClient, promptRepo, logger)
+		activityRegistrar.WithNotificationExtractActivities(notificationExtractActivities)
+		logger.Info("Notification extract activities initialized with database and AI client")
+	}
+
 	// Initialize Threading Activities (Stage 2.5: email threading)
 	if dbPool != nil {
 		sourceRepo := activities.NewPostgresSourceRepository(dbPool, logger)

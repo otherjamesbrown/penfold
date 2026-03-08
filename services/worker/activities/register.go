@@ -41,6 +41,7 @@ type Registrar struct {
 	instructionEvaluationActivities   *InstructionEvaluationActivities
 	digestActivities                  *DigestActivities
 	newsletterExtractActivities       *NewsletterExtractActivities
+	notificationExtractActivities     *NotificationExtractActivities
 	digestRollupActivities            *DigestRollupActivities
 	journalRollupActivities           *JournalRollupActivities
 }
@@ -199,6 +200,12 @@ func (r *Registrar) WithDigestActivities(da *DigestActivities) *Registrar {
 // WithNewsletterExtractActivities adds newsletter structured extraction activities to the registrar.
 func (r *Registrar) WithNewsletterExtractActivities(nea *NewsletterExtractActivities) *Registrar {
 	r.newsletterExtractActivities = nea
+	return r
+}
+
+// WithNotificationExtractActivities adds notification structured extraction activities to the registrar.
+func (r *Registrar) WithNotificationExtractActivities(nea *NotificationExtractActivities) *Registrar {
+	r.notificationExtractActivities = nea
 	return r
 }
 
@@ -523,6 +530,15 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		})
 	}
 
+	// Notification extraction activities for notification_extract pipeline stage
+	if r.notificationExtractActivities != nil {
+		w.RegisterActivityWithOptions(r.notificationExtractActivities.NotificationExtract, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityNotificationExtract,
+		})
+		// Note: PersistExtractedData is already registered by newsletterExtractActivities above.
+		// The notification_extract stage reuses that shared activity.
+	}
+
 	// Digest rollup activities (GatherRollupContent, GenerateRollupSummary, DeliverRollupResults)
 	// RecordExecutionMetadata is registered once — from digestRollupActivities if available,
 	// otherwise from journalRollupActivities as a fallback.
@@ -814,6 +830,10 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		// NewsletterExtract, PersistExtractedData
 		if r.newsletterExtractActivities != nil {
 			count += 2
+		}
+		// NotificationExtract (PersistExtractedData is shared with newsletter, not counted again)
+		if r.notificationExtractActivities != nil {
+			count += 1
 		}
 		// GatherRollupContent, GenerateRollupSummary, DeliverRollupResults, RecordExecutionMetadata
 		if r.digestRollupActivities != nil {
