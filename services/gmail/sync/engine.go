@@ -19,8 +19,18 @@ import (
 	"github.com/google/uuid"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/services/gmail/oauth"
+	"github.com/otherjamesbrown/penfold/services/gmail/privacy"
 	"github.com/prometheus/client_golang/prometheus"
 )
+
+// OperationalConfigReader reads per-tenant operational configuration values.
+// The PostgresOperationalConfigReader in services/worker/activities satisfies this interface.
+type OperationalConfigReader interface {
+	GetString(ctx context.Context, tenantID, key string) (string, error)
+}
+
+// inboundWhitelistKey is the config key for the inbound sender allowlist.
+const inboundWhitelistKey = "email.inbound_whitelist"
 
 // Gmail API constants.
 const (
@@ -187,6 +197,14 @@ type EngineConfig struct {
 
 	// Logger for logging.
 	Logger logging.Logger
+
+	// OperationalConfigReader loads per-tenant config values from the database.
+	// Optional: if nil, whitelist loading is skipped and all senders are allowed.
+	OperationalConfigReader OperationalConfigReader
+
+	// PrivacyFilter is applied during sync to enforce sender allowlists and PII rules.
+	// Optional: if nil, no privacy filtering is applied.
+	PrivacyFilter *privacy.PrivacyFilter
 }
 
 // DefaultEngineConfig returns an EngineConfig with sensible defaults.
@@ -499,6 +517,9 @@ func (e *Engine) FullSync(ctx context.Context, tenantID string, opts *SyncOption
 		logging.F("sync_id", syncID),
 	)
 
+	// Reload inbound whitelist from DB so changes take effect without restart.
+	e.loadWhitelist(ctx, tenantID)
+
 	// Create initial sync state.
 	state := &SyncState{
 		TenantID:   tenantID,
@@ -692,6 +713,9 @@ func (e *Engine) IncrementalSync(ctx context.Context, tenantID string, opts *Syn
 	if e.metrics != nil {
 		e.metrics.SyncsStarted.Inc()
 	}
+
+	// Reload inbound whitelist from DB so changes take effect without restart.
+	e.loadWhitelist(ctx, tenantID)
 
 	e.log().Info("starting incremental sync",
 		logging.F("tenant_id", tenantID),
@@ -1080,6 +1104,47 @@ func (e *Engine) CancelSync(ctx context.Context, syncID string) error {
 	state.Status = SyncStatusCancelled
 	state.UpdatedAt = time.Now()
 	return e.config.StateStorage.SaveState(ctx, state)
+}
+
+// loadWhitelist reads email.inbound_whitelist from DB config and updates the
+// PrivacyFilter's AllowedSenders. It is called at the start of each sync cycle
+// so changes take effect without a restart.
+//
+// Missing config → WARNING log, empty allowlist (all senders pass through).
+// Malformed JSON  → ERROR log, empty allowlist (all senders pass through).
+func (e *Engine) loadWhitelist(ctx context.Context, tenantID string) {
+	if e.config.OperationalConfigReader == nil || e.config.PrivacyFilter == nil {
+		return
+	}
+
+	raw, err := e.config.OperationalConfigReader.GetString(ctx, tenantID, inboundWhitelistKey)
+	if err != nil {
+		e.log().Warn("inbound whitelist config not found, allowing all senders",
+			logging.F("tenant_id", tenantID),
+			logging.F("key", inboundWhitelistKey),
+			logging.Err(err),
+		)
+		e.config.PrivacyFilter.UpdateAllowlist(nil, nil)
+		return
+	}
+
+	var senders []string
+	if err := json.Unmarshal([]byte(raw), &senders); err != nil {
+		e.log().Error("inbound whitelist config is malformed JSON, allowing all senders",
+			logging.F("tenant_id", tenantID),
+			logging.F("key", inboundWhitelistKey),
+			logging.F("raw_value", raw),
+			logging.Err(err),
+		)
+		e.config.PrivacyFilter.UpdateAllowlist(nil, nil)
+		return
+	}
+
+	e.config.PrivacyFilter.UpdateAllowlist(senders, nil)
+	e.log().Info("loaded inbound whitelist",
+		logging.F("tenant_id", tenantID),
+		logging.F("sender_count", len(senders)),
+	)
 }
 
 // API helper methods.

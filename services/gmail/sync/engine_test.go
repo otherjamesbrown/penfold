@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -10,7 +11,181 @@ import (
 	"time"
 
 	"github.com/otherjamesbrown/penfold/services/gmail/oauth"
+	"github.com/otherjamesbrown/penfold/services/gmail/privacy"
 )
+
+// --- mock OperationalConfigReader ---
+
+// mockConfigReader implements OperationalConfigReader for tests.
+type mockConfigReader struct {
+	values map[string]string // keyed by "tenantID:key"
+	err    error             // if non-nil, returned for every call
+}
+
+func newMockConfigReader() *mockConfigReader {
+	return &mockConfigReader{values: make(map[string]string)}
+}
+
+func (r *mockConfigReader) set(tenantID, key, value string) {
+	r.values[tenantID+":"+key] = value
+}
+
+func (r *mockConfigReader) GetString(_ context.Context, tenantID, key string) (string, error) {
+	if r.err != nil {
+		return "", r.err
+	}
+	v, ok := r.values[tenantID+":"+key]
+	if !ok {
+		return "", errors.New("config key not found")
+	}
+	return v, nil
+}
+
+// --- whitelist loading tests ---
+
+// TestLoadWhitelistValid verifies that a valid JSON array is parsed and applied
+// to the PrivacyFilter as AllowedSenders.
+func TestLoadWhitelistValid(t *testing.T) {
+	oauthManager := setupTestOAuth(t, "tenant-1")
+	filter, _ := privacy.NewPrivacyFilter(privacy.DefaultFilterConfig())
+	configReader := newMockConfigReader()
+
+	senders := []string{"alice@example.com", "bob@example.com"}
+	raw, _ := json.Marshal(senders)
+	configReader.set("tenant-1", inboundWhitelistKey, string(raw))
+
+	engine, err := NewEngine(&EngineConfig{
+		OAuth2Manager:           oauthManager,
+		StateStorage:            NewMemoryStateStorage(),
+		OperationalConfigReader: configReader,
+		PrivacyFilter:           filter,
+	})
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+
+	engine.loadWhitelist(context.Background(), "tenant-1")
+
+	cfg := filter.GetConfig()
+	if len(cfg.AllowedSenders) != 2 {
+		t.Fatalf("expected 2 AllowedSenders, got %d", len(cfg.AllowedSenders))
+	}
+
+	got := make(map[string]bool)
+	for _, s := range cfg.AllowedSenders {
+		got[s] = true
+	}
+	for _, want := range senders {
+		if !got[want] {
+			t.Errorf("missing sender %q in AllowedSenders", want)
+		}
+	}
+}
+
+// TestLoadWhitelistMissingConfig verifies that a missing config key results in
+// an empty AllowedSenders (permissive) rather than an error or crash.
+func TestLoadWhitelistMissingConfig(t *testing.T) {
+	oauthManager := setupTestOAuth(t, "tenant-2")
+	filter, _ := privacy.NewPrivacyFilter(privacy.DefaultFilterConfig())
+	configReader := newMockConfigReader()
+	// Do not set any key — GetString will return "not found".
+
+	engine, err := NewEngine(&EngineConfig{
+		OAuth2Manager:           oauthManager,
+		StateStorage:            NewMemoryStateStorage(),
+		OperationalConfigReader: configReader,
+		PrivacyFilter:           filter,
+	})
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+
+	// Pre-populate a sender so we can verify it gets cleared.
+	filter.UpdateAllowlist([]string{"pre-existing@example.com"}, nil)
+
+	engine.loadWhitelist(context.Background(), "tenant-2")
+
+	cfg := filter.GetConfig()
+	if len(cfg.AllowedSenders) != 0 {
+		t.Errorf("expected empty AllowedSenders on missing config, got %v", cfg.AllowedSenders)
+	}
+}
+
+// TestLoadWhitelistMalformedJSON verifies that malformed JSON in the config
+// results in an empty AllowedSenders (permissive) rather than an error or crash.
+func TestLoadWhitelistMalformedJSON(t *testing.T) {
+	oauthManager := setupTestOAuth(t, "tenant-3")
+	filter, _ := privacy.NewPrivacyFilter(privacy.DefaultFilterConfig())
+	configReader := newMockConfigReader()
+	configReader.set("tenant-3", inboundWhitelistKey, `not valid json`)
+
+	engine, err := NewEngine(&EngineConfig{
+		OAuth2Manager:           oauthManager,
+		StateStorage:            NewMemoryStateStorage(),
+		OperationalConfigReader: configReader,
+		PrivacyFilter:           filter,
+	})
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+
+	// Pre-populate to confirm it gets cleared.
+	filter.UpdateAllowlist([]string{"pre-existing@example.com"}, nil)
+
+	engine.loadWhitelist(context.Background(), "tenant-3")
+
+	cfg := filter.GetConfig()
+	if len(cfg.AllowedSenders) != 0 {
+		t.Errorf("expected empty AllowedSenders on malformed JSON, got %v", cfg.AllowedSenders)
+	}
+}
+
+// TestLoadWhitelistNilConfigReader verifies that a nil OperationalConfigReader
+// is a no-op (no panic, filter state unchanged).
+func TestLoadWhitelistNilConfigReader(t *testing.T) {
+	oauthManager := setupTestOAuth(t, "tenant-4")
+	filter, _ := privacy.NewPrivacyFilter(privacy.DefaultFilterConfig())
+	filter.UpdateAllowlist([]string{"keep@example.com"}, nil)
+
+	engine, err := NewEngine(&EngineConfig{
+		OAuth2Manager:           oauthManager,
+		StateStorage:            NewMemoryStateStorage(),
+		OperationalConfigReader: nil, // explicitly nil
+		PrivacyFilter:           filter,
+	})
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+
+	engine.loadWhitelist(context.Background(), "tenant-4")
+
+	// Filter should be unchanged when reader is nil.
+	cfg := filter.GetConfig()
+	if len(cfg.AllowedSenders) != 1 || cfg.AllowedSenders[0] != "keep@example.com" {
+		t.Errorf("expected AllowedSenders unchanged, got %v", cfg.AllowedSenders)
+	}
+}
+
+// TestLoadWhitelistNilFilter verifies that a nil PrivacyFilter is a no-op
+// (no panic) even when a config reader is present.
+func TestLoadWhitelistNilFilter(t *testing.T) {
+	oauthManager := setupTestOAuth(t, "tenant-5")
+	configReader := newMockConfigReader()
+	configReader.set("tenant-5", inboundWhitelistKey, `["alice@example.com"]`)
+
+	engine, err := NewEngine(&EngineConfig{
+		OAuth2Manager:           oauthManager,
+		StateStorage:            NewMemoryStateStorage(),
+		OperationalConfigReader: configReader,
+		PrivacyFilter:           nil, // explicitly nil
+	})
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+
+	// Should not panic.
+	engine.loadWhitelist(context.Background(), "tenant-5")
+}
 
 // mockTokenStorage implements oauth.TokenStorage for testing.
 type mockTokenStorage struct {
