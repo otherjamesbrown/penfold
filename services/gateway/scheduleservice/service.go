@@ -393,14 +393,15 @@ func scheduleToSummary(s *schedule.Schedule) *schedulev1.ScheduleSummary {
 	}
 
 	summary := &schedulev1.ScheduleSummary{
-		Id:            s.ID,
-		Name:          s.Name,
-		Description:   s.Description,
-		Type:          s.ScheduleType,
-		CronExpr:      s.ScheduleExpr,
-		WorkflowType:  s.WorkflowType,
-		Enabled:       s.Enabled,
-		OverlapPolicy: s.OverlapPolicy,
+		Id:             s.ID,
+		Name:           s.Name,
+		Description:    s.Description,
+		Type:           s.ScheduleType,
+		CronExpr:       s.ScheduleExpr,
+		WorkflowType:   s.WorkflowType,
+		Enabled:        s.Enabled,
+		OverlapPolicy:  s.OverlapPolicy,
+		WorkflowParams: string(s.WorkflowParams),
 	}
 
 	if s.LastRunAt != nil {

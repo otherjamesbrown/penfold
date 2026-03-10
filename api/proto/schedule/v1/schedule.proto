@@ -75,6 +75,7 @@ message ScheduleSummary {
   google.protobuf.Timestamp last_run_at = 10;
   google.protobuf.Timestamp next_run_at = 11;
   string last_error = 12;
+  string workflow_params = 13;
 }
 
 message PauseScheduleRequest {
