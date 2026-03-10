@@ -165,11 +165,19 @@ func (r *Repository) List(ctx context.Context, tenantID string, projectID int64,
 
 	conditions := []string{
 		"tenant_id = $1",
-		"project_id = $2",
-		"period_start >= $3",
 	}
-	args := []interface{}{tenantID, projectID, since}
-	argIdx := 4
+	args := []interface{}{tenantID}
+	argIdx := 2
+
+	if projectID != 0 {
+		conditions = append(conditions, fmt.Sprintf("project_id = $%d", argIdx))
+		args = append(args, projectID)
+		argIdx++
+	}
+
+	conditions = append(conditions, fmt.Sprintf("period_start >= $%d", argIdx))
+	args = append(args, since)
+	argIdx++
 
 	if !until.IsZero() {
 		conditions = append(conditions, fmt.Sprintf("period_start <= $%d", argIdx))

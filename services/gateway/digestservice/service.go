@@ -194,12 +194,19 @@ func (s *Service) GetLatestDigest(ctx context.Context, req *digestv1.GetLatestDi
 }
 
 // ListDigests returns digests for a project within a date range.
+// Project is optional — when omitted, digests across all projects (including NULL project_id) are returned.
 func (s *Service) ListDigests(ctx context.Context, req *digestv1.ListDigestsRequest) (*digestv1.ListDigestsResponse, error) {
-	projectID, _, err := s.resolveProject(ctx, req.TenantId, req.ProjectId, req.ProjectName)
-	if err != nil {
-		return nil, err
+	var projectID int64
+	var projectName string
+	if req.ProjectId != 0 || req.ProjectName != "" {
+		var err error
+		projectID, projectName, err = s.resolveProject(ctx, req.TenantId, req.ProjectId, req.ProjectName)
+		if err != nil {
+			return nil, err
+		}
 	}
 
+	var err error
 	var since, until time.Time
 	if req.Since != "" {
 		since, err = time.Parse("2006-01-02", req.Since)
@@ -224,15 +231,28 @@ func (s *Service) ListDigests(ctx context.Context, req *digestv1.ListDigestsRequ
 		return nil, status.Errorf(codes.Internal, "failed to list digests: %v", err)
 	}
 
-	// Lookup project name once
-	projectName := s.lookupProjectName(ctx, req.TenantId, projectID)
+	// Cache project names to avoid repeated lookups
+	projectNameCache := map[int64]string{}
+	if projectID != 0 {
+		projectNameCache[projectID] = projectName
+	}
 
 	summaries := make([]*digestv1.DigestSummary, len(digests))
 	for i, d := range digests {
+		pid := derefInt64(d.ProjectID)
+		pName := ""
+		if pid != 0 {
+			if cached, ok := projectNameCache[pid]; ok {
+				pName = cached
+			} else {
+				pName = s.lookupProjectName(ctx, req.TenantId, pid)
+				projectNameCache[pid] = pName
+			}
+		}
 		summaries[i] = &digestv1.DigestSummary{
 			Id:          d.ID,
-			ProjectId:   derefInt64(d.ProjectID),
-			ProjectName: projectName,
+			ProjectId:   pid,
+			ProjectName: pName,
 			DigestType:  d.DigestType,
 			PeriodStart: d.PeriodStart.Format("2006-01-02"),
 			PeriodEnd:   d.PeriodEnd.Format("2006-01-02"),
