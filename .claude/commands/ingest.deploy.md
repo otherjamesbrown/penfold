@@ -12,28 +12,62 @@ Check for newly unblocked work (loop), then commit, deploy, verify, and summariz
 DB_CONN: "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full"
 ```
 
-## Phase 6: Loop
+## Phase 6: Auto-Continue Loop
 
-### Check for Newly Unblocked Work
+After closing a task, check for sibling tasks under the same parent design that are
+now unblocked. This allows a single session to chain through a full design's tasks
+without manual re-assignment.
+
+### Step 1: Find parent design
 
 ```bash
-psql "host=dev02.brown.chat dbname=contextpalace user=penfold sslmode=verify-full" -c "
-SELECT s.id, s.title, s.status,
-  (SELECT array_agg(e.to_id) FROM edges e
-   WHERE e.from_id = s.id AND e.edge_type = 'blocked-by'
-   AND (SELECT status FROM shards WHERE id = e.to_id) != 'closed') as still_blocked_by
-FROM shards s
-WHERE s.project = 'penfold' AND s.type = 'task'
-  AND s.status IN ('open', 'in_progress')
-  AND (s.title LIKE 'fix:%' OR s.title LIKE 'feat:%' OR s.title LIKE 'feat-db:%' OR s.title LIKE 'feat-svc:%' OR s.title LIKE 'feat-cli:%')
-ORDER BY s.priority, s.created_at;
-"
+# Get the parent design of the task we just completed
+cxp shard edges pf-COMPLETED-TASK -o json
+# Look for: {"direction": "outgoing", "edge_type": "child-of", "shard_id": "pf-PARENT"}
 ```
 
-### Decision
+If no parent found (standalone task), skip to Phase 7.
 
-- If more work is ready (no blockers) → tell orchestrator to loop back to `/ingest.implement`
-- If nothing left → proceed to Phase 7 below
+### Step 2: Find sibling tasks
+
+```bash
+# Get all children of the parent design
+cxp shard edges pf-PARENT -o json
+# Filter for: direction=incoming, edge_type=child-of, type=task
+# Exclude: status=closed, already assigned to a different agent
+```
+
+### Step 3: Try to self-assign next unblocked sibling
+
+For each open, unassigned sibling task (in creation order):
+
+```bash
+cxp shard assign pf-SIBLING --agent agent-mycroft
+```
+
+**If assignment succeeds** (task is unblocked):
+- The task is now yours. Loop back to Phase 3.5 (tests) → Phase 4 (implement) →
+  Phase 5 (verify) → Phase 7 (deploy) for this new task.
+- After deploying, return to Step 1 of this loop.
+
+**If assignment fails** ("unresolved blockers"):
+- Skip this sibling, try the next one.
+
+**Skip shards that:**
+- Are already assigned to a different agent
+- Are assigned to agent-penfold or agent-steve (not your domain)
+
+### Step 4: Exit conditions
+
+- **All siblings closed** → Parent design auto-transitions to needs-review.
+  Log: "All tasks under pf-PARENT complete. Parent pf-PARENT now needs-review."
+  Proceed to Phase 7 summary.
+
+- **Some siblings blocked, none assignable** → Other work (e.g., CLI tasks by penfold)
+  must complete first. Log: "Remaining tasks blocked on external work. Exiting."
+  Proceed to Phase 7 summary.
+
+- **No parent found** → Standalone task, nothing to loop. Proceed to Phase 7.
 
 ---
 

@@ -11,7 +11,7 @@ INSTANCE_ID=$(basename "$(ls -t "$PROJ_DIR"/*.jsonl 2>/dev/null | head -1)" .jso
 echo "[Instance: mycroft:${INSTANCE_ID:-unknown}]"
 
 # 2. Work queue — shards marked ready for implementation
-READY_JSON=$(cxp shard list --type bug,task,spec --status ready --limit 20 -o json 2>/dev/null || echo '{"results":[]}')
+READY_JSON=$(cxp shard list --type bug,task,spec --assigned-to agent-mycroft --limit 20 -o json 2>/dev/null || echo '{"results":[]}')
 READY_COUNT=$(echo "$READY_JSON" | jq '.results | length' 2>/dev/null || echo 0)
 
 BUGS=$(echo "$READY_JSON" | jq '[.results[] | select(.type == "bug")] | length' 2>/dev/null || echo 0)
@@ -28,7 +28,7 @@ else
 fi
 
 # 3. In-progress work (from any previous session)
-IN_PROGRESS=$(cxp shard list --type bug,task,spec --status in_progress --limit 10 2>/dev/null || true)
+IN_PROGRESS=$(cxp shard list --type bug,task,spec --status in_progress --assigned-to agent-mycroft --limit 10 2>/dev/null || true)
 if [ -n "$IN_PROGRESS" ] && ! echo "$IN_PROGRESS" | grep -q "No shards found"; then
   echo ""
   echo "# In Progress #"

@@ -12,6 +12,25 @@ Single entry point for all implementation work.
 $ARGUMENTS
 ```
 
+## THE VERY FIRST THING YOU DO — Check for assigned work
+
+**STOP. Before ANYTHING else — before loading playbook, before preflight, before checking
+inbox — run this command:**
+
+```bash
+cxp shard list --assigned-to agent-mycroft --status open,in_progress -o json
+```
+
+**If this returns ANY shards:**
+1. Display them: "I have N assigned tasks:" with ID, title, status for each
+2. Start working on them immediately — skip to Phase 3.5 (for open) or Phase 4 (for in_progress)
+3. Do NOT check inbox. Do NOT show "empty queue". You HAVE work.
+4. After completing each task, Phase 6 auto-continues to unblocked siblings.
+
+**Only if the command returns zero results**, continue to Phase -1 below.
+
+---
+
 ## Phase -1: Load Playbook
 
 The playbook (`pf-2b76b4`) is loaded by the SessionStart hook. If it's not in your context
@@ -59,10 +78,10 @@ This command checks:
 
 ## Input Routing
 
-Parse the user's input to determine which mode to run:
+Parse the user's input to determine which mode to run (only reached if no assigned work):
 
 **Mode 1: Full Pipeline** (no arguments, or "all")
-- User typed `/ingest` with no args
+- User typed `/ingest` with no args AND no assigned work exists (confirmed in Step 1)
 - Run Phase 0 (preflight) → Phase 1 → 2 → 3 → 3.5 → 4 → 5 → 5.5 → 6+7
 
 **Mode 2: Implement Specific Shards** (shard IDs provided)
@@ -178,7 +197,7 @@ Phase 3.5: /ingest.test          — Write failing tests (all items, per-wave fo
 Phase 4:   /ingest.implement     — Launch implementation agents
 Phase 5:   /ingest.verify        — Verify builds, integration tests, cross-check, reply to penfold
 Phase 5.5: (in verify)           — Pre-deploy review gate: notify penfold before shipping
-Phase 6+7: /ingest.deploy        — Loop for unblocked work, then commit/deploy/verify/release
+Phase 6+7: /ingest.deploy        — Auto-continue sibling tasks, then commit/deploy/verify/release
 ```
 
 ### Decision Points Between Phases
