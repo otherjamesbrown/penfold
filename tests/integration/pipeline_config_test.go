@@ -137,6 +137,52 @@ func TestDeployHistory_TableExists(t *testing.T) {
 	assert.True(t, exists, "deploy_history table should exist")
 }
 
+// TestNotificationPipelinePromptOverrides verifies that all notification pipeline stages
+// have the expected prompt_override values. pf-c4682e: summarize and extract_semantic
+// must have prompt_override=2 (notification-tailored), which migration 142 sets.
+func TestNotificationPipelinePromptOverrides(t *testing.T) {
+	db := SetupTestDBNoMigrations(t)
+	ctx := context.Background()
+
+	// Expected prompt_override for each notification pipeline stage.
+	// NULL means no override (use active prompt version).
+	// 2 means use notification-tailored prompt version.
+	type stageExpectation struct {
+		stage          string
+		wantOverride   *int
+		mustHaveOverride bool
+	}
+
+	notificationOverride := 2
+	expectations := []stageExpectation{
+		{stage: "triage",           wantOverride: &notificationOverride, mustHaveOverride: true},
+		{stage: "summarize",        wantOverride: &notificationOverride, mustHaveOverride: true},
+		{stage: "extract_semantic", wantOverride: &notificationOverride, mustHaveOverride: true},
+	}
+
+	for _, exp := range expectations {
+		t.Run(exp.stage, func(t *testing.T) {
+			var promptOverride *int
+			err := db.Pool.QueryRow(ctx, `
+				SELECT prompt_override
+				FROM pipeline_definitions
+				WHERE tenant_id = $1
+				  AND pipeline = 'notification'
+				  AND stage = $2
+			`, testTenantID, exp.stage).Scan(&promptOverride)
+			require.NoError(t, err, "stage %s should exist in notification pipeline for tenant %s", exp.stage, testTenantID)
+
+			if exp.mustHaveOverride {
+				require.NotNil(t, promptOverride, "notification pipeline stage %q should have prompt_override set (pf-c4682e)", exp.stage)
+				assert.Equal(t, *exp.wantOverride, *promptOverride,
+					"notification pipeline stage %q should have prompt_override=%d", exp.stage, *exp.wantOverride)
+			} else {
+				assert.Nil(t, promptOverride, "notification pipeline stage %q should have NULL prompt_override", exp.stage)
+			}
+		})
+	}
+}
+
 func TestDeployHistory_InsertAndQuery(t *testing.T) {
 	db := SetupTestDB(t)
 	ctx := context.Background()
