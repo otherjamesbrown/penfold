@@ -432,6 +432,12 @@ func formatContentSummaries(summaries []digest.ContentSummary) string {
 			cs.Subject,
 			cs.Summary,
 		)
+		if cs.ActionItems != "" && cs.ActionItems != "[]" {
+			fmt.Fprintf(&buf, "  Action Items: %s\n", cs.ActionItems)
+		}
+		if cs.KeyAnnouncements != "" && cs.KeyAnnouncements != "[]" {
+			fmt.Fprintf(&buf, "  Key Announcements: %s\n", cs.KeyAnnouncements)
+		}
 	}
 	return buf.String()
 }

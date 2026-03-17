@@ -12,11 +12,13 @@ import (
 
 // ContentSummary holds a summary of attributed content for digest generation.
 type ContentSummary struct {
-	SourceID int64
-	Subject  string
-	From     string
-	Date     time.Time
-	Summary  string
+	SourceID        int64
+	Subject         string
+	From            string
+	Date            time.Time
+	Summary         string
+	ActionItems     string // JSON array of newsletter action items (may be empty)
+	KeyAnnouncements string // JSON array of key announcements (may be empty)
 }
 
 // AssertionSummary holds assertion data for digest generation.
@@ -53,7 +55,9 @@ func GatherAttributedContent(ctx context.Context, pool *pgxpool.Pool, tenantID s
 		       COALESCE(s.ingestion_metadata->>'subject', ''),
 		       COALESCE(s.ingestion_metadata->>'from_address', ''),
 		       s.source_timestamp,
-		       COALESCE(ce.extracted_data->>'summary', ce.extracted_data->'newsletter'->>'summary', '')
+		       COALESCE(ce.extracted_data->>'summary', ce.extracted_data->'newsletter'->>'summary', ''),
+		       COALESCE(ce.extracted_data->'newsletter'->>'action_items', ''),
+		       COALESCE(ce.extracted_data->'newsletter'->>'key_announcements', '')
 		FROM sources s
 		LEFT JOIN content_enrichment ce ON ce.source_id = s.id AND ce.tenant_id = s.tenant_id::text
 		WHERE s.tenant_id = $1::uuid
@@ -72,7 +76,7 @@ func GatherAttributedContent(ctx context.Context, pool *pgxpool.Pool, tenantID s
 	result := []ContentSummary{}
 	for rows.Next() {
 		var cs ContentSummary
-		if err := rows.Scan(&cs.SourceID, &cs.Subject, &cs.From, &cs.Date, &cs.Summary); err != nil {
+		if err := rows.Scan(&cs.SourceID, &cs.Subject, &cs.From, &cs.Date, &cs.Summary, &cs.ActionItems, &cs.KeyAnnouncements); err != nil {
 			return nil, fmt.Errorf("scan attributed content: %w", err)
 		}
 		result = append(result, cs)
@@ -292,7 +296,9 @@ func GatherContentBySourceFilter(ctx context.Context, pool *pgxpool.Pool,
 		       COALESCE(s.ingestion_metadata->>'subject', ''),
 		       COALESCE(s.ingestion_metadata->>'from_address', ''),
 		       s.source_timestamp,
-		       COALESCE(ce.extracted_data->>'summary', ce.extracted_data->'newsletter'->>'summary', '')
+		       COALESCE(ce.extracted_data->>'summary', ce.extracted_data->'newsletter'->>'summary', ''),
+		       COALESCE(ce.extracted_data->'newsletter'->>'action_items', ''),
+		       COALESCE(ce.extracted_data->'newsletter'->>'key_announcements', '')
 		FROM sources s
 		LEFT JOIN content_enrichment ce ON ce.source_id = s.id AND ce.tenant_id = s.tenant_id::text
 		WHERE %s
@@ -310,7 +316,7 @@ func GatherContentBySourceFilter(ctx context.Context, pool *pgxpool.Pool,
 	result := []ContentSummary{}
 	for rows.Next() {
 		var cs ContentSummary
-		if err := rows.Scan(&cs.SourceID, &cs.Subject, &cs.From, &cs.Date, &cs.Summary); err != nil {
+		if err := rows.Scan(&cs.SourceID, &cs.Subject, &cs.From, &cs.Date, &cs.Summary, &cs.ActionItems, &cs.KeyAnnouncements); err != nil {
 			return nil, fmt.Errorf("scan content by source filter: %w", err)
 		}
 		result = append(result, cs)
