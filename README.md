@@ -1,219 +1,77 @@
 # Penfold
 
-Personal AI-powered contextual information system that aggregates and correlates information from communication channels (email, Slack, documents, meetings) into a queryable institutional memory.
+Penfold is James's institutional-memory system. This repository contains the backend services, workflow execution, shared packages, tests, and migrations that power ingestion, enrichment, retrieval, and agent-facing operations.
 
-## Architecture
+## Start Here
 
-Penfold is built with Go for high performance and reliability:
+For AI-agent onboarding, the preferred retrieval order is:
 
-```
-cmd/penf/           # CLI application
-services/
-├── gateway/        # API Gateway (gRPC + HTTP)
-├── gmail/          # Gmail Connector (OAuth2, sync, push notifications)
-└── worker/         # Temporal worker for background processing
-pkg/
-├── db/             # Database utilities (PostgreSQL + pgvector)
-├── tracing/        # Distributed tracing
-├── temporal/       # Temporal workflow SDK
-└── embeddings/     # Vector embedding generation
-api/proto/          # Protocol Buffer definitions
-```
+1. `AGENTS.md`
+2. Context Palace playbook and KB shards
+3. Code and tests
 
-### Core Services
+The KB is the primary architecture map. Repo-local docs should stay thin and should not compete with the KB for subsystem truth.
 
-| Service | Description | Port |
-|---------|-------------|------|
-| Gateway | API gateway with auth, routing, rate limiting | 8080 (HTTP), 9090 (gRPC) |
-| Gmail | OAuth2 PKCE, real-time sync, push notifications | - |
-| Worker | Temporal activities and workflows | - |
+## Runtime Surface
 
-### Technology Stack
+The main runtime services in this repo are:
 
-- **Language**: Go 1.22+
-- **Database**: PostgreSQL 16+ with pgvector extension
-- **Workflows**: Temporal for durable execution
-- **API**: gRPC with Protocol Buffers, HTTP gateway
-- **Embeddings**: Ollama (mxbai-embed-large on Apple Silicon)
-- **Search**: Hybrid full-text + vector similarity
+- `services/gateway`
+  Primary API and orchestration surface
+- `services/worker`
+  Temporal workflows and activities
+- `services/gmail`
+  Gmail auth, sync, and push-driven ingestion
+- `services/ai`
+  AI coordinator and provider routing
+- `services/mcp`
+  MCP server exposing Penfold capabilities as toolsets
 
-## Getting Started
+Shared code lives under `pkg/`.
+Protocol definitions live under `api/proto/`.
+Database migrations live under `migrations/`.
+Integration and behavior tests live under `tests/`.
 
-### Prerequisites
+## Repo Structure
 
-- Go 1.22+
-- PostgreSQL 16+ with pgvector
-- Temporal server
-- Redis (optional, for caching)
-
-### Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/otherjamesbrown/penfold.git
-cd penfold
-
-# Build the CLI
-go build -o penf ./cmd/penf
-
-# Or install directly
-go install ./cmd/penf
-```
-
-### Configuration
-
-Copy the example environment file and configure:
-
-```bash
-cp .env.example .env
-```
-
-Key configuration:
-- `DATABASE_URL`: PostgreSQL connection string
-- `TEMPORAL_ADDRESS`: Temporal server address
-- `GMAIL_CLIENT_ID`: Google OAuth2 client ID
-- `GMAIL_CLIENT_SECRET`: Google OAuth2 client secret
-
-### Running
-
-```bash
-# Start the gateway
-./penf gateway start
-
-# Start the worker
-./penf worker start
-
-# Or run services via docker-compose
-docker-compose up -d
-```
-
-### TLS Authentication
-
-Penfold uses mutual TLS (mTLS) for client authentication. Before using the CLI, set up your certificates:
-
-```bash
-# Install certificates (get ca.crt, client.crt, client.key from admin)
-penf cert init --from /path/to/your/certs
-
-# Verify setup
-penf cert verify
-```
-
-See [mTLS Setup Guide](docs/infrastructure/mtls-setup.md) for detailed instructions.
-
-### CLI Usage
-
-```bash
-# Check system health
-penf health
-
-# Search content
-penf search "project status meeting"
-
-# Manage Gmail accounts
-penf auth gmail add
-penf auth gmail list
-
-# View relationships
-penf relationship list
-penf relationship show <entity-id>
-
-# Daily review
-penf review pending
-penf review process
-
-# Manage tenants
-penf tenant list
-penf tenant create <name>
-```
-
-## Project Structure
-
-```
-.
-├── api/proto/              # Protocol Buffer definitions
-│   ├── gateway/v1/         # Gateway service
-│   ├── search/v1/          # Search service
-│   ├── review/v1/          # Review service
-│   └── ...
-├── cmd/penf/               # CLI application
-│   ├── cmd/                # Command implementations
-│   ├── client/             # gRPC client
-│   └── config/             # CLI configuration
-├── pkg/                    # Shared packages
-│   ├── db/                 # Database utilities
-│   ├── temporal/           # Temporal SDK helpers
-│   └── tracing/            # Observability
-├── services/               # Backend services
-│   ├── gateway/            # API Gateway
-│   ├── gmail/              # Gmail Connector
-│   └── worker/             # Temporal Worker
-├── specs/                  # Feature specifications
-└── docs/                   # Documentation
+```text
+api/proto/      Protocol and service contracts
+migrations/     Database schema and config evolution
+pkg/            Shared libraries, repositories, and domain packages
+services/       Runtime services
+tests/          Unit, integration, e2e, and quality tests
+docs/           Local supporting docs only
+specs/          Design and historical implementation specs
 ```
 
 ## Development
 
-### Building
+This project uses `bd` for issue tracking.
+
+Useful commands:
 
 ```bash
-# Build all
-go build ./...
-
-# Run tests
-go test ./...
-
-# Run tests with coverage
-go test -cover ./...
-
-# Generate protobuf code
-buf generate
-```
-
-### Workflow Management
-
-Penfold uses a bead-based workflow system for task tracking:
-
-```bash
-# Find available work
 bd ready
-
-# Claim a task
-bd update <bead-id> --status=in_progress
-
-# Complete a task
-bd close <bead-id> --reason="Implementation complete"
-
-# Sync with remote
+bd show <id>
+bd update <id> --status in_progress
+bd close <id>
 bd sync
 ```
 
-### Code Style
+## KB and Architecture
 
-- Follow standard Go conventions
-- Use `gofmt` for formatting
-- Run `go vet` and `staticcheck` before commits
-- Reference beads in commits: `feat(component): description [pe-xxxx]`
+The Context Palace KB is the preferred architecture surface for navigational knowledge.
 
-## Documentation
+Key KB areas include:
 
-- [Architecture Patterns](context/ARCHITECTURE.md)
-- [mTLS Authentication](docs/infrastructure/mtls-setup.md)
-- [Production Deployment](docs/infrastructure/production-deployment.md)
-- [Gmail Integration](docs/gmail-integration/README.md)
-- [Search Interface](docs/search/README.md)
-- [Database Schema](docs/database-schema/README.md)
-- [Feature Specifications](specs/)
+- playbook / system map
+- architectural principles
+- ingest pipeline
+- knowledge graph
+- search and retrieval
+- AI and models
+- infrastructure
+- workflows and ways of working
+- testing architecture
 
-## Contributing
-
-1. Find or create a bead for your work: `bd ready`
-2. Update status: `bd update <id> --status=in_progress`
-3. Implement with tests
-4. Reference bead in commit: `git commit -m "feat: description [pe-xxxx]"`
-5. Close bead: `bd close <id> --reason="summary"`
-6. Push changes: `git push`
-
-## License
-
-MIT
+This repo's local architecture documents should remain lightweight and point into the KB rather than duplicating volatile subsystem detail.
