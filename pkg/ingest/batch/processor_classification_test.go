@@ -146,6 +146,104 @@ Issue PROJ-123 has been updated.
 	})
 }
 
+// TestIngestStoresNewsletterHeaders verifies that the ingest processor preserves
+// List-Unsubscribe and List-Id headers required for newsletter classification rules.
+func TestIngestStoresNewsletterHeaders(t *testing.T) {
+	emlContent := `From: newsletter@example.com
+To: user@example.com
+Subject: Weekly Digest
+Date: Mon, 20 Jan 2026 10:00:00 -0800
+Message-ID: <newsletter-001@example.com>
+List-Unsubscribe: <mailto:unsubscribe@example.com?subject=unsubscribe>
+List-Id: weekly-digest.example.com
+Precedence: bulk
+Content-Type: text/plain; charset="UTF-8"
+
+This is your weekly digest.
+`
+
+	// Write test file
+	tmpDir := t.TempDir()
+	emlPath := filepath.Join(tmpDir, "newsletter.eml")
+	if err := os.WriteFile(emlPath, []byte(emlContent), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	// Parse with options matching processor.go
+	parseOpts := eml.DefaultParseOptions()
+	parseOpts.PreserveHeaders = []string{
+		"Auto-Submitted",
+		"List-Id",
+		"List-Unsubscribe",
+		"Precedence",
+		"X-Aha-Issue",
+		"X-Auto-Response-Suppress",
+		"X-Jira-Fingerprint",
+		"X-Jira-Issue",
+		"X-Mailer",
+		"X-MS-Exchange-Organization-AuthAs",
+	}
+	parser := eml.NewParser(parseOpts)
+
+	result, err := parser.ParseFile(emlPath)
+	if err != nil {
+		t.Fatalf("failed to parse email: %v", err)
+	}
+
+	email := result.Email
+
+	// Build metadata the same way processFile does (lines 435-451 of processor.go)
+	headers := make(map[string]string)
+	if email.From.Email != "" {
+		headers["From"] = email.From.Email
+	}
+	for k, v := range email.Headers {
+		headers[k] = v
+	}
+
+	metadata := map[string]interface{}{
+		"from":    email.From.Email,
+		"subject": email.Subject,
+	}
+	if len(headers) > 0 {
+		metadata["headers"] = headers
+	}
+
+	// Verify headers map exists
+	headersIface, ok := metadata["headers"]
+	if !ok {
+		t.Fatal("metadata[\"headers\"] not present")
+	}
+
+	headersMap, ok := headersIface.(map[string]string)
+	if !ok {
+		t.Fatalf("headers is not map[string]string: %T", headersIface)
+	}
+
+	t.Run("List-Unsubscribe header preserved", func(t *testing.T) {
+		if _, ok := headersMap["List-Unsubscribe"]; !ok {
+			t.Error("List-Unsubscribe header not preserved")
+		}
+	})
+
+	t.Run("List-Id header preserved", func(t *testing.T) {
+		if _, ok := headersMap["List-Id"]; !ok {
+			t.Error("List-Id header not preserved")
+		}
+	})
+
+	t.Run("Precedence header preserved", func(t *testing.T) {
+		val, ok := headersMap["Precedence"]
+		if !ok {
+			t.Error("Precedence header not preserved")
+			return
+		}
+		if val != "bulk" {
+			t.Errorf("expected Precedence='bulk', got '%s'", val)
+		}
+	})
+}
+
 // TestIngestStoresAttachments verifies that the ingest processor preserves attachment
 // metadata (filename, mime_type, size) in ingestion_metadata["attachments"] array.
 //

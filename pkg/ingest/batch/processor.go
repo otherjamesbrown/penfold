@@ -95,13 +95,15 @@ func NewProcessor(
 	// Preserve headers needed for content classification
 	parseOpts.PreserveHeaders = []string{
 		"Auto-Submitted",
+		"List-Id",
+		"List-Unsubscribe",
 		"Precedence",
+		"X-Aha-Issue",
 		"X-Auto-Response-Suppress",
+		"X-Jira-Fingerprint",
+		"X-Jira-Issue",
 		"X-Mailer",
 		"X-MS-Exchange-Organization-AuthAs",
-		"X-Jira-Issue",
-		"X-Jira-Fingerprint",
-		"X-Aha-Issue",
 	}
 
 	// Create attachment extractor
