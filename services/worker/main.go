@@ -389,9 +389,22 @@ func main() {
 		}
 		defer dbPool.Close()
 
-		// Verify connection
-		if err := dbPool.Ping(context.Background()); err != nil {
-			logger.Error("Failed to connect to database", logging.Err(err))
+		// Verify connection with retry (launchd may start before network is ready)
+		connected := false
+		for attempt := 1; attempt <= 12; attempt++ {
+			if err := dbPool.Ping(context.Background()); err != nil {
+				logger.Error("Failed to connect to database", logging.Err(err),
+					logging.F("attempt", attempt),
+					logging.F("max_attempts", 12),
+				)
+				time.Sleep(5 * time.Second)
+				continue
+			}
+			connected = true
+			break
+		}
+		if !connected {
+			logger.Error("Failed to connect to database after 12 attempts — exiting")
 			os.Exit(1)
 		}
 		logger.Info("Connected to database")
