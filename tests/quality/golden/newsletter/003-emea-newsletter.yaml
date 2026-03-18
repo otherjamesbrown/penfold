@@ -1,0 +1,50 @@
+email: emails/newsletter/003-emea-newsletter.eml
+description: "EMEA Newsletter: Regional events, culture, and operational updates"
+last_verified: "2026-03-18"
+category: newsletter
+
+routing:
+  content_subtype: NEWSLETTER
+  pipeline: newsletter
+  must_complete:
+    - parse
+    - triage
+    - newsletter_extract
+    - embed
+  must_not_run:
+    - extract_semantic
+    - extract_ner
+    - extract_assertions
+
+triage:
+  importance:
+    one_of: [LOW, MEDIUM]
+    must_not_be: [HIGH, CRITICAL]
+
+newsletter_extract:
+  summary:
+    min_length: 50
+    must_mention:
+      - "EMEA"
+  sections:
+    min_count: 1
+  action_items:
+    min_count: 0
+    max_count: 5
+  key_announcements:
+    min_count: 0
+  risks:
+    max_count: 3
+  people_mentioned:
+    min_count: 0
+  quality_gate_triggered: false
+
+digest:
+  handling: friday_summary
+  fields_in_rollup:
+    - key_announcements
+    - action_items
+
+intent:
+  description: "Regional newsletter — group into Friday Weekly Newsletter Summary. Note events and culture items relevant to EMEA operations."
+  value: medium

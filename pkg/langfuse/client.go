@@ -262,6 +262,29 @@ func (c *Client) GetDatasetRuns(ctx context.Context, datasetName string) ([]Data
 	return result.Data, nil
 }
 
+// CreateScoreRequest is the request body for creating a score.
+type CreateScoreRequest struct {
+	TraceID  string  `json:"traceId"`
+	Name     string  `json:"name"`
+	Value    float64 `json:"value"`
+	Comment  string  `json:"comment,omitempty"`
+	DataType string  `json:"dataType,omitempty"`
+}
+
+// CreateScore creates a score linked to a trace.
+func (c *Client) CreateScore(ctx context.Context, req *CreateScoreRequest) error {
+	resp, err := c.doRequest(ctx, http.MethodPost, "/api/public/scores", req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("CreateScore: API error (status %d): %s", resp.StatusCode, string(body))
+	}
+	return nil
+}
+
 // Host returns the configured Langfuse host URL.
 func (c *Client) Host() string {
 	return c.host

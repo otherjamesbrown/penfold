@@ -1,0 +1,50 @@
+email: emails/newsletter/006-spark-wellness.eml
+description: "Spark Wellness: Mental health initiatives, fitness classes, internal comms as newsletter"
+last_verified: "2026-03-18"
+category: newsletter
+
+routing:
+  content_subtype: NEWSLETTER
+  pipeline: newsletter
+  must_complete:
+    - parse
+    - triage
+    - newsletter_extract
+    - embed
+  must_not_run:
+    - extract_semantic
+    - extract_ner
+    - extract_assertions
+
+triage:
+  importance:
+    one_of: [LOW, MEDIUM]
+    must_not_be: [HIGH, CRITICAL]
+
+newsletter_extract:
+  summary:
+    min_length: 30
+    must_mention:
+      - "wellness"
+  sections:
+    min_count: 1
+  action_items:
+    min_count: 0
+    max_count: 5
+  key_announcements:
+    min_count: 0
+  risks:
+    max_count: 2
+  people_mentioned:
+    min_count: 0
+  quality_gate_triggered: false
+
+digest:
+  handling: friday_summary
+  fields_in_rollup:
+    - key_announcements
+    - action_items
+
+intent:
+  description: "Internal wellness comms classified as newsletter. Edge case — include in Friday summary if health/wellness initiatives are relevant."
+  value: medium

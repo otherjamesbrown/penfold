@@ -1,0 +1,50 @@
+email: emails/newsletter/002-akamai-wave.eml
+description: "Akamai Wave: Year in review, transformation updates, product launches"
+last_verified: "2026-03-18"
+category: newsletter
+
+routing:
+  content_subtype: NEWSLETTER
+  pipeline: newsletter
+  must_complete:
+    - parse
+    - triage
+    - newsletter_extract
+    - embed
+  must_not_run:
+    - extract_semantic
+    - extract_ner
+    - extract_assertions
+
+triage:
+  importance:
+    one_of: [LOW, MEDIUM]
+    must_not_be: [HIGH, CRITICAL]
+
+newsletter_extract:
+  summary:
+    min_length: 50
+    must_mention:
+      - "Akamai"
+  sections:
+    min_count: 2
+  action_items:
+    min_count: 0
+    max_count: 5
+  key_announcements:
+    min_count: 1
+  risks:
+    max_count: 3
+  people_mentioned:
+    min_count: 0
+  quality_gate_triggered: false
+
+digest:
+  handling: friday_summary
+  fields_in_rollup:
+    - key_announcements
+    - action_items
+
+intent:
+  description: "Company-wide newsletter — group into Friday Weekly Newsletter Summary. Note product launches and strategic direction."
+  value: medium

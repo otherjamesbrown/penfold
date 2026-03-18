@@ -333,6 +333,57 @@ func TestGetDatasetRuns(t *testing.T) {
 	}
 }
 
+func TestCreateScore_RequestFormat(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/public/scores" {
+			t.Errorf("expected path /api/public/scores, got %s", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") == "" {
+			t.Error("expected Authorization header")
+		}
+		if r.Header.Get("Content-Type") != "application/json" {
+			t.Errorf("expected Content-Type application/json, got %s", r.Header.Get("Content-Type"))
+		}
+		var req langfuse.CreateScoreRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("failed to decode request: %v", err)
+		}
+		if req.TraceID != "trace-123" {
+			t.Errorf("expected traceId 'trace-123', got '%s'", req.TraceID)
+		}
+		if req.Name != "routing_correct" {
+			t.Errorf("expected name 'routing_correct', got '%s'", req.Name)
+		}
+		if req.Value != 1.0 {
+			t.Errorf("expected value 1.0, got %f", req.Value)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"score-1"}`))
+	}))
+	defer server.Close()
+
+	client, err := langfuse.NewClient(&langfuse.Config{
+		Host:      server.URL,
+		PublicKey: "pk-test",
+		SecretKey: "sk-test",
+	})
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	err = client.CreateScore(context.Background(), &langfuse.CreateScoreRequest{
+		TraceID: "trace-123",
+		Name:    "routing_correct",
+		Value:   1.0,
+	})
+	if err != nil {
+		t.Fatalf("CreateScore returned error: %v", err)
+	}
+}
+
 func TestAPIError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)

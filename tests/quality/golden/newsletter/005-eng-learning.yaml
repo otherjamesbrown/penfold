@@ -1,0 +1,18 @@
+email: emails/newsletter/005-eng-learning.eml
+description: "Engineering Learning Newsletter — stub email with link only, no extractable content"
+last_verified: "2026-03-18"
+category: newsletter
+
+routing:
+  content_subtype: NEWSLETTER
+  pipeline: newsletter
+  must_complete:
+    - parse
+    - triage
+
+digest:
+  handling: discard
+
+intent:
+  description: "Stub email pointing to Aloha intranet. No content to extract. Discard."
+  value: low

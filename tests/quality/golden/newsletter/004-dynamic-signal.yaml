@@ -1,0 +1,33 @@
+email: emails/newsletter/004-dynamic-signal.eml
+description: "Dynamic Signal automated digest — usually noise, include only if project-relevant"
+last_verified: "2026-03-18"
+category: newsletter
+
+routing:
+  content_subtype: NEWSLETTER
+  pipeline: newsletter
+  must_complete:
+    - parse
+    - triage
+    - newsletter_extract
+    - embed
+
+triage:
+  importance:
+    one_of: [LOW]
+
+newsletter_extract:
+  summary:
+    min_length: 20
+  key_announcements:
+    min_count: 0
+  quality_gate_triggered: false
+
+digest:
+  handling: conditional
+  fields_in_rollup:
+    - key_announcements
+
+intent:
+  description: "Automated social feed. Scan for project/product relevance — if nothing relevant, discard entirely."
+  value: low

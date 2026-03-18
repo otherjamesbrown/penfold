@@ -1,0 +1,1048 @@
+Received: from MN2PR17MB3950.namprd17.prod.outlook.com (2603:10b6:208:207::10)
+ by MN2PR17MB3101.namprd17.prod.outlook.com with HTTPS; Mon, 3 Nov 2025
+ 09:11:43 +0000
+Received: from SJ0PR05CA0051.namprd05.prod.outlook.com (2603:10b6:a03:33f::26)
+ by MN2PR17MB3950.namprd17.prod.outlook.com (2603:10b6:208:207::10) with
+ Microsoft SMTP Server (version=TLS1_2,
+ cipher=TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384) id 15.20.9275.15; Mon, 3 Nov
+ 2025 09:11:42 +0000
+Received: from CO1PEPF000075F1.namprd03.prod.outlook.com
+ (2603:10b6:a03:33f:cafe::5f) by SJ0PR05CA0051.outlook.office365.com
+ (2603:10b6:a03:33f::26) with Microsoft SMTP Server (version=TLS1_3,
+ cipher=TLS_AES_256_GCM_SHA384) id 15.20.9298.7 via Frontend Transport; Mon, 3
+ Nov 2025 09:11:39 +0000
+Authentication-Results: spf=pass (sender IP is 72.247.44.27)
+ smtp.mailfrom=akamai.com; dkim=fail (body hash did not verify)
+ header.d=akamai.com;dmarc=pass action=none header.from=akamai.com;
+Received-SPF: Pass (protection.outlook.com: domain of akamai.com designates
+ 72.247.44.27 as permitted sender) receiver=protection.outlook.com;
+ client-ip=72.247.44.27; helo=email.akamai.com; pr=C
+Received: from email.akamai.com (72.247.44.27) by
+ CO1PEPF000075F1.mail.protection.outlook.com (10.167.249.40) with Microsoft
+ SMTP Server (version=TLS1_2, cipher=TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384) id
+ 15.20.9298.6 via Frontend Transport; Mon, 3 Nov 2025 09:11:41 +0000
+Received: from ustx2ex-dag5mb4.msg.corp.akamai.com (172.27.50.221) by
+ ustx2ex-exedge3.msg.corp.akamai.com (172.27.50.214) with Microsoft SMTP
+ Server (version=TLS1_2, cipher=TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384) id
+ 15.2.2562.27; Mon, 3 Nov 2025 03:11:29 -0600
+Received: from prod-mail-relay04.akamai.com (172.27.164.114) by
+ ustx2ex-dag5mb4.msg.corp.akamai.com (172.27.50.221) with Microsoft SMTP
+ Server id 15.2.2562.27 via Frontend Transport; Mon, 3 Nov 2025 01:11:29 -0800
+Received: by prod-mail-relay04.akamai.com (Postfix)
+	id B050E20E; Mon,  3 Nov 2025 09:11:29 +0000 (UTC)
+Delivered-To: jabrown@akamai.com
+Received: from prod-mail-ppoint5 (prod-mail-ppoint5.akamai.com [184.51.33.60])
+	by prod-mail-relay04.akamai.com (Postfix) with ESMTP id 8E725202
+	for <jabrown@akamai.com>; Mon,  3 Nov 2025 09:11:29 +0000 (UTC)
+Received: from pps.filterd (prod-mail-ppoint5.akamai.com [127.0.0.1])
+	by prod-mail-ppoint5.akamai.com (8.18.1.2/8.18.1.2) with ESMTP id 5A356mq9014831
+	for <jabrown@akamai.com>; Mon, 3 Nov 2025 01:11:29 -0800
+Authentication-Results-Original: bos01.corp.akamai.com;	dkim=fail
+ header.d=akamai.com header.s=ds;	spf=fail
+ smtp.mailfrom=bounces+177607-f5ba-jabrown=akamai.com@em428.akamai.com;
+	dmarc=fail header.from=akamai.com
+Received: from mx0b-00190b01.pphosted.com (mx0b-00190b01.pphosted.com [67.231.157.127])
+	by prod-mail-ppoint5.akamai.com (PPS) with ESMTPS id 4a5g68efm1-1
+	(version=TLSv1.2 cipher=ECDHE-RSA-AES256-GCM-SHA384 bits=256 verify=NOT)
+	for <jabrown@akamai.com>; Mon, 03 Nov 2025 01:11:29 -0800
+Received: from pps.filterd (m0122331.ppops.net [127.0.0.1])
+	by mx0b-00190b01.pphosted.com (8.18.1.11/8.18.1.11) with ESMTP id 5A36ukV84005078
+	for <jabrown@akamai.com>; Mon, 3 Nov 2025 09:11:28 GMT
+Authentication-Results-Original: ppops.net;	spf=pass
+ smtp.mailfrom=bounces+177607-f5ba-jabrown=akamai.com@em428.akamai.com;
+	dkim=pass header.s=ds header.d=akamai.com;	dmarc=pass header.from=akamai.com
+Received: from o1.email.voicestorm.com (o1.email.voicestorm.com [208.117.58.65])
+	by mx0b-00190b01.pphosted.com (PPS) with ESMTPS id 4a57y7ytj2-1
+	(version=TLSv1.3 cipher=TLS_AES_128_GCM_SHA256 bits=128 verify=NOT)
+	for <jabrown@akamai.com>; Mon, 03 Nov 2025 09:11:27 +0000 (GMT)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=akamai.com;
+	h=content-transfer-encoding:content-type:date:from:mime-version:subject:
+	reply-to:to:cc:content-type:date:from:subject:to;
+	s=ds; bh=3QnbD4160uE5ZhrVqt+q5u4aXqPrsTH24rjhttmWx94=;
+	b=BWxup3Sl0Dq9Aloz6Stwr+RotO+72eJ5FV1lcEZh8fWawPDWDP1kL/2OwpPawe1iANHN
+	pA5zqRqw9tkgbQz/CpJEIAr5KClZsSRUo6O0zcz2NBwlF5CZkMNCNa9yd6z3ZS9/HpUyfF
+	OFPG3dr9CsmLUwJ2wvQLh+cDB6UUodAvtL9kxiv4IjKKb+pk+EHSveE7G0BsyKWuMN5C0z
+	oElCJK1/okOaGr2a8PrueC3maIIUo2Srn07396fGI59eBHn0q9Qbu9g1VhS0rsVH6gzbmk
+	ZWdO93VqBXvFkfOVyIobQ8vN4EeAHaQfP/8NlP3VmHygNZ+qLCBqXEn4U737V2Lw==
+Received: by recvd-d8f897c57-drw9g with SMTP id recvd-d8f897c57-drw9g-1-690871BF-2F
+	2025-11-03 09:11:27.547768918 +0000 UTC m=+13106298.535186571
+Received: from MTc3NjA3 (unknown)
+	by geopod-ismtpd-canary-0 (SG) with HTTP
+	id TwKhP0ONSkWN5y9_cGxOfw
+	Mon, 03 Nov 2025 09:11:27.499 +0000 (UTC)
+Date: Mon, 03 Nov 2025 09:11:27 +0000 (UTC)
+From: Akamai Dynamic Signal <dynamicsignal@akamai.com>
+Message-ID: <TwKhP0ONSkWN5y9_cGxOfw@geopod-ismtpd-canary-0>
+Subject: Akamai Dynamic Signal Digest for Monday, November 3, 2025
+Reply-To: Akamai Dynamic Signal <dynamicsignal@akamai.com>
+X-SG-EID: =?us-ascii?Q?u001=2E7c=2FPENkMyedZH=2FwwjgPI0W6Mzw2cTBeXOwDlLr5KGWH1lT+jMauWgvrnW?=
+ =?us-ascii?Q?OJzNpBYwDRQxdBh5Cw+Ar5ue1xlAJkTCh5F70q3?=
+ =?us-ascii?Q?xgsaCitypDaBbAjSBDDyutQeyqURxCseftFEdxN?=
+ =?us-ascii?Q?7V3OtfXKw6h4VgGewcEmUkSSbIz5jSr+C54mwz=2F?=
+ =?us-ascii?Q?DiIm7OVEpYM1UApFrSlgeoFOCo0g3iHaZWve8iQ?=
+ =?us-ascii?Q?8HGpSuqeox=2FjL+OjeZx9xIzmpJ0Qkf106uXcDRb?= =?us-ascii?Q?UrWF?=
+X-SG-ID: =?us-ascii?Q?u001=2ESdBcvi+Evd=2FbQef8eZF3BrixKurzCJlgterZFWeW1TLdnA7kMXfR6KsLG?=
+ =?us-ascii?Q?CxtCd9toFbEOi9nFEwZdQmst5zwVkzgG3lFIx=2Fp?=
+ =?us-ascii?Q?4uIS75CopDpe428yIo9R5JI75LpYWstsFJLjnVK?=
+ =?us-ascii?Q?13PidzCg32JAWCHrbhuHp1V+geBIQY+G+i5klQ9?=
+ =?us-ascii?Q?wri14e94+pQp9B=2FH8X?=
+To: James Brown <jabrown@akamai.com>
+X-Entity-ID: u001.LCSIjkyC6HfNTgRHhvqb8Q==
+X-Authority-Analysis: v=2.4 cv=RPu+3oi+ c=1 sm=1 tr=0 ts=690871bf b=1 cx=c_pps
+ a=29n2yajcmSGbdopbJD9RFg==:117 a=29n2yajcmSGbdopbJD9RFg==:17
+ a=IkcTkHD0fZMA:10 a=6UeiqGixMTsA:10 a=PDGm2vSchpAA:10
+ a=Kan8h273Bse8B8Jy5C1n:22 a=a_TDLUBPAAAA:8 a=mexTlNc0AAAA:8 a=t-IPkPogAAAA:8
+ a=1XWaLZrsAAAA:8 a=X7Ea-ya5AAAA:8 a=SSmOFEACAAAA:8 a=JkfQoGZqAAAA:8
+ a=9wzC0-9FNQZO2owgcgYA:9 a=DWC5DynXR73hO_Ta:21 a=_W_S_7VecoQA:10
+ a=QEXdDO2ut3YA:10 a=Ru97nHiPDtp4odn3vKgu:22 a=EcpPNuIjxbqD1CSMHIgN:22
+ a=EEO97J_BFFjp3D-ycemy:22 a=lZfXjGwH9V_DBFkJQGxZ:22
+X-CLX-Shades: MLX
+X-CLX-Response: 1TFkXGRkeEQpMehceHxsRCllEF2NtXW1aZVBMW2t4EQpYWBdsYWlaQXNjHG5
+ gexEKeE4Xb0ZbWG4TbHJzRkMRCnhLF2xhaVpBc2McbmB7EQp4TBdlRFlnUlxjHnh6cxEKeUwXZU
+ RZZ1JcYx54enMRCkNIFwcbExMRCkNZFwcZHxsRCkNJFxoEGhoaEQpZTRdnZnIRCllJFxpxGhAad
+ wYZGx5xGxkTHxAadwYYGgYaEQpZXhdsbHkRCklGF0tBS0dLQ3VCRVleT04RCklHF3hPTREKQ04X
+ RVIdXFxNXkF1em5kbXh8WWQHelxNfG5PYh5NbQdMZmYRClhcFx8EGgQeGxoFGxoEGxsaBBsZHgQ
+ ZHxAbHhofGhEKXlkXTXpCcEgRCk1cFx8cHREKTFoXaWtta01NEQpMRhdva2tra2sRCkJPF2tlQ0
+ QFQGRsXlBsEQpDWhcYGhIEGxsdBB8SBBwfEQpCXhcbEQpCXBcbEQpeThcbEQpCSxdvRltYbhNsc
+ nNGQxEKQkkXb0ZbWG4TbHJzRkMRCkJFF2R8YGt5aEdQU2JMEQpCThdvRltYbhNscnNGQxEKQkwX
+ bGFpWkFzYxxuYHsRCkJsF2VEXntLW3pIfGQaEQpCQBdgZGNQUGsYE39fbBEKQlgXbWVJbkBQbVp
+ PRWIRClpYFx8RCnlDF2Jtcx0cfQUFAWgdEQpZSxcTEx4aEQpaSxcTEx4aEQpwaBdgZBhNH0BPbk
+ xEeRAaEQpwaBdoE0dTW15tbRMeARAaEQpwaBdpZBJ/YBJ5TG5zWxAaEQpwaBdjRgVeX25uAR5Yf
+ hAaEQpwaBdtY0NGYmJIckNQUBAaEQpwaBd6T0UFf0REHEhpHhAaEQpwaBdoeWNbQEEcaE9BcxAZ
+ GhEKcGgXYhlEfhpjchJ4Xl8QGx8SEQpwfRdkeHMSR3odeQVdcxAZGhEKcH0XbFNSG21pRnJrfFg
+ QGhEKcH0XaRhYAUt4R05zE14QGhEKcH0XZ3NjfGdLT1lhTVIQGhEKcH0XZ3pFZFxEZX9FbUUQGh
+ EKcH0XZHNsWW1OZ3BQHWEQGhEKcH0Xb3J+X2VBZEZ7UxgQGhEKcH0XellGGhhbeVNpZBkQGhEKc
+ H0XYWJCQ2ZHfltGXW4QGhEKcH0XZ3hEcHsfZ20eWmcQGhEKcH0Xb09yXlMcUGRBGUcQGhEKcH0X
+ a3Nib3h8GUgYWXAQGhEKcH0Xa2VcHn14fURMGk8QGhEKcH8XZUtuX21TeXxJeEwQHR8RCnBfF25
+ FSUUSWlISe2dSEBsZEhEKcH8XYh5hbUZIe24BRUsQGx8TEQpwXxdpUF1uHmEbYW8fHBAbGBIRCn
+ BfF2NDeGJhaFJ7TEJZEBsZGhEKcF8XYE5rAUJvRHt5UHwQGxoaEQpwbBdreh5DSG9yGWJGRRAZG
+ hEKcEwXZm4bf3lzcBNoQlsQGhEKbX4XGhEKWE0XSxEg
+MIME-Version: 1.0
+X-Proofpoint-Virus-Version: vendor=baseguard
+ engine=ICAP:2.0.293,Aquarius:18.0.1121,Hydra:6.1.9,FMLib:17.12.100.49
+ definitions=2025-11-02_02,2025-10-29_03,2025-10-01_01
+X-Proofpoint-Spam-Reason: orgsafe
+X-Proofpoint-Spam-Details-Enc: AW1haW4tMjUxMTAzMDA4MiBTYWx0ZWRfX4NuolbqPGbN1 D5h9NFJSg4JjHBksT/qd8vXkoITlc2kRR2Brm1tpensqam6InOhKt9kqG/Zf5cEEd6y/i8Tuxjj 24SB2mvfxqMU1GQA1VBuC1H0lEq8GyYuY8if3bmWacQHIpIZjdP4xq2uVAtb6z1sleSn2QwoVUw
+ sSascRbW5LjaRmA9XZZe+YSyB5i/Hi3JIGnvF0N77RQDcwV6oWYypGHFsPZqaLsHUQEwr1AQkXk lGT5f1dzvnveQ1piZs14xiyNbRXNU1F28RaQcbNybSMLa2Kq4E8w==
+X-Proofpoint-GUID: J4CZF0EU_WZimWnGIiNASTs9wNjhdZl0
+X-Proofpoint-ORIG-GUID: J4CZF0EU_WZimWnGIiNASTs9wNjhdZl0
+X-Proofpoint-Virus-Version: vendor=baseguard
+ engine=ICAP:2.0.293,Aquarius:18.0.1121,Hydra:6.1.9,FMLib:17.12.100.49
+ definitions=2025-11-02_02,2025-10-29_03,2025-10-01_01
+X-Proofpoint-Spam-Details: rule=notspam policy=default score=0 spamscore=0 mlxlogscore=999 bulkscore=0
+ mlxscore=0 suspectscore=0 phishscore=0 adultscore=0 malwarescore=0
+ classifier=spam adjust=0 reason=mlx scancount=1 engine=8.12.0-2510240000
+ definitions=main-2511030082
+Return-Path: bounces+177607-f5ba-jabrown=akamai.com@akamai.com
+X-OrganizationHeadersPreserved: ustx2ex-exedge3.msg.corp.akamai.com
+X-MS-Exchange-Organization-ExpirationStartTime: 03 Nov 2025 09:11:41.6570
+ (UTC)
+X-MS-Exchange-Organization-ExpirationStartTimeReason: OriginalSubmit
+X-MS-Exchange-Organization-ExpirationInterval: 1:00:00:00.0000000
+X-MS-Exchange-Organization-ExpirationIntervalReason: OriginalSubmit
+X-MS-Exchange-Organization-Network-Message-Id:
+ 0cb85a8c-be2b-403c-c6e1-08de1ab900b8
+X-EOPAttributedMessage: 0
+X-MS-Exchange-Organization-MessageDirectionality: Originating
+X-MS-Exchange-Organization-SCL: -1
+X-CrossPremisesHeadersPromoted: CO1PEPF000075F1.namprd03.prod.outlook.com
+X-CrossPremisesHeadersFiltered: CO1PEPF000075F1.namprd03.prod.outlook.com
+X-MS-PublicTrafficType: Email
+X-MS-TrafficTypeDiagnostic:
+ CO1PEPF000075F1:EE_|MN2PR17MB3950:EE_|MN2PR17MB3101:EE_
+X-MS-Exchange-Organization-AuthSource: ustx2ex-dag5mb4.msg.corp.akamai.com
+X-MS-Exchange-Organization-AuthAs: Anonymous
+X-OriginatorOrg: akamai.com
+X-MS-Office365-Filtering-Correlation-Id: 0cb85a8c-be2b-403c-c6e1-08de1ab900b8
+X-Microsoft-Antispam:
+ BCL:2;ARA:13230040|29132699027|2092899012|69100299015|12012899012|4022899009|1032899013|3072899012|82310400026|8096899003|2066899003|13003099007;
+X-Forefront-Antispam-Report:
+ CIP:72.247.44.27;CTRY:US;LANG:en;SCL:-1;SRV:;IPV:NLI;SFV:SKA;H:email.akamai.com;PTR:a72-247-44-27.deploy.static.akamaitechnologies.com;CAT:NONE;SFS:(13230040)(29132699027)(2092899012)(69100299015)(12012899012)(4022899009)(1032899013)(3072899012)(82310400026)(8096899003)(2066899003)(13003099007);DIR:INB;
+X-MS-Exchange-CrossTenant-OriginalArrivalTime: 03 Nov 2025 09:11:41.5569
+ (UTC)
+X-MS-Exchange-CrossTenant-Network-Message-Id: 0cb85a8c-be2b-403c-c6e1-08de1ab900b8
+X-MS-Exchange-CrossTenant-Id: 514876bd-5965-4b40-b0c8-e336cf72c743
+X-MS-Exchange-CrossTenant-OriginalAttributedTenantConnectingIp: TenantId=514876bd-5965-4b40-b0c8-e336cf72c743;Ip=[72.247.44.27];Helo=[email.akamai.com]
+X-MS-Exchange-CrossTenant-AuthSource: ustx2ex-dag5mb4.msg.corp.akamai.com
+X-MS-Exchange-CrossTenant-AuthAs: Anonymous
+X-MS-Exchange-CrossTenant-FromEntityHeader: HybridOnPrem
+X-MS-Exchange-Transport-CrossTenantHeadersStamped: MN2PR17MB3950
+X-MS-Exchange-Transport-EndToEndLatency: 00:00:01.8331560
+X-MS-Exchange-Processed-By-BccFoldering: 15.20.9298.006
+X-MS-Exchange-ExternalInOutlookResult: NotEnabled
+X-Microsoft-Antispam-Mailbox-Delivery:
+	ucf:0;jmr:0;auth:0;dest:I;ENG:(910005)(944506478)(944626604)(920097)(930097)(140003);
+X-Microsoft-Antispam-Message-Info:
+	=?us-ascii?Q?+xY0k6gsh2nauLJNfPuRF93M1fdaNMoKG8Mr5ABUFRy3XBZZN5cSWo+S8ONy?=
+ =?us-ascii?Q?w491OnDh2jd/kAS6JVEprwUyirqKqE3SLhsGR1fVkeLiDUHIkH7c60F9Keus?=
+ =?us-ascii?Q?eg5ct+tt6Ekn5uwUOFaJ3l+31Tol6wS3Tyj2RGRorW6Nzu7EenkRohqXLkMf?=
+ =?us-ascii?Q?GdM0i8RvC2lv7Gns/XoFO6UMbU+9EB2UvCO6yXhPjtNCVuBKbR4bNNwAaxIO?=
+ =?us-ascii?Q?+OmF5PxWVOFxHrP96fXM2Y6SQdW9qeqquiExWWvEjMaZjXZ351meonsgWhFD?=
+ =?us-ascii?Q?BuyeFDA6Q0jfdZn2RD/lMHaHH6m3/KjfKQiyWviY1FS8Pvaqw3zSDmoa2UTz?=
+ =?us-ascii?Q?BpKC65vxUU7aZUot+MiLKBbO5oUUVicgnog0MOk57EDNgLoI/YEqNOPJ0hGw?=
+ =?us-ascii?Q?CI4GjKQQgugivrbPn1OrHvQumBgyyOW/gmFd/B7s7dkKzNyGHeeWTOfRe3b5?=
+ =?us-ascii?Q?wIMxPcXM/CwHJOe9T/vQKJyTNEaZf+PC+Xqye30iO6eEmZ2P7ucnBg75XHWq?=
+ =?us-ascii?Q?nyjyi941BxYiHMDAkbzDrqx5l9v54R9wTKYAjLhKxd/LfRnRzZ2yWqg52CV5?=
+ =?us-ascii?Q?MZqJGgpVMFOfyxKUztdYp37Uw/wwU8vBEl8DIbhIKfvtFKlTuNCQrL3m6VoX?=
+ =?us-ascii?Q?r7jvul33awb7Gj7jI19/j1T+r6zneEQ+y5wiiBf4T/Fj+ryYI5F2fV/Ad7v1?=
+ =?us-ascii?Q?gQh8TmAR9o7GSWWA5XA5EXB+mN/sLqBh2vLKDSG+sbjlAM8in6eaaEeePUHW?=
+ =?us-ascii?Q?Rz+xDqVpijeLTx7jMMPyJXbH09Y8f18ZjUz+Vkbvqr3TvDVpjf87mbr31S/r?=
+ =?us-ascii?Q?Cq6AVzC/Qf21PYm+KCNx/ZyXgQMeMvCIRiFFLkh3ibPYtZ5XyHmFGEFWTln7?=
+ =?us-ascii?Q?csQGRxHfI0O4xoOZSie3TPKqpzrWwxAcdJvhzEhtm8Ayakm8BcZjUBrf8AsI?=
+ =?us-ascii?Q?ps8fI9aD8+y113l/9XQ011xkjUJNiqZ6zKKsy18CeGD2a0yHsvDgWcPJ9JF2?=
+ =?us-ascii?Q?MpCmBVhM7ml6REnVEGVuADG5HbS23sOW9wE6Sojo4DOLgM91fW5TvzV0Tt+W?=
+ =?us-ascii?Q?YXCi9IvqH4AtTCZwWMs+An+gGCDROFkXXYEv2W67FVVAT3X1LIab1f6zSm3L?=
+ =?us-ascii?Q?iacAP2j0ceet8M7rPNitoVV+wCCTOrsO7pBIyCdW2CuumyXTdgKT44vDhC5Y?=
+ =?us-ascii?Q?rBnQ+v2Sfigj0WNAjbgWhrTO6kIG8duPoAJoCK9LxTiY6sm55A+KwOCU50oJ?=
+ =?us-ascii?Q?jUHpiyxwNbsHwj4tKBFnv42dqzOGmx363by2u2NcaPaluSSEbdmF7F+WTY0/?=
+ =?us-ascii?Q?Od7EdsHL96bT3rRY55M3qPgdcWXnNN0vDeYHvavMNrvQ8jOybbrfMsOT8NqS?=
+ =?us-ascii?Q?xm8EzJRaJzP4wGxnqa/5JmNx2c/4IQuyU7rCQveMt+kEqVodNVEuiITJNq8D?=
+ =?us-ascii?Q?eggFb9K0eu/FdwOnry0IyH0pYdhYE98OkXCZylKei/3+HolL5lwUPNBdR+Zg?=
+ =?us-ascii?Q?GvDFi+1jHtstN1OwDGSm2lAwIfjA8svka1un0u98L59eL3GZTrPes1fAxdLJ?=
+ =?us-ascii?Q?0haVR3+7qkLGl6rUWZjWKetKh0Nj6bCIKdJuwsGW5hFvazbTZ2du/tZXUZQu?=
+ =?us-ascii?Q?ESTo/J6SOLqmAPQ/Zw6Kui0IIZvt0X8bPL7h7OPhfYSvgTB3CLwd4YKAlD9s?=
+ =?us-ascii?Q?3GnKXq6N2MPbHoKr7W5pfrsiiVBiBOuZm1L4S4sdPvVZJ+RiZITFUropxkH1?=
+ =?us-ascii?Q?j7fx3evl+I9C5S2W7KM9gccNffx8KDXdInD/7m3jhxbZoEvmvkOgYrTH+ekA?=
+ =?us-ascii?Q?YVmTIH9BInzY3JmKmnTFsXDRbWqgh1PdlYjgZm3KiEQ0r7nr+/SgjPhxXBm/?=
+ =?us-ascii?Q?QA9t6qE5aHBN46QZHNZHomyVh/wC/jx5qd+YzqpFS9mMCd77SqLH/knpVEN0?=
+ =?us-ascii?Q?2GtGtR5uI6on19trEyW/YfXHMb7evDuhADEfmZusGnrPRH56aWCIunkIhJgc?=
+ =?us-ascii?Q?JS0rhHOdzh5JYmdDSQgftKYBsD1wopnDvLfqFAbiQ8fY56c62XFhbqoAaiBM?=
+ =?us-ascii?Q?CXMfgwh0YyQ+CWxVMo8DxBWMO9hVTD/is4h2U1o34wLN+7EikJuz6kdjAU/q?=
+ =?us-ascii?Q?3Tda/X7JfWVY/9C82pl6pxhw/VaEclP4jd5ajTddwtZN3LJMn6jVf9qJR6Iu?=
+ =?us-ascii?Q?MLg99w4ah75r26kyUApzP4ENnfXmf20ChsBF7+kVqMAkokSXYQO8Yt76rvYT?=
+ =?us-ascii?Q?uXhXR8GF2Kya8jRPC4aCktqRffv3ZnF2dkuL6P4YcT3BAgVJjVvmSXm9uitV?=
+ =?us-ascii?Q?Zj8GFOyZEKiAU30mUc0oyneWn4TYakDpLrR/1JT++8dqQLhnDmRcHpHIMRi3?=
+ =?us-ascii?Q?jqT9deFX2nJcI7EVmoRj2glvaYeZL9IiE3i46WyFgldqFzU0tw=3D=3D?=
+Content-type: multipart/alternative;
+	boundary="B_3854084401_403860528"
+
+> This message is in MIME format. Since your mail reader does not understand
+this format, some or all of this message may not be legible.
+
+--B_3854084401_403860528
+Content-type: text/plain;
+	charset="UTF-8"
+Content-transfer-encoding: quoted-printable
+
+=E2=80=8B=20
+=20
+=20
+See what's new in Akamai Dynamic Signal=20
+Monday, November 3, 2025=20
+=20
+=20
+EARN 1 POINT=20
+What Akamai Inference Cloud means for the future of AI
+Just off the heels of NVIDIA CEO Jensen Huang=E2=80=99s NVIDIA GTC keynote, our V=
+P of Cloud Product Marketing, Ari Weil, breaks down what the future of AI lo=
+oks like with our latest announcement =E2=80=94 Akamai Inference Cloud. Watch here=
+:
+Posted Wednesday, October 29, 2025 EDT
+Like=20
+Comment=20
+Share=20
+View Post Details=20
+=20
+=20
+EARN 1 POINT=20
+AI Edge Is All You Need
+AI is about to get a whole lot better. Akamai Inference Cloud, powered by N=
+VIDIA RTX PRO=E2=84=A2 6000 Blackwell GPUs, is bringing faster, smarter, and more =
+efficient agentic AI. Learn how from Akamai's Jon Alexander:
+Posted Tuesday, October 28, 2025 EDT
+Like=20
+Comment=20
+Share=20
+View Post Details=20
+=20
+=20
+EARN 1 POINT=20
+Enabling AI everywhere with Akamai Inference Cloud
+We're excited to announce Akamai Inference Cloud, a platform that redefines=
+ where and how AI is used by expanding inference from core data centers to t=
+he edge of the internet. Read more from our own Adam Karon:
+Posted Tuesday, October 28, 2025 EDT
+Like=20
+Comment=20
+Share=20
+View Post Details=20
+=20
+View More Posts=20
+=20
+Get the latest on mobile=20
+No need to open a browser, do it all from your phone. Download the app and =
+enter the access code =E2=80=9CAUL2018=E2=80=9D or sign in with your akamai.com email ad=
+dress to get started.=20
+=20
+=20
+Trouble reading this message?
+View in a browser=20
+To Unsubscribe
+Click here=20
+ 
+
+--B_3854084401_403860528
+Content-type: text/html;
+	charset="UTF-8"
+Content-transfer-encoding: quoted-printable
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.=
+w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns=3D"http://www.w3.org=
+/1999/xhtml"><head>
+<meta http-equiv=3D"Content-Type" content=3D"text/html; charset=3Dutf-8"><meta na=
+me=3D"viewport" content=3D"width=3Ddevice-width, initial-scale=3D1.0"><meta name=3D"x-=
+apple-disable-message-reformatting"><title>Member Digest</title><style>
+
+		/* Prevents apple from rendering dates as blue
+			https://litmus.com/blog/update-banning-blue-links-on-ios-devices	*/
+		a[x-apple-data-detectors]
+		{
+			color: inherit !important;
+			text-decoration: none !important;
+			font-size: inherit !important;
+			font-family: inherit !important;
+			font-weight: inherit !important;
+			line-height: inherit !important;
+		}
+
+		#mobileTable
+		{
+			max-width: 600px;
+		}
+
+		a, td
+		{
+			line-height: 1;
+		}
+
+		body a
+		{
+			text-decoration: none;
+		}
+
+		body p
+		{
+			margin: 0;
+			padding: 0;			
+		}
+
+		@media screen and (min-device-width:414px)
+		{
+			table[id=3D"mobileTable"]
+			{
+				width: 600px !important;
+			}
+		}
+		
+		@media screen and (max-device-width:414px)
+		{
+			body
+			{
+				width: 100% !important;
+				min-width: 100% !important;
+			}
+
+			table[id=3D"mobileTable"]
+			{
+				width: 100% !important;
+				max-width: 400px !important;
+			}
+
+			body .mobileHeader
+			{
+				font-size: 24px !important;
+				line-height: 30px !important;
+			}
+
+			body.mobileBannerImage
+			{
+				max-width: 100%;
+			}
+
+			body .mobileShow, body img.mobileShow
+			{
+				display: block !important;
+				max-height: none !important;
+				width: auto !important;
+			}
+
+			body td.mobileShow
+			{
+				padding: 20px 0 20px 0 !important;
+			}
+
+			body td.mobileHide
+			{
+				display: none !important;
+			}
+
+			body td.mobileShow img
+			{
+				max-width: 280px !important;
+			}
+
+			/*body .mobileButton
+			{
+				width: 100% !important;
+				text-align: center !important;
+			}
+
+			body .mobileButton a
+			{
+				text-align: center !important;
+				display: block !important;
+				font-size: 18px !important;
+			}*/
+
+			body img.mobileFeaturedArticleImage
+			{
+				max-width: 340px !important;
+				height: auto !important;
+			}
+
+			/* #id selectors are safer for native apps like g-mail */
+			#mobileImageWithTextTable
+			{
+				width: 100% !important;
+				margin-right: 0 !important;
+				margin-bottom: 8px !important;
+			}
+
+			#mobileImageWithTextImg
+			{
+				width: 100% !important;
+				height: auto !important;
+				max-width: 340px !important;
+			}
+
+			body div.prh
+			{
+				display: none;
+				visibility: hidden;
+				width: 0;
+				height: 0;
+				max-height: 0;
+				max-width: 0;
+				opacity: 0;
+				overflow: hidden;
+			}
+		}
+
+		@media screen and (max-device-width:481px)
+		{
+			#shareMultipleMobile
+			{
+				 display: none !important;
+			}
+		}
+
+		@media screen and (min-device-width:481px)
+		{
+			#shareMultipleMobileWarning
+			{
+				display: none !important;
+			}
+		}
+
+	</style></head><body style=3D"margin: 0; border: 0;" bgcolor=3D"#EFEFEF"><!-- =
+Pre-header for email clients. This prevents most email clients from displayi=
+ng preview text which is desirable otherwise the banner URL gets displayed -=
+-><div class=3D"prh" style=3D"display: none; font-size: 0px; line-height: 0px; m=
+ax-height: 0px; max-width: 0px; width: 0px; opacity: 0; overflow: hidden;">=E2=
+=80=8B </div><!-- End pre-header --><table width=3D"100%" cellpadding=3D"0" cellspac=
+ing=3D"0" bgcolor=3D"#EFEFEF" border=3D"0" align=3D"center"><tbody><tr><td><!--[if g=
+te mso 9]>
+				<table width=3D"600" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" align=3D"ce=
+nter" id=3D"mobileTable">
+				<![endif]--><!--[if !mso]><!--><table border=3D"0" width=3D"100%" cellpaddi=
+ng=3D"0" cellspacing=3D"0" align=3D"center" id=3D"mobileTable" style=3D"max-width: 600=
+px;"><!--<![endif]--><tbody><tr><td><table width=3D"100%" border=3D"0" cellpaddi=
+ng=3D"0" cellspacing=3D"0" align=3D"center"><!-- Start Custom Banner --><!-- Suppo=
+rt both banner images until clients convert over --><tbody><tr><td bgcolor=3D"=
+#ffffff"><table width=3D"100%" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" alig=
+n=3D"center"><tbody><tr><td valign=3D"top" align=3D"center"><!--[if (gte mso 9) & =
+(lt mso 12)]>
+									<img src=3D"https://d3utlhu53nfcwz.cloudfront.net/470801/cdnImage/Em=
+ailLayoutAsset/de0a9a9e-227a-4532-9fbf-cdc8e72fb227/?size=3DOriginal" width=3D"6=
+00" style=3D"display:block; border: none; " />
+									<![endif]--><!--[if gte mso 12]>
+									<img src=3D"https://d3utlhu53nfcwz.cloudfront.net/470801/cdnImage/Em=
+ailLayoutAsset/de0a9a9e-227a-4532-9fbf-cdc8e72fb227/?size=3DOriginal" style=3D"d=
+isplay:block; border: none; " />
+									<![endif]--><!--[if !mso]><!--><img class=3D"mobileBannerImage" src=3D=
+"https://d3utlhu53nfcwz.cloudfront.net/470801/cdnImage/EmailLayoutAsset/de0a=
+9a9e-227a-4532-9fbf-cdc8e72fb227/?size=3DOriginal" style=3D"display:block; max-w=
+idth:100%; display: block; border: none;"><!--<![endif]--> </td></tr></tbody=
+></table></td></tr><!-- End Custom Banner --></tbody></table></td></tr><tr><=
+td><table width=3D"100%" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" align=3D"cen=
+ter"><tbody><tr><td height=3D"15" bgcolor=3D"#F3F3F3" style=3D"background-color:#E=
+FEFEF;font-size:1px;line-height:1px; -webkit-text-size-adjust:none">&nbsp;</=
+td></tr></tbody></table></td></tr><!-- START EMAIL TEMPLATE BODY --><tr><td>=
+<!-- Start Headline Section --><table width=3D"100%" border=3D"0" cellpadding=3D"0=
+" cellspacing=3D"0" align=3D"center"><tbody><tr><td bgcolor=3D"#FFFFFF" style=3D"pad=
+ding: 0 30px;"><table width=3D"100%" border=3D"0" cellpadding=3D"0" cellspacing=3D"0=
+" align=3D"center"><tbody><tr><td height=3D"15"></td></tr><tr><td align=3D"center"=
+ style=3D"color: #333333; font-size:14px; line-height: 1.71;; border-collapse:=
+ collapse; text-decoration:none; font-family:Helvetica, Arial, sans-serif; t=
+ext-align:center"><table width=3D"100%" border=3D"0" cellpadding=3D"0" cellspacing=
+=3D"0" align=3D"center"><tbody><tr><td align=3D"center" style=3D"color: #333333; fon=
+t-size:14px; line-height: 1.71;; border-collapse: collapse; text-decoration:=
+none; font-family:Helvetica, Arial, sans-serif;; font-size: 24px; text-align=
+:center">See what's new in Akamai Dynamic Signal </td></tr><tr><td height=3D"1=
+5"></td></tr><tr><td align=3D"center" style=3D"color: #333333; font-size:14px; l=
+ine-height: 1.71;; border-collapse: collapse; text-decoration:none; font-fam=
+ily:Helvetica, Arial, sans-serif;; text-align:center; color: #999999; font-s=
+ize:14px; line-height: 1.71;; border-collapse: collapse; text-decoration:non=
+e; font-family:Helvetica, Arial, sans-serif;">Monday, November 3, 2025 </td>=
+</tr></tbody></table></td></tr><tr><td height=3D"15"></td></tr></tbody></table=
+></td></tr><tr><td height=3D"15" bgcolor=3D"#F3F3F3" style=3D"background-color:#EF=
+EFEF;font-size:1px;line-height:1px; -webkit-text-size-adjust:none">&nbsp;</t=
+d></tr></tbody></table><!-- End Headline Section --><table width=3D"100%" bord=
+er=3D"0" cellpadding=3D"0" cellspacing=3D"0" align=3D"center"><!-- Start of article =
+--><tbody><tr><td bgcolor=3D"#FFFFFF"><table width=3D"100%" border=3D"0" cellpaddi=
+ng=3D"0" cellspacing=3D"0" align=3D"center"><!-- Begin Article --><!--Start of Art=
+icle Base --><!-- Social Header--><!--Image--><tbody><tr><td valign=3D"bottom"=
+ align=3D"center" bgcolor=3D"#FBFAFB"><a href=3D"https://urldefense.com/v3/__https=
+://link.voicestorm.com/Link/470801/Article/Redirect/1eeee23e-77f8-4b19-bacc-=
+19ec4ce0ad47?uid=3D168257&amp;actr=3DDigest&amp;__c=3D470801_MemberDigest_2180273_=
+DySi__;!!GjvTz_vk!XnGqY7GmxW4QG80FKJmYX44PK_GNXct2dUs5vG5qcoRXsUlCJTSePzBm6O=
+4ZKXqT1kSN2bjNTxrESH_Fuubjn3k$" style=3D"text-decoration: none; border: none !=
+important"><!--[if gte mso 9]>
+																<img src=3D"https://d3utlhu53nfcwz.cloudfront.net/470801/cdnI=
+mage/article/c309df11-4ba4-4687-a617-3ade385d090b/?size=3DEmailLargeImage" cla=
+ss=3D"mobileFeaturedArticleImage" style=3D"display: inline-block; border: none; =
+vertical-align: bottom; max-width: 600px;"/>
+															<![endif]--><!--[if !mso]><!--><img src=3D"https://d3utlhu53nf=
+cwz.cloudfront.net/470801/cdnImage/article/c309df11-4ba4-4687-a617-3ade385d0=
+90b/?size=3DEmailLargeImage" class=3D"mobileFeaturedArticleImage" style=3D"display=
+: inline-block; border: none; vertical-align: bottom; max-width: 600px;"><!-=
+-<![endif]--> </a></td></tr><tr><td height=3D"15" bgcolor=3D"#FFFFFF"></td></tr>=
+<!-- Article Content --><tr><td style=3D"padding: 0 30px;" bgcolor=3D"#FFFFFF"><=
+table width=3D"100%" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" align=3D"center"=
+><tbody><tr><td style=3D"color: #999999; font-size:14px; line-height: 1.71;; b=
+order-collapse: collapse; text-decoration:none; font-family:Helvetica, Arial=
+, sans-serif;">EARN 1 POINT </td></tr><tr><td height=3D"8"></td></tr><tr><td d=
+ir=3D"auto"><a href=3D"https://urldefense.com/v3/__https://link.voicestorm.com/L=
+ink/470801/Article/Redirect/1eeee23e-77f8-4b19-bacc-19ec4ce0ad47?uid=3D168257&=
+amp;actr=3DDigest&amp;__c=3D470801_MemberDigest_2180273_DySi__;!!GjvTz_vk!XnGqY7=
+GmxW4QG80FKJmYX44PK_GNXct2dUs5vG5qcoRXsUlCJTSePzBm6O4ZKXqT1kSN2bjNTxrESH_Fuu=
+bjn3k$" style=3D"color: #4a4a4a; font-size:20px; line-height: 1.83;; border-co=
+llapse: collapse; text-decoration:none; font-family:Helvetica, Arial, sans-s=
+erif; color: #000000;">What Akamai Inference Cloud means for the future of A=
+I</a></td></tr><tr><td height=3D"10"></td></tr><tr><td dir=3D"auto" style=3D"paddi=
+ng-bottom: 7px;"><a href=3D"https://urldefense.com/v3/__https://link.voicestor=
+m.com/Link/470801/Article/Redirect/1eeee23e-77f8-4b19-bacc-19ec4ce0ad47?uid=3D=
+168257&amp;actr=3DDigest&amp;__c=3D470801_MemberDigest_2180273_DySi__;!!GjvTz_vk=
+!XnGqY7GmxW4QG80FKJmYX44PK_GNXct2dUs5vG5qcoRXsUlCJTSePzBm6O4ZKXqT1kSN2bjNTxr=
+ESH_Fuubjn3k$" style=3D"color: #333333; font-size:14px; line-height: 1.71;; bo=
+rder-collapse: collapse; text-decoration:none; font-family:Helvetica, Arial,=
+ sans-serif; color: #000000; display:block;">Just off the heels of NVIDIA CE=
+O Jensen Huang=E2=80=99s NVIDIA GTC keynote, our VP of Cloud Product Marketing, Ar=
+i Weil, breaks down what the future of AI looks like with our latest announc=
+ement =E2=80=94 Akamai Inference Cloud. Watch here:</a></td></tr><tr><td style=3D"fo=
+nt-size: 13px; color: #999999; font-size:14px; line-height: 1.71;; border-co=
+llapse: collapse; text-decoration:none; font-family:Helvetica, Arial, sans-s=
+erif;">Posted Wednesday, October 29, 2025 EDT</td></tr><tr><td height=3D"10"><=
+/td></tr><tr><td width=3D"100%"><table><tbody><tr><!--ButtonInverted--><!--But=
+tonInvertedAlign--><!--ButtonBase--><td align=3D"center" style=3D"padding-right:=
+5px;"><!--[if gte mso 9]>
+																				<table class=3D"mobileButton" border=3D"0" cellspacing=3D"0" =
+cellpadding=3D"0"">
+																				<![endif]--><!--[if !mso]><!--><table class=3D"mobileButt=
+on" border=3D"0" cellspacing=3D"0" cellpadding=3D"0" width=3D"100%"><!--<![endif]-->=
+<tbody><tr><!--[if gte mso 9]>
+																				<td align=3D"center" class=3D"mobileButton" bgcolor=3D"#FFFFF=
+F" style=3D"padding: 8px 15px; -webkit-border-radius:5px; border-radius:5px; b=
+order:1px solid #228B22">
+																				<a href=3D"https://urldefense.com/v3/__https://link.voice=
+storm.com/Link/470801/Article/Redirect/1eeee23e-77f8-4b19-bacc-19ec4ce0ad47?=
+uid=3D168257&amp;actr=3DDigest&amp;showDiscussions=3DTrue&amp;action=3DLikePost&amp;=
+__c=3D470801_MemberDigest_2180273_DySi__;!!GjvTz_vk!XnGqY7GmxW4QG80FKJmYX44PK_=
+GNXct2dUs5vG5qcoRXsUlCJTSePzBm6O4ZKXqT1kSN2bjNTxrESH_FixxbVxk$" style=3D"color=
+:#228B22;font-family:sans-serif;font-size:15px;text-align:center;text-decora=
+tion:none;-webkit-text-size-adjust:none;">Like</a>
+																				</td>
+																				<![endif]--><!--[if !mso]><!--><td align=3D"center" class=
+=3D"mobileButton" bgcolor=3D"#FFFFFF" style=3D"-webkit-border-radius:5px; border-r=
+adius:5px; border:1px solid #228B22"><a href=3D"https://urldefense.com/v3/__ht=
+tps://link.voicestorm.com/Link/470801/Article/Redirect/1eeee23e-77f8-4b19-ba=
+cc-19ec4ce0ad47?uid=3D168257&amp;actr=3DDigest&amp;showDiscussions=3DTrue&amp;acti=
+on=3DLikePost&amp;__c=3D470801_MemberDigest_2180273_DySi__;!!GjvTz_vk!XnGqY7GmxW=
+4QG80FKJmYX44PK_GNXct2dUs5vG5qcoRXsUlCJTSePzBm6O4ZKXqT1kSN2bjNTxrESH_FixxbVx=
+k$" style=3D"color:#228B22;font-family:sans-serif;font-size:15px;text-align:ce=
+nter;text-decoration:none;-webkit-text-size-adjust:none;padding:8px 15px;dis=
+play:block;">Like</a> </td><!--<![endif]--></tr></tbody></table></td><!--But=
+tonInverted--><!--ButtonInvertedAlign--><!--ButtonBase--><td align=3D"center" =
+style=3D"padding-right:5px;"><!--[if gte mso 9]>
+																				<table class=3D"mobileButton" border=3D"0" cellspacing=3D"0" =
+cellpadding=3D"0"">
+																				<![endif]--><!--[if !mso]><!--><table class=3D"mobileButt=
+on" border=3D"0" cellspacing=3D"0" cellpadding=3D"0" width=3D"100%"><!--<![endif]-->=
+<tbody><tr><!--[if gte mso 9]>
+																				<td align=3D"center" class=3D"mobileButton" bgcolor=3D"#FFFFF=
+F" style=3D"padding: 8px 15px; -webkit-border-radius:5px; border-radius:5px; b=
+order:1px solid #228B22">
+																				<a href=3D"https://urldefense.com/v3/__https://link.voice=
+storm.com/Link/470801/Article/Redirect/1eeee23e-77f8-4b19-bacc-19ec4ce0ad47?=
+uid=3D168257&amp;actr=3DDigest&amp;showDiscussions=3DTrue&amp;__c=3D470801_MemberDig=
+est_2180273_DySi__;!!GjvTz_vk!XnGqY7GmxW4QG80FKJmYX44PK_GNXct2dUs5vG5qcoRXsU=
+lCJTSePzBm6O4ZKXqT1kSN2bjNTxrESH_FywxQMbM$" style=3D"color:#228B22;font-family=
+:sans-serif;font-size:15px;text-align:center;text-decoration:none;-webkit-te=
+xt-size-adjust:none;">Comment</a>
+																				</td>
+																				<![endif]--><!--[if !mso]><!--><td align=3D"center" class=
+=3D"mobileButton" bgcolor=3D"#FFFFFF" style=3D"-webkit-border-radius:5px; border-r=
+adius:5px; border:1px solid #228B22"><a href=3D"https://urldefense.com/v3/__ht=
+tps://link.voicestorm.com/Link/470801/Article/Redirect/1eeee23e-77f8-4b19-ba=
+cc-19ec4ce0ad47?uid=3D168257&amp;actr=3DDigest&amp;showDiscussions=3DTrue&amp;__c=3D=
+470801_MemberDigest_2180273_DySi__;!!GjvTz_vk!XnGqY7GmxW4QG80FKJmYX44PK_GNXc=
+t2dUs5vG5qcoRXsUlCJTSePzBm6O4ZKXqT1kSN2bjNTxrESH_FywxQMbM$" style=3D"color:#22=
+8B22;font-family:sans-serif;font-size:15px;text-align:center;text-decoration=
+:none;-webkit-text-size-adjust:none;padding:8px 15px;display:block;">Comment=
+</a> </td><!--<![endif]--></tr></tbody></table></td><!--Button--><!--ButtonA=
+lign--><!--ButtonBase--><td align=3D"center" style=3D"padding-right:5px;"><!--[i=
+f gte mso 9]>
+																				<table class=3D"mobileButton" border=3D"0" cellspacing=3D"0" =
+cellpadding=3D"0"">
+																				<![endif]--><!--[if !mso]><!--><table class=3D"mobileButt=
+on" border=3D"0" cellspacing=3D"0" cellpadding=3D"0" width=3D"100%"><!--<![endif]-->=
+<tbody><tr><!--[if gte mso 9]>
+																				<td align=3D"center" class=3D"mobileButton" bgcolor=3D"#228B2=
+2" style=3D"padding: 8px 15px; -webkit-border-radius:5px; border-radius:5px; b=
+order:1px solid #228B22">
+																				<a href=3D"https://urldefense.com/v3/__https://link.voice=
+storm.com/Link/470801/Widget/FullSharing/1eeee23e-77f8-4b19-bacc-19ec4ce0ad4=
+7?actr=3DDigest&amp;uid=3D168257&amp;__c=3D470801_MemberDigest_2180273_DySi__;!!Gj=
+vTz_vk!XnGqY7GmxW4QG80FKJmYX44PK_GNXct2dUs5vG5qcoRXsUlCJTSePzBm6O4ZKXqT1kSN2=
+bjNTxrESH_FLaPehcU$" style=3D"color:#FFFFFF;font-family:sans-serif;font-size:1=
+5px;text-align:center;text-decoration:none;-webkit-text-size-adjust:none;">S=
+hare</a>
+																				</td>
+																				<![endif]--><!--[if !mso]><!--><td align=3D"center" class=
+=3D"mobileButton" bgcolor=3D"#228B22" style=3D"-webkit-border-radius:5px; border-r=
+adius:5px; border:1px solid #228B22"><a href=3D"https://urldefense.com/v3/__ht=
+tps://link.voicestorm.com/Link/470801/Widget/FullSharing/1eeee23e-77f8-4b19-=
+bacc-19ec4ce0ad47?actr=3DDigest&amp;uid=3D168257&amp;__c=3D470801_MemberDigest_218=
+0273_DySi__;!!GjvTz_vk!XnGqY7GmxW4QG80FKJmYX44PK_GNXct2dUs5vG5qcoRXsUlCJTSeP=
+zBm6O4ZKXqT1kSN2bjNTxrESH_FLaPehcU$" style=3D"color:#FFFFFF;font-family:sans-s=
+erif;font-size:15px;text-align:center;text-decoration:none;-webkit-text-size=
+-adjust:none;padding:8px 15px;display:block;">Share</a> </td><!--<![endif]--=
+></tr></tbody></table></td></tr></tbody></table><table width=3D"100%"><tbody><=
+tr><td align=3D"right" valign=3D"top"><a href=3D"https://urldefense.com/v3/__https=
+://link.voicestorm.com/Link/470801/Article/Redirect/1eeee23e-77f8-4b19-bacc-=
+19ec4ce0ad47?uid=3D168257&amp;actr=3DDigest&amp;__c=3D470801_MemberDigest_2180273_=
+DySi__;!!GjvTz_vk!XnGqY7GmxW4QG80FKJmYX44PK_GNXct2dUs5vG5qcoRXsUlCJTSePzBm6O=
+4ZKXqT1kSN2bjNTxrESH_Fuubjn3k$" style=3D"color: #999999; font-size:12px; line-=
+height: 1.6;; border-collapse: collapse; text-decoration:none; font-family:H=
+elvetica, Arial, sans-serif; color: #026daf;">View Post Details</a> </td></t=
+r></tbody></table></td></tr><tr><td height=3D"15"></td></tr></tbody></table></=
+td></tr><tr><td height=3D"15" bgcolor=3D"#F3F3F3" style=3D"background-color:#EFEFE=
+F;font-size:1px;line-height:1px; -webkit-text-size-adjust:none">&nbsp;</td><=
+/tr><!--End of Article Base --><!-- End Article --><!-- Begin Article --><!-=
+-Start of Article Base --><!-- Social Header--><!--Image--><tr><td valign=3D"b=
+ottom" align=3D"center" bgcolor=3D"#FBFAFB"><a href=3D"https://urldefense.com/v3/_=
+_https://link.voicestorm.com/Link/470801/Article/Redirect/91a6a4d0-0c7c-4edd=
+-a9cd-bc3410526b69?uid=3D168257&amp;actr=3DDigest&amp;__c=3D470801_MemberDigest_21=
+80273_DySi__;!!GjvTz_vk!XnGqY7GmxW4QG80FKJmYX44PK_GNXct2dUs5vG5qcoRXsUlCJTSe=
+PzBm6O4ZKXqT1kSN2bjNTxrESH_FwNCHOWM$" style=3D"text-decoration: none; border: =
+none !important"><!--[if gte mso 9]>
+																<img src=3D"https://d3utlhu53nfcwz.cloudfront.net/470801/cdnI=
+mage/article/581a71c3-5051-4c0b-9e81-dc4c1327fa91/?size=3DEmailLargeImage" cla=
+ss=3D"mobileFeaturedArticleImage" style=3D"display: inline-block; border: none; =
+vertical-align: bottom; max-width: 600px;"/>
+															<![endif]--><!--[if !mso]><!--><img src=3D"https://d3utlhu53nf=
+cwz.cloudfront.net/470801/cdnImage/article/581a71c3-5051-4c0b-9e81-dc4c1327f=
+a91/?size=3DEmailLargeImage" class=3D"mobileFeaturedArticleImage" style=3D"display=
+: inline-block; border: none; vertical-align: bottom; max-width: 600px;"><!-=
+-<![endif]--> </a></td></tr><tr><td height=3D"15" bgcolor=3D"#FFFFFF"></td></tr>=
+<!-- Article Content --><tr><td style=3D"padding: 0 30px;" bgcolor=3D"#FFFFFF"><=
+table width=3D"100%" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" align=3D"center"=
+><tbody><tr><td style=3D"color: #999999; font-size:14px; line-height: 1.71;; b=
+order-collapse: collapse; text-decoration:none; font-family:Helvetica, Arial=
+, sans-serif;">EARN 1 POINT </td></tr><tr><td height=3D"8"></td></tr><tr><td d=
+ir=3D"auto"><a href=3D"https://urldefense.com/v3/__https://link.voicestorm.com/L=
+ink/470801/Article/Redirect/91a6a4d0-0c7c-4edd-a9cd-bc3410526b69?uid=3D168257&=
+amp;actr=3DDigest&amp;__c=3D470801_MemberDigest_2180273_DySi__;!!GjvTz_vk!XnGqY7=
+GmxW4QG80FKJmYX44PK_GNXct2dUs5vG5qcoRXsUlCJTSePzBm6O4ZKXqT1kSN2bjNTxrESH_FwN=
+CHOWM$" style=3D"color: #4a4a4a; font-size:20px; line-height: 1.83;; border-co=
+llapse: collapse; text-decoration:none; font-family:Helvetica, Arial, sans-s=
+erif; color: #000000;">AI Edge Is All You Need</a></td></tr><tr><td height=3D"=
+10"></td></tr><tr><td dir=3D"auto" style=3D"padding-bottom: 7px;"><a href=3D"https=
+://urldefense.com/v3/__https://link.voicestorm.com/Link/470801/Article/Redir=
+ect/91a6a4d0-0c7c-4edd-a9cd-bc3410526b69?uid=3D168257&amp;actr=3DDigest&amp;__c=3D=
+470801_MemberDigest_2180273_DySi__;!!GjvTz_vk!XnGqY7GmxW4QG80FKJmYX44PK_GNXc=
+t2dUs5vG5qcoRXsUlCJTSePzBm6O4ZKXqT1kSN2bjNTxrESH_FwNCHOWM$" style=3D"color: #3=
+33333; font-size:14px; line-height: 1.71;; border-collapse: collapse; text-d=
+ecoration:none; font-family:Helvetica, Arial, sans-serif; color: #000000; di=
+splay:block;">AI is about to get a whole lot better. Akamai Inference Cloud,=
+ powered by NVIDIA RTX PRO=E2=84=A2 6000 Blackwell GPUs, is bringing faster, smart=
+er, and more efficient agentic AI. Learn how from Akamai's Jon Alexander:</a=
+></td></tr><tr><td style=3D"font-size: 13px; color: #999999; font-size:14px; l=
+ine-height: 1.71;; border-collapse: collapse; text-decoration:none; font-fam=
+ily:Helvetica, Arial, sans-serif;">Posted Tuesday, October 28, 2025 EDT</td>=
+</tr><tr><td height=3D"10"></td></tr><tr><td width=3D"100%"><table><tbody><tr><!=
+--ButtonInverted--><!--ButtonInvertedAlign--><!--ButtonBase--><td align=3D"cen=
+ter" style=3D"padding-right:5px;"><!--[if gte mso 9]>
+																				<table class=3D"mobileButton" border=3D"0" cellspacing=3D"0" =
+cellpadding=3D"0"">
+																				<![endif]--><!--[if !mso]><!--><table class=3D"mobileButt=
+on" border=3D"0" cellspacing=3D"0" cellpadding=3D"0" width=3D"100%"><!--<![endif]-->=
+<tbody><tr><!--[if gte mso 9]>
+																				<td align=3D"center" class=3D"mobileButton" bgcolor=3D"#FFFFF=
+F" style=3D"padding: 8px 15px; -webkit-border-radius:5px; border-radius:5px; b=
+order:1px solid #228B22">
+																				<a href=3D"https://urldefense.com/v3/__https://link.voice=
+storm.com/Link/470801/Article/Redirect/91a6a4d0-0c7c-4edd-a9cd-bc3410526b69?=
+uid=3D168257&amp;actr=3DDigest&amp;showDiscussions=3DTrue&amp;action=3DLikePost&amp;=
+__c=3D470801_MemberDigest_2180273_DySi__;!!GjvTz_vk!XnGqY7GmxW4QG80FKJmYX44PK_=
+GNXct2dUs5vG5qcoRXsUlCJTSePzBm6O4ZKXqT1kSN2bjNTxrESH_FXWQW_gc$" style=3D"color=
+:#228B22;font-family:sans-serif;font-size:15px;text-align:center;text-decora=
+tion:none;-webkit-text-size-adjust:none;">Like</a>
+																				</td>
+																				<![endif]--><!--[if !mso]><!--><td align=3D"center" class=
+=3D"mobileButton" bgcolor=3D"#FFFFFF" style=3D"-webkit-border-radius:5px; border-r=
+adius:5px; border:1px solid #228B22"><a href=3D"https://urldefense.com/v3/__ht=
+tps://link.voicestorm.com/Link/470801/Article/Redirect/91a6a4d0-0c7c-4edd-a9=
+cd-bc3410526b69?uid=3D168257&amp;actr=3DDigest&amp;showDiscussions=3DTrue&amp;acti=
+on=3DLikePost&amp;__c=3D470801_MemberDigest_2180273_DySi__;!!GjvTz_vk!XnGqY7GmxW=
+4QG80FKJmYX44PK_GNXct2dUs5vG5qcoRXsUlCJTSePzBm6O4ZKXqT1kSN2bjNTxrESH_FXWQW_g=
+c$" style=3D"color:#228B22;font-family:sans-serif;font-size:15px;text-align:ce=
+nter;text-decoration:none;-webkit-text-size-adjust:none;padding:8px 15px;dis=
+play:block;">Like</a> </td><!--<![endif]--></tr></tbody></table></td><!--But=
+tonInverted--><!--ButtonInvertedAlign--><!--ButtonBase--><td align=3D"center" =
+style=3D"padding-right:5px;"><!--[if gte mso 9]>
+																				<table class=3D"mobileButton" border=3D"0" cellspacing=3D"0" =
+cellpadding=3D"0"">
+																				<![endif]--><!--[if !mso]><!--><table class=3D"mobileButt=
+on" border=3D"0" cellspacing=3D"0" cellpadding=3D"0" width=3D"100%"><!--<![endif]-->=
+<tbody><tr><!--[if gte mso 9]>
+																				<td align=3D"center" class=3D"mobileButton" bgcolor=3D"#FFFFF=
+F" style=3D"padding: 8px 15px; -webkit-border-radius:5px; border-radius:5px; b=
+order:1px solid #228B22">
+																				<a href=3D"https://urldefense.com/v3/__https://link.voice=
+storm.com/Link/470801/Article/Redirect/91a6a4d0-0c7c-4edd-a9cd-bc3410526b69?=
+uid=3D168257&amp;actr=3DDigest&amp;showDiscussions=3DTrue&amp;__c=3D470801_MemberDig=
+est_2180273_DySi__;!!GjvTz_vk!XnGqY7GmxW4QG80FKJmYX44PK_GNXct2dUs5vG5qcoRXsU=
+lCJTSePzBm6O4ZKXqT1kSN2bjNTxrESH_FObuK1PU$" style=3D"color:#228B22;font-family=
+:sans-serif;font-size:15px;text-align:center;text-decoration:none;-webkit-te=
+xt-size-adjust:none;">Comment</a>
+																				</td>
+																				<![endif]--><!--[if !mso]><!--><td align=3D"center" class=
+=3D"mobileButton" bgcolor=3D"#FFFFFF" style=3D"-webkit-border-radius:5px; border-r=
+adius:5px; border:1px solid #228B22"><a href=3D"https://urldefense.com/v3/__ht=
+tps://link.voicestorm.com/Link/470801/Article/Redirect/91a6a4d0-0c7c-4edd-a9=
+cd-bc3410526b69?uid=3D168257&amp;actr=3DDigest&amp;showDiscussions=3DTrue&amp;__c=3D=
+470801_MemberDigest_2180273_DySi__;!!GjvTz_vk!XnGqY7GmxW4QG80FKJmYX44PK_GNXc=
+t2dUs5vG5qcoRXsUlCJTSePzBm6O4ZKXqT1kSN2bjNTxrESH_FObuK1PU$" style=3D"color:#22=
+8B22;font-family:sans-serif;font-size:15px;text-align:center;text-decoration=
+:none;-webkit-text-size-adjust:none;padding:8px 15px;display:block;">Comment=
+</a> </td><!--<![endif]--></tr></tbody></table></td><!--Button--><!--ButtonA=
+lign--><!--ButtonBase--><td align=3D"center" style=3D"padding-right:5px;"><!--[i=
+f gte mso 9]>
+																				<table class=3D"mobileButton" border=3D"0" cellspacing=3D"0" =
+cellpadding=3D"0"">
+																				<![endif]--><!--[if !mso]><!--><table class=3D"mobileButt=
+on" border=3D"0" cellspacing=3D"0" cellpadding=3D"0" width=3D"100%"><!--<![endif]-->=
+<tbody><tr><!--[if gte mso 9]>
+																				<td align=3D"center" class=3D"mobileButton" bgcolor=3D"#228B2=
+2" style=3D"padding: 8px 15px; -webkit-border-radius:5px; border-radius:5px; b=
+order:1px solid #228B22">
+																				<a href=3D"https://urldefense.com/v3/__https://link.voice=
+storm.com/Link/470801/Widget/FullSharing/91a6a4d0-0c7c-4edd-a9cd-bc3410526b6=
+9?actr=3DDigest&amp;uid=3D168257&amp;__c=3D470801_MemberDigest_2180273_DySi__;!!Gj=
+vTz_vk!XnGqY7GmxW4QG80FKJmYX44PK_GNXct2dUs5vG5qcoRXsUlCJTSePzBm6O4ZKXqT1kSN2=
+bjNTxrESH_F4GpwMOA$" style=3D"color:#FFFFFF;font-family:sans-serif;font-size:1=
+5px;text-align:center;text-decoration:none;-webkit-text-size-adjust:none;">S=
+hare</a>
+																				</td>
+																				<![endif]--><!--[if !mso]><!--><td align=3D"center" class=
+=3D"mobileButton" bgcolor=3D"#228B22" style=3D"-webkit-border-radius:5px; border-r=
+adius:5px; border:1px solid #228B22"><a href=3D"https://urldefense.com/v3/__ht=
+tps://link.voicestorm.com/Link/470801/Widget/FullSharing/91a6a4d0-0c7c-4edd-=
+a9cd-bc3410526b69?actr=3DDigest&amp;uid=3D168257&amp;__c=3D470801_MemberDigest_218=
+0273_DySi__;!!GjvTz_vk!XnGqY7GmxW4QG80FKJmYX44PK_GNXct2dUs5vG5qcoRXsUlCJTSeP=
+zBm6O4ZKXqT1kSN2bjNTxrESH_F4GpwMOA$" style=3D"color:#FFFFFF;font-family:sans-s=
+erif;font-size:15px;text-align:center;text-decoration:none;-webkit-text-size=
+-adjust:none;padding:8px 15px;display:block;">Share</a> </td><!--<![endif]--=
+></tr></tbody></table></td></tr></tbody></table><table width=3D"100%"><tbody><=
+tr><td align=3D"right" valign=3D"top"><a href=3D"https://urldefense.com/v3/__https=
+://link.voicestorm.com/Link/470801/Article/Redirect/91a6a4d0-0c7c-4edd-a9cd-=
+bc3410526b69?uid=3D168257&amp;actr=3DDigest&amp;__c=3D470801_MemberDigest_2180273_=
+DySi__;!!GjvTz_vk!XnGqY7GmxW4QG80FKJmYX44PK_GNXct2dUs5vG5qcoRXsUlCJTSePzBm6O=
+4ZKXqT1kSN2bjNTxrESH_FwNCHOWM$" style=3D"color: #999999; font-size:12px; line-=
+height: 1.6;; border-collapse: collapse; text-decoration:none; font-family:H=
+elvetica, Arial, sans-serif; color: #026daf;">View Post Details</a> </td></t=
+r></tbody></table></td></tr><tr><td height=3D"15"></td></tr></tbody></table></=
+td></tr><tr><td height=3D"15" bgcolor=3D"#F3F3F3" style=3D"background-color:#EFEFE=
+F;font-size:1px;line-height:1px; -webkit-text-size-adjust:none">&nbsp;</td><=
+/tr><!--End of Article Base --><!-- End Article --><!-- Begin Article --><!-=
+-Start of Article Base --><!-- Social Header--><!--Image--><tr><td valign=3D"b=
+ottom" align=3D"center" bgcolor=3D"#FBFAFB"><a href=3D"https://urldefense.com/v3/_=
+_https://link.voicestorm.com/Link/470801/Article/Redirect/80ceba81-305a-4fcf=
+-9be7-e9c71f078920?uid=3D168257&amp;actr=3DDigest&amp;__c=3D470801_MemberDigest_21=
+80273_DySi__;!!GjvTz_vk!XnGqY7GmxW4QG80FKJmYX44PK_GNXct2dUs5vG5qcoRXsUlCJTSe=
+PzBm6O4ZKXqT1kSN2bjNTxrESH_FXSuSeDc$" style=3D"text-decoration: none; border: =
+none !important"><!--[if gte mso 9]>
+																<img src=3D"https://d3utlhu53nfcwz.cloudfront.net/470801/cdnI=
+mage/article/4a10c2c4-1fc5-4687-b99c-05d34b427408/?size=3DEmailLargeImage" cla=
+ss=3D"mobileFeaturedArticleImage" style=3D"display: inline-block; border: none; =
+vertical-align: bottom; max-width: 600px;"/>
+															<![endif]--><!--[if !mso]><!--><img src=3D"https://d3utlhu53nf=
+cwz.cloudfront.net/470801/cdnImage/article/4a10c2c4-1fc5-4687-b99c-05d34b427=
+408/?size=3DEmailLargeImage" class=3D"mobileFeaturedArticleImage" style=3D"display=
+: inline-block; border: none; vertical-align: bottom; max-width: 600px;"><!-=
+-<![endif]--> </a></td></tr><tr><td height=3D"15" bgcolor=3D"#FFFFFF"></td></tr>=
+<!-- Article Content --><tr><td style=3D"padding: 0 30px;" bgcolor=3D"#FFFFFF"><=
+table width=3D"100%" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" align=3D"center"=
+><tbody><tr><td style=3D"color: #999999; font-size:14px; line-height: 1.71;; b=
+order-collapse: collapse; text-decoration:none; font-family:Helvetica, Arial=
+, sans-serif;">EARN 1 POINT </td></tr><tr><td height=3D"8"></td></tr><tr><td d=
+ir=3D"auto"><a href=3D"https://urldefense.com/v3/__https://link.voicestorm.com/L=
+ink/470801/Article/Redirect/80ceba81-305a-4fcf-9be7-e9c71f078920?uid=3D168257&=
+amp;actr=3DDigest&amp;__c=3D470801_MemberDigest_2180273_DySi__;!!GjvTz_vk!XnGqY7=
+GmxW4QG80FKJmYX44PK_GNXct2dUs5vG5qcoRXsUlCJTSePzBm6O4ZKXqT1kSN2bjNTxrESH_FXS=
+uSeDc$" style=3D"color: #4a4a4a; font-size:20px; line-height: 1.83;; border-co=
+llapse: collapse; text-decoration:none; font-family:Helvetica, Arial, sans-s=
+erif; color: #000000;">Enabling AI everywhere with Akamai Inference Cloud</a=
+></td></tr><tr><td height=3D"10"></td></tr><tr><td dir=3D"auto" style=3D"padding-b=
+ottom: 7px;"><a href=3D"https://urldefense.com/v3/__https://link.voicestorm.co=
+m/Link/470801/Article/Redirect/80ceba81-305a-4fcf-9be7-e9c71f078920?uid=3D1682=
+57&amp;actr=3DDigest&amp;__c=3D470801_MemberDigest_2180273_DySi__;!!GjvTz_vk!XnG=
+qY7GmxW4QG80FKJmYX44PK_GNXct2dUs5vG5qcoRXsUlCJTSePzBm6O4ZKXqT1kSN2bjNTxrESH_=
+FXSuSeDc$" style=3D"color: #333333; font-size:14px; line-height: 1.71;; border=
+-collapse: collapse; text-decoration:none; font-family:Helvetica, Arial, san=
+s-serif; color: #000000; display:block;">We're excited to announce Akamai In=
+ference Cloud, a platform that redefines where and how AI is used by expandi=
+ng inference from core data centers to the edge of the internet. Read more f=
+rom our own Adam Karon:</a></td></tr><tr><td style=3D"font-size: 13px; color: =
+#999999; font-size:14px; line-height: 1.71;; border-collapse: collapse; text=
+-decoration:none; font-family:Helvetica, Arial, sans-serif;">Posted Tuesday,=
+ October 28, 2025 EDT</td></tr><tr><td height=3D"10"></td></tr><tr><td width=3D"=
+100%"><table><tbody><tr><!--ButtonInverted--><!--ButtonInvertedAlign--><!--B=
+uttonBase--><td align=3D"center" style=3D"padding-right:5px;"><!--[if gte mso 9]=
+>
+																				<table class=3D"mobileButton" border=3D"0" cellspacing=3D"0" =
+cellpadding=3D"0"">
+																				<![endif]--><!--[if !mso]><!--><table class=3D"mobileButt=
+on" border=3D"0" cellspacing=3D"0" cellpadding=3D"0" width=3D"100%"><!--<![endif]-->=
+<tbody><tr><!--[if gte mso 9]>
+																				<td align=3D"center" class=3D"mobileButton" bgcolor=3D"#FFFFF=
+F" style=3D"padding: 8px 15px; -webkit-border-radius:5px; border-radius:5px; b=
+order:1px solid #228B22">
+																				<a href=3D"https://urldefense.com/v3/__https://link.voice=
+storm.com/Link/470801/Article/Redirect/80ceba81-305a-4fcf-9be7-e9c71f078920?=
+uid=3D168257&amp;actr=3DDigest&amp;showDiscussions=3DTrue&amp;action=3DLikePost&amp;=
+__c=3D470801_MemberDigest_2180273_DySi__;!!GjvTz_vk!XnGqY7GmxW4QG80FKJmYX44PK_=
+GNXct2dUs5vG5qcoRXsUlCJTSePzBm6O4ZKXqT1kSN2bjNTxrESH_FVzIfC8o$" style=3D"color=
+:#228B22;font-family:sans-serif;font-size:15px;text-align:center;text-decora=
+tion:none;-webkit-text-size-adjust:none;">Like</a>
+																				</td>
+																				<![endif]--><!--[if !mso]><!--><td align=3D"center" class=
+=3D"mobileButton" bgcolor=3D"#FFFFFF" style=3D"-webkit-border-radius:5px; border-r=
+adius:5px; border:1px solid #228B22"><a href=3D"https://urldefense.com/v3/__ht=
+tps://link.voicestorm.com/Link/470801/Article/Redirect/80ceba81-305a-4fcf-9b=
+e7-e9c71f078920?uid=3D168257&amp;actr=3DDigest&amp;showDiscussions=3DTrue&amp;acti=
+on=3DLikePost&amp;__c=3D470801_MemberDigest_2180273_DySi__;!!GjvTz_vk!XnGqY7GmxW=
+4QG80FKJmYX44PK_GNXct2dUs5vG5qcoRXsUlCJTSePzBm6O4ZKXqT1kSN2bjNTxrESH_FVzIfC8=
+o$" style=3D"color:#228B22;font-family:sans-serif;font-size:15px;text-align:ce=
+nter;text-decoration:none;-webkit-text-size-adjust:none;padding:8px 15px;dis=
+play:block;">Like</a> </td><!--<![endif]--></tr></tbody></table></td><!--But=
+tonInverted--><!--ButtonInvertedAlign--><!--ButtonBase--><td align=3D"center" =
+style=3D"padding-right:5px;"><!--[if gte mso 9]>
+																				<table class=3D"mobileButton" border=3D"0" cellspacing=3D"0" =
+cellpadding=3D"0"">
+																				<![endif]--><!--[if !mso]><!--><table class=3D"mobileButt=
+on" border=3D"0" cellspacing=3D"0" cellpadding=3D"0" width=3D"100%"><!--<![endif]-->=
+<tbody><tr><!--[if gte mso 9]>
+																				<td align=3D"center" class=3D"mobileButton" bgcolor=3D"#FFFFF=
+F" style=3D"padding: 8px 15px; -webkit-border-radius:5px; border-radius:5px; b=
+order:1px solid #228B22">
+																				<a href=3D"https://urldefense.com/v3/__https://link.voice=
+storm.com/Link/470801/Article/Redirect/80ceba81-305a-4fcf-9be7-e9c71f078920?=
+uid=3D168257&amp;actr=3DDigest&amp;showDiscussions=3DTrue&amp;__c=3D470801_MemberDig=
+est_2180273_DySi__;!!GjvTz_vk!XnGqY7GmxW4QG80FKJmYX44PK_GNXct2dUs5vG5qcoRXsU=
+lCJTSePzBm6O4ZKXqT1kSN2bjNTxrESH_FMDUU-YI$" style=3D"color:#228B22;font-family=
+:sans-serif;font-size:15px;text-align:center;text-decoration:none;-webkit-te=
+xt-size-adjust:none;">Comment</a>
+																				</td>
+																				<![endif]--><!--[if !mso]><!--><td align=3D"center" class=
+=3D"mobileButton" bgcolor=3D"#FFFFFF" style=3D"-webkit-border-radius:5px; border-r=
+adius:5px; border:1px solid #228B22"><a href=3D"https://urldefense.com/v3/__ht=
+tps://link.voicestorm.com/Link/470801/Article/Redirect/80ceba81-305a-4fcf-9b=
+e7-e9c71f078920?uid=3D168257&amp;actr=3DDigest&amp;showDiscussions=3DTrue&amp;__c=3D=
+470801_MemberDigest_2180273_DySi__;!!GjvTz_vk!XnGqY7GmxW4QG80FKJmYX44PK_GNXc=
+t2dUs5vG5qcoRXsUlCJTSePzBm6O4ZKXqT1kSN2bjNTxrESH_FMDUU-YI$" style=3D"color:#22=
+8B22;font-family:sans-serif;font-size:15px;text-align:center;text-decoration=
+:none;-webkit-text-size-adjust:none;padding:8px 15px;display:block;">Comment=
+</a> </td><!--<![endif]--></tr></tbody></table></td><!--Button--><!--ButtonA=
+lign--><!--ButtonBase--><td align=3D"center" style=3D"padding-right:5px;"><!--[i=
+f gte mso 9]>
+																				<table class=3D"mobileButton" border=3D"0" cellspacing=3D"0" =
+cellpadding=3D"0"">
+																				<![endif]--><!--[if !mso]><!--><table class=3D"mobileButt=
+on" border=3D"0" cellspacing=3D"0" cellpadding=3D"0" width=3D"100%"><!--<![endif]-->=
+<tbody><tr><!--[if gte mso 9]>
+																				<td align=3D"center" class=3D"mobileButton" bgcolor=3D"#228B2=
+2" style=3D"padding: 8px 15px; -webkit-border-radius:5px; border-radius:5px; b=
+order:1px solid #228B22">
+																				<a href=3D"https://urldefense.com/v3/__https://link.voice=
+storm.com/Link/470801/Widget/FullSharing/80ceba81-305a-4fcf-9be7-e9c71f07892=
+0?actr=3DDigest&amp;uid=3D168257&amp;__c=3D470801_MemberDigest_2180273_DySi__;!!Gj=
+vTz_vk!XnGqY7GmxW4QG80FKJmYX44PK_GNXct2dUs5vG5qcoRXsUlCJTSePzBm6O4ZKXqT1kSN2=
+bjNTxrESH_FOni_IwY$" style=3D"color:#FFFFFF;font-family:sans-serif;font-size:1=
+5px;text-align:center;text-decoration:none;-webkit-text-size-adjust:none;">S=
+hare</a>
+																				</td>
+																				<![endif]--><!--[if !mso]><!--><td align=3D"center" class=
+=3D"mobileButton" bgcolor=3D"#228B22" style=3D"-webkit-border-radius:5px; border-r=
+adius:5px; border:1px solid #228B22"><a href=3D"https://urldefense.com/v3/__ht=
+tps://link.voicestorm.com/Link/470801/Widget/FullSharing/80ceba81-305a-4fcf-=
+9be7-e9c71f078920?actr=3DDigest&amp;uid=3D168257&amp;__c=3D470801_MemberDigest_218=
+0273_DySi__;!!GjvTz_vk!XnGqY7GmxW4QG80FKJmYX44PK_GNXct2dUs5vG5qcoRXsUlCJTSeP=
+zBm6O4ZKXqT1kSN2bjNTxrESH_FOni_IwY$" style=3D"color:#FFFFFF;font-family:sans-s=
+erif;font-size:15px;text-align:center;text-decoration:none;-webkit-text-size=
+-adjust:none;padding:8px 15px;display:block;">Share</a> </td><!--<![endif]--=
+></tr></tbody></table></td></tr></tbody></table><table width=3D"100%"><tbody><=
+tr><td align=3D"right" valign=3D"top"><a href=3D"https://urldefense.com/v3/__https=
+://link.voicestorm.com/Link/470801/Article/Redirect/80ceba81-305a-4fcf-9be7-=
+e9c71f078920?uid=3D168257&amp;actr=3DDigest&amp;__c=3D470801_MemberDigest_2180273_=
+DySi__;!!GjvTz_vk!XnGqY7GmxW4QG80FKJmYX44PK_GNXct2dUs5vG5qcoRXsUlCJTSePzBm6O=
+4ZKXqT1kSN2bjNTxrESH_FXSuSeDc$" style=3D"color: #999999; font-size:12px; line-=
+height: 1.6;; border-collapse: collapse; text-decoration:none; font-family:H=
+elvetica, Arial, sans-serif; color: #026daf;">View Post Details</a> </td></t=
+r></tbody></table></td></tr><tr><td height=3D"15"></td></tr></tbody></table></=
+td></tr><tr><td height=3D"15" bgcolor=3D"#F3F3F3" style=3D"background-color:#EFEFE=
+F;font-size:1px;line-height:1px; -webkit-text-size-adjust:none">&nbsp;</td><=
+/tr><!--End of Article Base --><!-- End Article --></tbody></table></td></tr=
+><!-- End of article --></tbody></table><!-- Begin results paragraph --><tab=
+le width=3D"100%" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" align=3D"center"><t=
+body><tr><td bgcolor=3D"#FFFFFF" style=3D"padding: 0 30px;"><table width=3D"100%" =
+border=3D"0" cellpadding=3D"0" cellspacing=3D"0" align=3D"center"><tbody><tr><td hei=
+ght=3D"15"></td></tr><tr align=3D"center"><!--ButtonInverted--><!--ButtonInverte=
+dAlign--><!--ButtonBase--><td align=3D"center" style=3D"padding-right:5px;"><!--=
+[if gte mso 9]>
+												<table class=3D"mobileButton" border=3D"0" cellspacing=3D"0" cellpadd=
+ing=3D"0"">
+												<![endif]--><!--[if !mso]><!--><table class=3D"mobileButton" bord=
+er=3D"0" cellspacing=3D"0" cellpadding=3D"0" width=3D"100%"><!--<![endif]--><tbody><=
+tr><!--[if gte mso 9]>
+												<td align=3D"center" class=3D"mobileButton" bgcolor=3D"#FFFFFF" style=
+=3D"padding: 8px 15px; -webkit-border-radius:5px; border-radius:5px; border:1p=
+x solid #228B22">
+												<a href=3D"https://urldefense.com/v3/__https://link.voicestorm.co=
+m/Link/470801/News/Feed?uid=3D168257&amp;channel=3DEmail&amp;__c=3D470801_MemberDi=
+gest_2180273_DySi__;!!GjvTz_vk!XnGqY7GmxW4QG80FKJmYX44PK_GNXct2dUs5vG5qcoRXs=
+UlCJTSePzBm6O4ZKXqT1kSN2bjNTxrESH_F5AFR6s0$" style=3D"color:#228B22;font-famil=
+y:sans-serif;font-size:15px;text-align:center;text-decoration:none;-webkit-t=
+ext-size-adjust:none;">View More Posts</a>
+												</td>
+												<![endif]--><!--[if !mso]><!--><td align=3D"center" class=3D"mobile=
+Button" bgcolor=3D"#FFFFFF" style=3D"-webkit-border-radius:5px; border-radius:5p=
+x; border:1px solid #228B22"><a href=3D"https://urldefense.com/v3/__https://li=
+nk.voicestorm.com/Link/470801/News/Feed?uid=3D168257&amp;channel=3DEmail&amp;__c=
+=3D470801_MemberDigest_2180273_DySi__;!!GjvTz_vk!XnGqY7GmxW4QG80FKJmYX44PK_GNX=
+ct2dUs5vG5qcoRXsUlCJTSePzBm6O4ZKXqT1kSN2bjNTxrESH_F5AFR6s0$" style=3D"color:#2=
+28B22;font-family:sans-serif;font-size:15px;text-align:center;text-decoratio=
+n:none;-webkit-text-size-adjust:none;padding:8px 15px;display:block;">View M=
+ore Posts</a> </td><!--<![endif]--></tr></tbody></table></td></tr><tr><td he=
+ight=3D"15"></td></tr></tbody></table></td></tr></tbody></table><!-- End resul=
+ts paragraph --></td></tr><!-- END EMAIL TEMPLATE BODY --><tr><td height=3D"15=
+" bgcolor=3D"#F3F3F3" style=3D"background-color:#EFEFEF;font-size:1px;line-heigh=
+t:1px; -webkit-text-size-adjust:none">&nbsp;</td></tr><!-- Mobile App Downlo=
+ad --><tr><td bgcolor=3D"#FFFFFF" style=3D"padding: 0 30px;"><table width=3D"100%"=
+ border=3D"0" cellpadding=3D"0" cellspacing=3D"0" align=3D"center"><tbody><tr><td he=
+ight=3D"20"></td></tr><tr><td><table border=3D"0" cellspacing=3D"0" cellpadding=3D"0=
+"><tbody><tr><!-- Mobile Download Body --><td align=3D"left" valign=3D"top"><tab=
+le border=3D"0" cellspacing=3D"0" cellpadding=3D"0"><!-- Start Mobile Header --><t=
+body><tr><td align=3D"left" style=3D"color: #333333; font-size:14px; line-height=
+: 1.71;; border-collapse: collapse; text-decoration:none; font-family:Helvet=
+ica, Arial, sans-serif;; border-collapse: collapse; font-size: 13px; line-he=
+ight: 18px; mso-line-height-rule: exactly;"><table width=3D"100%" border=3D"0" c=
+ellspacing=3D"0" cellpadding=3D"0"><tbody><tr><td style=3D"color: #4a4a4a; font-si=
+ze:18px; line-height: 1.83;; border-collapse: collapse; text-decoration:none=
+; font-family:Helvetica, Arial, sans-serif;; line-height: 21px; color: #3333=
+33;">Get the latest on mobile </td></tr><tr><td height=3D"5"></td></tr><tr><td=
+ align=3D"left" style=3D"color: #333333; font-size:14px; line-height: 1.71;; bor=
+der-collapse: collapse; text-decoration:none; font-family:Helvetica, Arial, =
+sans-serif;; border-collapse: collapse; font-size: 13px; line-height: 18px; =
+mso-line-height-rule: exactly;"><!-- TA-11686 We want different behaviour de=
+pending on if the client is using custom app urls (ShowRegistrationCode) -->=
+No need to open a browser, do it all from your phone. Download the app and e=
+nter the access code =E2=80=9C<b>AUL2018</b>=E2=80=9D or sign in with your akamai.com em=
+ail address to get started. </td></tr></tbody></table></td></tr><!-- End Mob=
+ile Header --><tr><td height=3D"10"></td></tr><tr><td align=3D"left"><table id=3D"=
+iosAndAndroidDownloadTable" border=3D"0" cellspacing=3D"0" cellpadding=3D"0"><tbod=
+y><tr><td align=3D"left"><table border=3D"0" cellspacing=3D"0" cellpadding=3D"0"><tb=
+ody><tr><td align=3D"center"><table border=3D"0" cellspacing=3D"0" cellpadding=3D"0"=
+><tbody><tr><td valign=3D"middle"><a href=3D"https://urldefense.com/v3/__https:/=
+/link.voicestorm.com/Redirect/470801?r=3Dhttps*3a*2f*2fitunes.apple.com*2fus*2=
+fapp*2fdynamic-signal*2fid608659964*3fmt*3d8&amp;__c=3D470801_MemberDigest_218=
+0273_DySi&amp;s=3DeTw0OSI7pJmLwoLx3w0l9zMl5Sk7ACf7nq_C41PwXe8__;JSUlJSUlJSUl!!=
+GjvTz_vk!XnGqY7GmxW4QG80FKJmYX44PK_GNXct2dUs5vG5qcoRXsUlCJTSePzBm6O4ZKXqT1kS=
+N2bjNTxrESH_F96aShxE$" style=3D"text-decoration: none;"><img src=3D"https://d3ut=
+lhu53nfcwz.cloudfront.net/138101/cdnImage/CmsObject/dfa565cc-b869-4a52-8b73-=
+cce243c45166" style=3D"display: block; border: none !important; padding-right:=
+ 2px;"> </a></td></tr></tbody></table></td></tr></tbody></table></td><td wid=
+th=3D"8"></td><td align=3D"left"><table border=3D"0" cellspacing=3D"0" cellpadding=3D"=
+0"><tbody><tr><td align=3D"center"><table border=3D"0" cellspacing=3D"0" cellpaddi=
+ng=3D"0"><tbody><tr><td valign=3D"middle"><a href=3D"https://urldefense.com/v3/__h=
+ttps://link.voicestorm.com/Redirect/470801?r=3Dhttps*3a*2f*2fplay.google.com*2=
+fstore*2fapps*2fdetails*3fid*3dcom.dynamicsignal.androidphone&amp;__c=3D470801=
+_MemberDigest_2180273_DySi&amp;s=3Djy_Tsl8XCLuPeCcrv1P9dn9EYR_ecdOi8iq12Hl_F9s=
+__;JSUlJSUlJSU!!GjvTz_vk!XnGqY7GmxW4QG80FKJmYX44PK_GNXct2dUs5vG5qcoRXsUlCJTS=
+ePzBm6O4ZKXqT1kSN2bjNTxrESH_FPsTtnk4$" style=3D"text-decoration: none;"><img s=
+rc=3D"https://d3utlhu53nfcwz.cloudfront.net/138101/cdnImage/CmsObject/4d3cc864=
+-e812-4f35-a62b-14fcbbe6d286" style=3D"display: block; border: none !important=
+; padding-right: 2px;"> </a></td></tr></tbody></table></td></tr></tbody></ta=
+ble></td></tr></tbody></table></td></tr></tbody></table></td></tr></tbody></=
+table></td></tr><tr><td height=3D"20"></td></tr></tbody></table></td></tr><!--=
+ End of Mobile App Download --><!-- Start Layout Footer --><!-- End Layout F=
+ooter --><!-- Footer  --><tr class=3D"voicestorm-global-footer"><td bgcolor=3D"#=
+EFEFEF" style=3D"padding: 0 1px;"><!--<table width=3D"100%" border=3D"0" cellpaddi=
+ng=3D"0" cellspacing=3D"0" align=3D"center" style=3D"min-width: 100%; width: 100% !i=
+mportant;">--><table width=3D"100%" border=3D"0" cellpadding=3D"0" cellspacing=3D"0"=
+ align=3D"center"><tbody><tr class=3D"voicestorm-global-footer-spacer"><td heigh=
+t=3D"10"></td></tr><tr class=3D"voicestorm-global-footer-content"><td><!--<table=
+ width=3D"100%" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" align=3D"center" styl=
+e=3D"min-width: 100%; width: 100% !important;">--><table width=3D"100%" border=3D"=
+0" cellpadding=3D"0" cellspacing=3D"0" align=3D"center"><tbody><tr><td valign=3D"top=
+"><table width=3D"100%" border=3D"0" cellpadding=3D"0" cellspacing=3D"0" align=3D"cent=
+er"><tbody><tr><td align=3D"left" style=3D"color: #999999; font-size:12px; line-=
+height: 1.6;; border-collapse: collapse; text-decoration:none; font-family:H=
+elvetica, Arial, sans-serif;; padding: 0; text-align: left;">Trouble reading=
+ this message?<br><a href=3D"https://urldefense.com/v3/__https://link.voicesto=
+rm.com/Link/470801/Email/Index/bcbfb6ef-8c24-41dc-9676-e318bf9765c2?recipien=
+tCode=3DaRtYLOrfJSv*2f70JBoQ8PRHl3j38*3d&amp;__c=3D470801_MemberDigest_2180273_D=
+ySi__;JSU!!GjvTz_vk!XnGqY7GmxW4QG80FKJmYX44PK_GNXct2dUs5vG5qcoRXsUlCJTSePzBm=
+6O4ZKXqT1kSN2bjNTxrESH_F7PJzNtE$" style=3D"color:#333333;">View in a browser</=
+a> </td></tr></tbody></table></td><td valign=3D"top"><table width=3D"100%" borde=
+r=3D"0" cellpadding=3D"0" cellspacing=3D"0" align=3D"center"><tbody><tr><td align=3D"r=
+ight" style=3D"color: #999999; font-size:12px; line-height: 1.6;; border-colla=
+pse: collapse; text-decoration:none; font-family:Helvetica, Arial, sans-seri=
+f;; padding: 0; text-align: right;">To Unsubscribe<br><a href=3D"https://urlde=
+fense.com/v3/__https://link.voicestorm.com/Link/470801/member/Email/confirmu=
+nsubscribe/?email=3Djabrown*40akamai.com&amp;emailType=3DMemberDigest&amp;notifi=
+cationPreferences=3DDigest&amp;date=3D2025-11-03T09*3a11*3a27Z&amp;token=3D-147013=
+7121&amp;__c=3D470801_MemberDigest_2180273_DySi__;JSUl!!GjvTz_vk!XnGqY7GmxW4QG=
+80FKJmYX44PK_GNXct2dUs5vG5qcoRXsUlCJTSePzBm6O4ZKXqT1kSN2bjNTxrESH_Fe2uxlEw$"=
+ style=3D"color: #333333;">Click here</a> </td></tr></tbody></table></td></tr>=
+</tbody></table></td></tr><tr class=3D"voicestorm-global-footer-spacer"><td he=
+ight=3D"30"></td></tr></tbody></table></td></tr><!-- End of Footer --><tr><td =
+height=3D"15"></td></tr><!--[if !mso]><!--></tbody></table><!--<![endif]--><!-=
+-[if gte mso 9]>
+				</table>
+				<![endif]--></td></tr></tbody></table><img src=3D"http://email.voicestorm=
+.com/wf/open?upn=3Du001.aDT0wyzcupE1zS-2BKKe-2F-2FXBfXiHUZ-2FHIuu35SdqG608qA02=
+HqNeDhHTJnPRSXQj3wQRqSAAB-2Bolim6rx3mUvd0MC75Gy1xvLUy4kW3rMeWJN0QKwZQaIW1OSb=
+amQsHessC3BMXKrEMD-2FZimXl9SOQ-2BT6QPtEdSRvfFP5rV7aezNMfPFsIW4n1cfawp-2F5mG5=
+6pnjOMKCKt1EMXoJFGEdZta3B8nC7-2BFcFzmjvR8kbgjqvj62yFgmWswkAt7di0NHnSMX0nQmSr=
+rV8rZbEaiecgaO2-2FGfH-2FHAws263mp9560q1A0mz3Ba9e5soUNqU2KpTFjvm1zlNWfyVM-2BO=
+inmn1FUdU-2FrVbdrfnlXdoruWS2wUuuMPLzt92iav8UngOGEiRf" alt=3D"" width=3D"1" heigh=
+t=3D"1" border=3D"0" style=3D"height:1px !important;width:1px !important;border-wi=
+dth:0 !important;margin-top:0 !important;margin-bottom:0 !important;margin-r=
+ight:0 !important;margin-left:0 !important;padding-top:0 !important;padding-=
+bottom:0 !important;padding-right:0 !important;padding-left:0 !important;"> =
+</body></html>
+
+--B_3854084401_403860528--
+
