@@ -314,6 +314,23 @@ type BuildExtractionContextOutput struct {
 	TopicCount       int    `json:"topic_count"`
 }
 
+// BuildNewsletterContextInput is the input for the newsletter-specific context builder.
+// It enriches the extraction context with user, glossary, project, and product sections.
+type BuildNewsletterContextInput struct {
+	TenantID string `json:"tenant_id"`
+	Subject  string `json:"subject,omitempty"`
+	Content  string `json:"content"`
+}
+
+// BuildNewsletterContextOutput is the output of the newsletter context builder.
+type BuildNewsletterContextOutput struct {
+	BackgroundContext string `json:"background_context"`
+	UserContextFound  bool   `json:"user_context_found"`
+	GlossaryCount     int    `json:"glossary_count"`
+	ProjectCount      int    `json:"project_count"`
+	ProductCount      int    `json:"product_count"`
+}
+
 // BuildContextInput is the input for the BuildContextPackage activity.
 type BuildContextInput struct {
 	TenantID          string                            `json:"tenant_id"`
@@ -2516,6 +2533,35 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				"persist_key", stage.PersistKey,
 			)
 
+			// For newsletter_extract stages, build an enriched context that includes
+			// user identity, glossary, active projects, and tracked products.
+			// Fall back to the generic extractionContext on any error.
+			bgContext := extractionContext
+			if stage.Stage == "newsletter_extract" {
+				ctxNLCtx := workflow.WithActivityOptions(ctx, fastOpts)
+				var nlCtxOutput BuildNewsletterContextOutput
+				nlErr := workflow.ExecuteActivity(ctxNLCtx, pkgtemporal.ActivityBuildNewsletterContext, BuildNewsletterContextInput{
+					TenantID: input.TenantID,
+					Subject:  input.Subject,
+					Content:  parsedContent,
+				}).Get(ctx, &nlCtxOutput)
+				if nlErr != nil {
+					logger.Warn("newsletter context build failed, falling back to generic context",
+						"source_id", input.SourceID,
+						"error", nlErr.Error(),
+					)
+				} else {
+					bgContext = nlCtxOutput.BackgroundContext
+					logger.Info("newsletter context built",
+						"source_id", input.SourceID,
+						"user_context_found", nlCtxOutput.UserContextFound,
+						"glossary_count", nlCtxOutput.GlossaryCount,
+						"project_count", nlCtxOutput.ProjectCount,
+						"product_count", nlCtxOutput.ProductCount,
+					)
+				}
+			}
+
 			var seOutput StructuredExtractOutput
 			seOpts := stageOpts(stage.Stage, llmOpts)
 			ctxSE := workflow.WithActivityOptions(ctx, seOpts)
@@ -2525,7 +2571,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				Content:           parsedContent,
 				StageName:         stage.Stage,
 				PromptOverride:    stage.PromptOverride,
-				BackgroundContext: extractionContext,
+				BackgroundContext: bgContext,
 				LangfuseTraceID:  langfuseTraceID,
 				LangfusePhaseID:  sePhaseID,
 			}).Get(ctx, &seOutput)

@@ -737,6 +737,9 @@ func main() {
 			pipelineRepo,
 			configResolver,
 		)
+		// Inject the newsletter context repo for enriched newsletter_extract context.
+		newsletterContextRepo := activities.NewPostgresNewsletterContextRepository(dbPool)
+		contextBuilderActivities.WithNewsletterContextRepo(newsletterContextRepo)
 		activityRegistrar.WithContextBuilderActivities(contextBuilderActivities)
 		logger.Info("Context builder activities initialized with database (Stage 3)")
 

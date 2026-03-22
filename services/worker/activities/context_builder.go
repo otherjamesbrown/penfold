@@ -48,13 +48,14 @@ type TopicResult struct {
 
 // ContextBuilderActivities holds dependencies for context building activities.
 type ContextBuilderActivities struct {
-	logger         logging.Logger
-	entityResolver EntityResolverInterface
-	entityRepo     EntityLookupInterface
-	contextRepo    ContextPackageRepository
-	topicRepo      TopicLookupInterface
-	pipelineRepo   PipelineRepository
-	configResolver *enrichmentconfig.ConfigResolver
+	logger                logging.Logger
+	entityResolver        EntityResolverInterface
+	entityRepo            EntityLookupInterface
+	contextRepo           ContextPackageRepository
+	topicRepo             TopicLookupInterface
+	pipelineRepo          PipelineRepository
+	configResolver        *enrichmentconfig.ConfigResolver
+	newsletterContextRepo NewsletterContextRepository
 }
 
 // NewContextBuilderActivities creates a new ContextBuilderActivities instance.
@@ -91,6 +92,13 @@ func NewContextBuilderActivities(
 		pipelineRepo:   pipelineRepo,
 		configResolver: configResolver,
 	}
+}
+
+// WithNewsletterContextRepo injects an optional NewsletterContextRepository.
+// When set, BuildNewsletterContext will use it to populate user, project, and product sections.
+func (a *ContextBuilderActivities) WithNewsletterContextRepo(repo NewsletterContextRepository) *ContextBuilderActivities {
+	a.newsletterContextRepo = repo
+	return a
 }
 
 // BuildContextPackage builds a context package from extraction output.

@@ -369,6 +369,9 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		w.RegisterActivityWithOptions(r.contextBuilderActivities.BuildContextPackage, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityBuildContextPackage,
 		})
+		w.RegisterActivityWithOptions(r.contextBuilderActivities.BuildNewsletterContext, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityBuildNewsletterContext,
+		})
 	}
 
 	// Analysis activities for Stage 4 (deep analysis)
@@ -787,9 +790,9 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		if r.triageActivities != nil {
 			count += 1
 		}
-		// BuildExtractionContext, BuildContextPackage
+		// BuildExtractionContext, BuildContextPackage, BuildNewsletterContext
 		if r.contextBuilderActivities != nil {
-			count += 2
+			count += 3
 		}
 		// DeepAnalyze
 		if r.analysisActivities != nil {

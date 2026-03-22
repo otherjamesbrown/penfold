@@ -81,6 +81,9 @@ const (
 
 	// Generic structured extraction activity (replaces bespoke newsletter/notification extract)
 	ActivityStructuredExtract = "StructuredExtract"
+
+	// Newsletter context builder — enriches extraction context with user/project/product data.
+	ActivityBuildNewsletterContext = "BuildNewsletterContext"
 )
 
 // AI Task Queue activity names (4 unique activities).
@@ -221,6 +224,8 @@ func AllMainQueueActivities() []string {
 		ActivityNotificationExtract,
 		// Generic structured extraction activity (replaces bespoke newsletter/notification extract)
 		ActivityStructuredExtract,
+		// Newsletter context builder (enriches extraction context for newsletter_extract stages)
+		ActivityBuildNewsletterContext,
 		// Graph API activities (Outlook + Teams sync + Transcript sync)
 		ActivityCheckGraphAuth,
 		ActivityFetchOutlookMessages,

@@ -362,6 +362,29 @@ type OperationalConfigReader interface {
 	GetString(ctx context.Context, tenantID, key string) (string, error)
 }
 
+// NewsletterContextRepository provides data for building newsletter extraction context.
+// It supplies the four v1 context sections: user context, glossary, active projects, and tracked products.
+type NewsletterContextRepository interface {
+	// GetUserContextJSON returns the raw JSON blob stored at pipeline_operational_config
+	// key "newsletter.user_context" for the given tenant.
+	// Returns ("", nil) when not configured.
+	GetUserContextJSON(ctx context.Context, tenantID string) (string, error)
+
+	// ListActiveProjects returns at most limit active projects for the tenant,
+	// ordered by name. Each entry is (name, description).
+	ListActiveProjects(ctx context.Context, tenantID string, limit int) ([]NewsletterNameDescription, error)
+
+	// ListActiveProducts returns at most limit products in status 'active' for
+	// the tenant, ordered by name. Each entry is (name, description).
+	ListActiveProducts(ctx context.Context, tenantID string, limit int) ([]NewsletterNameDescription, error)
+}
+
+// NewsletterNameDescription is a name/description pair used by NewsletterContextRepository.
+type NewsletterNameDescription struct {
+	Name        string
+	Description string
+}
+
 // PipelineRepository defines the interface for pipeline run recording.
 type PipelineRepository interface {
 	CreateRun(ctx context.Context, input PipelineRunInput) error

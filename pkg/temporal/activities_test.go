@@ -8,7 +8,7 @@ func TestAllMainQueueActivities(t *testing.T) {
 	activities := AllMainQueueActivities()
 
 	// Count updated to reflect all activities including graph, digest (daily/weekly/journal), rollup, newsletter, structured extract, etc.
-	expectedCount := 79
+	expectedCount := 80
 	if len(activities) != expectedCount {
 		t.Errorf("Expected %d main queue activities, got %d", expectedCount, len(activities))
 	}
@@ -68,6 +68,8 @@ func TestAllMainQueueActivities(t *testing.T) {
 		"NotificationExtract",
 		// Generic structured extraction (replaces bespoke newsletter/notification extract)
 		"StructuredExtract",
+		// Newsletter context builder (enriches extraction context for newsletter_extract stages)
+		"BuildNewsletterContext",
 	}
 
 	activityMap := make(map[string]bool)
