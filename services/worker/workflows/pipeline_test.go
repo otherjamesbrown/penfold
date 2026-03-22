@@ -153,6 +153,14 @@ func (m *PipelineMockActivities) StructuredExtract(ctx context.Context, input St
 	return args.Get(0).(*StructuredExtractOutput), args.Error(1)
 }
 
+func (m *PipelineMockActivities) BuildExtractionContext(ctx context.Context, input BuildExtractionContextInput) (*BuildExtractionContextOutput, error) {
+	args := m.Called(ctx, input)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*BuildExtractionContextOutput), args.Error(1)
+}
+
 func (m *PipelineMockActivities) BuildNewsletterContext(ctx context.Context, input BuildNewsletterContextInput) (*BuildNewsletterContextOutput, error) {
 	args := m.Called(ctx, input)
 	if args.Get(0) == nil {
@@ -202,6 +210,7 @@ func (s *SLMPipelineTestSuite) SetupTest() {
 	s.env.RegisterActivityWithOptions(s.activities.DeleteAssertions, activity.RegisterOptions{Name: pkgtemporal.ActivityDeleteAssertions})
 	s.env.RegisterActivityWithOptions(s.activities.FetchPipelineDefinition, activity.RegisterOptions{Name: pkgtemporal.ActivityFetchPipelineDefinition})
 	s.env.RegisterActivityWithOptions(s.activities.StructuredExtract, activity.RegisterOptions{Name: pkgtemporal.ActivityStructuredExtract})
+	s.env.RegisterActivityWithOptions(s.activities.BuildExtractionContext, activity.RegisterOptions{Name: pkgtemporal.ActivityBuildExtractionContext})
 	s.env.RegisterActivityWithOptions(s.activities.BuildNewsletterContext, activity.RegisterOptions{Name: pkgtemporal.ActivityBuildNewsletterContext})
 	s.env.RegisterActivityWithOptions(s.activities.PersistExtractedData, activity.RegisterOptions{Name: pkgtemporal.ActivityPersistExtractedData})
 
@@ -2380,13 +2389,23 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_NewsletterExtract_FallbackOnConte
 		Pipelines:          []string{"newsletter"},
 	}, nil)
 
+	// BuildExtractionContext succeeds and returns a known generic context.
+	const genericContext = "### Glossary\n- ACME: Acme Corp\n### Topics\n- Q1 planning"
+	s.activities.On("BuildExtractionContext", mock.Anything, mock.MatchedBy(func(in BuildExtractionContextInput) bool {
+		return in.TenantID == "tenant-1"
+	})).Return(&BuildExtractionContextOutput{
+		BackgroundContext: genericContext,
+		GlossaryCount:    1,
+		TopicCount:        1,
+	}, nil)
+
 	// BuildNewsletterContext fails — pipeline should fall back to generic context.
 	s.activities.On("BuildNewsletterContext", mock.Anything, mock.MatchedBy(func(in BuildNewsletterContextInput) bool {
 		return in.TenantID == "tenant-1"
 	})).Return(nil, temporal.NewApplicationError("context service unavailable", "ServiceUnavailable"))
 
-	// StructuredExtract: assert BackgroundContext is the generic extraction context (empty string
-	// because BuildExtractionContext is also not registered and returns an error, leaving extractionContext="").
+	// StructuredExtract: assert BackgroundContext is the generic extraction context
+	// (the value returned by BuildExtractionContext, NOT the newsletter-specific context).
 	var capturedBackgroundContext string
 	s.activities.On("StructuredExtract", mock.Anything, mock.MatchedBy(func(in StructuredExtractInput) bool {
 		capturedBackgroundContext = in.BackgroundContext
@@ -2415,11 +2434,11 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_NewsletterExtract_FallbackOnConte
 	require.NoError(s.T(), s.env.GetWorkflowResult(&result))
 	s.Equal("completed", result.Status)
 
-	// KEY ASSERTION: StructuredExtract must NOT have received the newsletter context.
-	// After BuildNewsletterContext failure, bgContext falls back to extractionContext.
-	// extractionContext is "" because BuildExtractionContext is not registered in tests.
-	s.NotEqual("### User Context\nAlice, PM", capturedBackgroundContext,
-		"StructuredExtract should NOT receive a newsletter-specific context when BuildNewsletterContext fails")
+	// KEY ASSERTION: StructuredExtract must have received the generic extraction context,
+	// NOT the newsletter-specific context. After BuildNewsletterContext failure, bgContext
+	// falls back to extractionContext from BuildExtractionContext.
+	s.Equal(genericContext, capturedBackgroundContext,
+		"StructuredExtract should receive the generic extraction context when BuildNewsletterContext fails")
 }
 
 func TestSLMPipelineTestSuite(t *testing.T) {
