@@ -7,8 +7,8 @@ import (
 func TestAllMainQueueActivities(t *testing.T) {
 	activities := AllMainQueueActivities()
 
-	// Count updated to reflect all activities including graph, digest (daily/weekly/journal), rollup, newsletter, etc.
-	expectedCount := 78
+	// Count updated to reflect all activities including graph, digest (daily/weekly/journal), rollup, newsletter, structured extract, etc.
+	expectedCount := 79
 	if len(activities) != expectedCount {
 		t.Errorf("Expected %d main queue activities, got %d", expectedCount, len(activities))
 	}
@@ -66,6 +66,8 @@ func TestAllMainQueueActivities(t *testing.T) {
 		"PersistExtractedData",
 		// Notification enrichment activities
 		"NotificationExtract",
+		// Generic structured extraction (replaces bespoke newsletter/notification extract)
+		"StructuredExtract",
 	}
 
 	activityMap := make(map[string]bool)

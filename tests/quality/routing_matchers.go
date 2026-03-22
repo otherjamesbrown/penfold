@@ -21,8 +21,8 @@ func getContentSubtype(env *QualityEnv, sourceID int64) (string, error) {
 // getCompletedStages returns all stages with status='completed' for a source.
 func getCompletedStages(env *QualityEnv, sourceID int64) ([]string, error) {
 	rows, err := env.DB.Query(context.Background(),
-		`SELECT stage FROM pipeline_runs WHERE source_id = $1 AND tenant_id = $2 AND status = 'completed'`,
-		sourceID, env.TenantID)
+		`SELECT stage FROM pipeline_runs WHERE source_id = $1 AND status = 'completed'`,
+		sourceID)
 	if err != nil {
 		return nil, err
 	}
@@ -131,10 +131,13 @@ func inferPipeline(stages []string) string {
 	if slices.Contains(stages, "newsletter_extract") {
 		return "newsletter"
 	}
+	if slices.Contains(stages, "notification_extract") {
+		return "notification"
+	}
 	if slices.Contains(stages, "extract_semantic") || slices.Contains(stages, "extract_ner") {
 		return "standard"
 	}
-	// notification pipeline uses summarize but not extract_semantic
+	// legacy: notification pipeline used summarize before notification_extract existed
 	if slices.Contains(stages, "summarize") && !slices.Contains(stages, "extract_semantic") {
 		return "notification"
 	}
