@@ -15,6 +15,8 @@ type StageDefinition struct {
 	Pipeline       string
 	ContentType    *string
 	Stage          string
+	StageKind      string  // How the workflow executes this stage: llm, code_only, embedding, structured_extract
+	PersistKey     *string // For structured_extract stages: the key under which output is stored in extracted_data JSONB
 	StageOrder     int
 	Enabled        bool
 	ModelOverride  *string
@@ -70,7 +72,7 @@ type PipelineDefinition struct {
 // ListPipelines returns all pipeline definitions for a tenant, grouped by pipeline name.
 func (r *Repository) ListPipelines(ctx context.Context, tenantID string) ([]PipelineDefinition, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT id, tenant_id, pipeline, content_type, stage, stage_order, enabled,
+		SELECT id, tenant_id, pipeline, content_type, stage, stage_kind, persist_key, stage_order, enabled,
 		       model_override, prompt_override, skip_when_low, optional,
 		       timeout_seconds, temperature, max_tokens, max_retries, created_at
 		FROM pipeline_definitions
@@ -87,7 +89,7 @@ func (r *Repository) ListPipelines(ctx context.Context, tenantID string) ([]Pipe
 	for rows.Next() {
 		var sd StageDefinition
 		if err := rows.Scan(
-			&sd.ID, &sd.TenantID, &sd.Pipeline, &sd.ContentType, &sd.Stage, &sd.StageOrder,
+			&sd.ID, &sd.TenantID, &sd.Pipeline, &sd.ContentType, &sd.Stage, &sd.StageKind, &sd.PersistKey, &sd.StageOrder,
 			&sd.Enabled, &sd.ModelOverride, &sd.PromptOverride,
 			&sd.SkipWhenLow, &sd.Optional, &sd.TimeoutSeconds,
 			&sd.Temperature, &sd.MaxTokens, &sd.MaxRetries, &sd.CreatedAt,
@@ -122,7 +124,7 @@ func (r *Repository) ListPipelines(ctx context.Context, tenantID string) ([]Pipe
 // GetPipelineStages returns the ordered stages for a specific pipeline.
 func (r *Repository) GetPipelineStages(ctx context.Context, tenantID, pipeline string) ([]StageDefinition, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT id, tenant_id, pipeline, content_type, stage, stage_order, enabled,
+		SELECT id, tenant_id, pipeline, content_type, stage, stage_kind, persist_key, stage_order, enabled,
 		       model_override, prompt_override, skip_when_low, optional,
 		       timeout_seconds, temperature, max_tokens, max_retries, created_at
 		FROM pipeline_definitions
@@ -138,7 +140,7 @@ func (r *Repository) GetPipelineStages(ctx context.Context, tenantID, pipeline s
 	for rows.Next() {
 		var sd StageDefinition
 		if err := rows.Scan(
-			&sd.ID, &sd.TenantID, &sd.Pipeline, &sd.ContentType, &sd.Stage, &sd.StageOrder,
+			&sd.ID, &sd.TenantID, &sd.Pipeline, &sd.ContentType, &sd.Stage, &sd.StageKind, &sd.PersistKey, &sd.StageOrder,
 			&sd.Enabled, &sd.ModelOverride, &sd.PromptOverride,
 			&sd.SkipWhenLow, &sd.Optional, &sd.TimeoutSeconds,
 			&sd.Temperature, &sd.MaxTokens, &sd.MaxRetries, &sd.CreatedAt,
@@ -222,14 +224,14 @@ func (r *Repository) UpdateStageConfig(ctx context.Context, tenantID, pipeline, 
 		UPDATE pipeline_definitions
 		SET %s
 		WHERE tenant_id = $1 AND pipeline = $2 AND stage = $3
-		RETURNING id, tenant_id, pipeline, content_type, stage, stage_order, enabled,
+		RETURNING id, tenant_id, pipeline, content_type, stage, stage_kind, persist_key, stage_order, enabled,
 		          model_override, prompt_override, skip_when_low, optional,
 		          timeout_seconds, temperature, max_tokens, max_retries, created_at
 	`, joinStrings(setClauses, ", "))
 
 	var sd StageDefinition
 	err := r.db.QueryRow(ctx, query, args...).Scan(
-		&sd.ID, &sd.TenantID, &sd.Pipeline, &sd.ContentType, &sd.Stage, &sd.StageOrder,
+		&sd.ID, &sd.TenantID, &sd.Pipeline, &sd.ContentType, &sd.Stage, &sd.StageKind, &sd.PersistKey, &sd.StageOrder,
 		&sd.Enabled, &sd.ModelOverride, &sd.PromptOverride,
 		&sd.SkipWhenLow, &sd.Optional, &sd.TimeoutSeconds,
 		&sd.Temperature, &sd.MaxTokens, &sd.MaxRetries, &sd.CreatedAt,
@@ -268,11 +270,11 @@ func (r *Repository) CreatePipeline(ctx context.Context, tenantID, name, fromPip
 	if fromPipeline != "" {
 		// Clone from source pipeline.
 		_, err = tx.Exec(ctx, `
-			INSERT INTO pipeline_definitions (tenant_id, pipeline, content_type, stage, stage_order, enabled,
+			INSERT INTO pipeline_definitions (tenant_id, pipeline, content_type, stage, stage_kind, persist_key, stage_order, enabled,
 			                                  model_override, prompt_override, skip_when_low,
 			                                  optional, timeout_seconds,
 			                                  temperature, max_tokens, max_retries)
-			SELECT tenant_id, $3, content_type, stage, stage_order, enabled,
+			SELECT tenant_id, $3, content_type, stage, stage_kind, persist_key, stage_order, enabled,
 			       model_override, prompt_override, skip_when_low,
 			       optional, timeout_seconds,
 			       temperature, max_tokens, max_retries
@@ -320,13 +322,13 @@ func (r *Repository) ListAllDefinedStages(ctx context.Context) ([]string, error)
 func (r *Repository) getStageDefinition(ctx context.Context, tenantID, pipeline, stage string) (*StageDefinition, error) {
 	var sd StageDefinition
 	err := r.db.QueryRow(ctx, `
-		SELECT id, tenant_id, pipeline, content_type, stage, stage_order, enabled,
+		SELECT id, tenant_id, pipeline, content_type, stage, stage_kind, persist_key, stage_order, enabled,
 		       model_override, prompt_override, skip_when_low, optional,
 		       timeout_seconds, temperature, max_tokens, max_retries, created_at
 		FROM pipeline_definitions
 		WHERE tenant_id = $1 AND pipeline = $2 AND stage = $3
 	`, tenantID, pipeline, stage).Scan(
-		&sd.ID, &sd.TenantID, &sd.Pipeline, &sd.ContentType, &sd.Stage, &sd.StageOrder,
+		&sd.ID, &sd.TenantID, &sd.Pipeline, &sd.ContentType, &sd.Stage, &sd.StageKind, &sd.PersistKey, &sd.StageOrder,
 		&sd.Enabled, &sd.ModelOverride, &sd.PromptOverride,
 		&sd.SkipWhenLow, &sd.Optional, &sd.TimeoutSeconds,
 		&sd.Temperature, &sd.MaxTokens, &sd.MaxRetries, &sd.CreatedAt,

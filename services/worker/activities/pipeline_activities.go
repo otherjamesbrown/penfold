@@ -268,6 +268,7 @@ func (a *PipelineActivities) FetchPipelineDefinition(ctx context.Context, input 
 	for i, s := range stages {
 		out.Stages[i] = workflows.PipelineStageConfig{
 			Stage:          s.Stage,
+			StageKind:      s.StageKind,
 			StageOrder:     s.StageOrder,
 			Enabled:        s.Enabled,
 			SkipWhenLow:    s.SkipWhenLow,
@@ -279,6 +280,9 @@ func (a *PipelineActivities) FetchPipelineDefinition(ctx context.Context, input 
 		}
 		if s.PromptOverride != nil {
 			out.Stages[i].PromptOverride = int32(*s.PromptOverride)
+		}
+		if s.PersistKey != nil {
+			out.Stages[i].PersistKey = *s.PersistKey
 		}
 	}
 

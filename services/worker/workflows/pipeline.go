@@ -761,6 +761,8 @@ type FetchPipelineDefinitionOutput struct {
 // PipelineStageConfig describes a stage's configuration from pipeline_definitions.
 type PipelineStageConfig struct {
 	Stage          string `json:"stage"`
+	StageKind      string `json:"stage_kind"`
+	PersistKey     string `json:"persist_key,omitempty"`
 	StageOrder     int    `json:"stage_order"`
 	Enabled        bool   `json:"enabled"`
 	SkipWhenLow    bool   `json:"skip_when_low"`
