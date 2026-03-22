@@ -1250,3 +1250,65 @@ func TestRuleEngine_BroadNewsletterPatterns(t *testing.T) {
 		})
 	}
 }
+
+// TestClassify_NewsletterVariant_InternalCorporate verifies that a subject containing
+// "Post-Its" routes to NEWSLETTER_INTERNAL via the newsletter_internal_corporate rule
+// (priority 80, higher than generic newsletter patterns at 85).
+func TestClassify_NewsletterVariant_InternalCorporate(t *testing.T) {
+	rules := buildSeededRules()
+	// Add the newsletter variant rule (higher priority than generic newsletter patterns).
+	rules = append(rules, ClassificationRule{
+		ID: 100, TenantID: "tenant-a", Name: "newsletter_internal_corporate",
+		Priority: 80, ContentTypeScope: "EMAIL",
+		ContentType: "EMAIL", ContentSubtype: "NEWSLETTER_INTERNAL",
+		Active: true,
+		Conditions: []MatchCondition{
+			{ID: 100, Field: "subject", MatchType: "contains", Value: "Post-Its", CaseSensitive: false},
+		},
+	})
+	engine := NewEngine(rules)
+
+	// Metadata matching the CTG Post-Its newsletter.
+	result := engine.Classify("EMAIL", map[string]string{
+		"subject":      "Post-Its: CTG Division Update - March 2026",
+		"from_address": "ctg-comms@example.com",
+	})
+
+	if result.ContentSubtype != "NEWSLETTER_INTERNAL" {
+		t.Errorf("expected NEWSLETTER_INTERNAL, got %s", result.ContentSubtype)
+	}
+	if result.RuleName != "newsletter_internal_corporate" {
+		t.Errorf("expected rule newsletter_internal_corporate, got %s", result.RuleName)
+	}
+}
+
+// TestClassify_NewsletterVariant_FallsBackToGeneric verifies that a non-matching subject
+// falls through to the generic newsletter rule (newsletter_comms_pattern at priority 85).
+func TestClassify_NewsletterVariant_FallsBackToGeneric(t *testing.T) {
+	rules := buildSeededRules()
+	// Add the newsletter variant rule — this must NOT match when subject lacks "Post-Its".
+	rules = append(rules, ClassificationRule{
+		ID: 100, TenantID: "tenant-a", Name: "newsletter_internal_corporate",
+		Priority: 80, ContentTypeScope: "EMAIL",
+		ContentType: "EMAIL", ContentSubtype: "NEWSLETTER_INTERNAL",
+		Active: true,
+		Conditions: []MatchCondition{
+			{ID: 100, Field: "subject", MatchType: "contains", Value: "Post-Its", CaseSensitive: false},
+		},
+	})
+	engine := NewEngine(rules)
+
+	// from_address matches newsletter_comms_pattern (*comms@*) but subject does NOT contain "Post-Its".
+	result := engine.Classify("EMAIL", map[string]string{
+		"subject":      "Monthly Engineering Update - March 2026",
+		"from_address": "eng-comms@example.com",
+	})
+
+	// Should fall through to generic newsletter rule, not the variant.
+	if result.ContentSubtype != "NEWSLETTER" {
+		t.Errorf("expected NEWSLETTER (generic fallback), got %s", result.ContentSubtype)
+	}
+	if result.RuleName == "newsletter_internal_corporate" {
+		t.Errorf("newsletter_internal_corporate should not match when subject lacks 'Post-Its'")
+	}
+}

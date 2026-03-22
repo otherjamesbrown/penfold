@@ -279,6 +279,30 @@ func TestPipelineRouting_EmptyRoutes(t *testing.T) {
 	}
 }
 
+// TestPipelineRouting_NewsletterVariant verifies that NEWSLETTER_INTERNAL routes to
+// newsletter_internal while the generic NEWSLETTER route is unaffected.
+func TestPipelineRouting_NewsletterVariant(t *testing.T) {
+	routes := buildSeededRoutes()
+	// Add variant route (in addition to existing EMAIL/NEWSLETTER → newsletter).
+	routes = append(routes, Route{
+		ID: 30, TenantID: "tenant-a", ContentType: "EMAIL",
+		ContentSubtype: "NEWSLETTER_INTERNAL", Pipeline: "newsletter_internal", Active: true,
+	})
+	router := NewRouter(routes)
+
+	// NEWSLETTER_INTERNAL should route to newsletter_internal.
+	pipelines := router.Resolve("EMAIL", "NEWSLETTER_INTERNAL")
+	if len(pipelines) != 1 || pipelines[0] != "newsletter_internal" {
+		t.Errorf("expected [newsletter_internal], got %v", pipelines)
+	}
+
+	// Generic NEWSLETTER should still route to newsletter (unchanged).
+	pipelines = router.Resolve("EMAIL", "NEWSLETTER")
+	if len(pipelines) != 1 || pipelines[0] != "newsletter" {
+		t.Errorf("expected [newsletter], got %v", pipelines)
+	}
+}
+
 // TestHasStage verifies pipeline stage lookups.
 func TestHasStage(t *testing.T) {
 	tests := []struct {
