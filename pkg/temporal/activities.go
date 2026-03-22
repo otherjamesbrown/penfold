@@ -78,6 +78,9 @@ const (
 
 	// Notification enrichment activities
 	ActivityNotificationExtract = "NotificationExtract"
+
+	// Generic structured extraction activity (replaces bespoke newsletter/notification extract)
+	ActivityStructuredExtract = "StructuredExtract"
 )
 
 // AI Task Queue activity names (4 unique activities).
@@ -216,6 +219,8 @@ func AllMainQueueActivities() []string {
 		ActivityPersistExtractedData,
 		// Notification enrichment activities
 		ActivityNotificationExtract,
+		// Generic structured extraction activity (replaces bespoke newsletter/notification extract)
+		ActivityStructuredExtract,
 		// Graph API activities (Outlook + Teams sync + Transcript sync)
 		ActivityCheckGraphAuth,
 		ActivityFetchOutlookMessages,

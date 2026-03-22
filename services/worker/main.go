@@ -914,6 +914,14 @@ func main() {
 		logger.Info("Notification extract activities initialized with database and AI client")
 	}
 
+	// Initialize Generic Structured Extract Activities
+	if dbPool != nil && aiClient != nil {
+		promptRepo := pipeline.NewRepository(dbPool)
+		structuredExtractActivities := activities.NewStructuredExtractActivities(dbPool, aiClient, promptRepo, logger)
+		activityRegistrar.WithStructuredExtractActivities(structuredExtractActivities)
+		logger.Info("Structured extract activities initialized with database and AI client")
+	}
+
 	// Initialize Threading Activities (Stage 2.5: email threading)
 	if dbPool != nil {
 		sourceRepo := activities.NewPostgresSourceRepository(dbPool, logger)

@@ -4,6 +4,7 @@ package workflows
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -658,6 +659,29 @@ type NotificationExtractOutput struct {
 	ModelUsed        string          `json:"model_used"`
 	InputTokenCount  int             `json:"input_token_count"`
 	OutputTokenCount int             `json:"output_token_count"`
+}
+
+// StructuredExtractInput is the input for the generic StructuredExtract activity.
+// JSON field names must match activities.StructuredExtractInput for Temporal serialization.
+type StructuredExtractInput struct {
+	TenantID          string `json:"tenant_id"`
+	SourceID          int64  `json:"source_id"`
+	Content           string `json:"content"`
+	StageName         string `json:"stage_name"`
+	PromptOverride    int32  `json:"prompt_override,omitempty"`
+	BackgroundContext string `json:"background_context,omitempty"`
+	LangfuseTraceID   string `json:"langfuse_trace_id,omitempty"`
+	LangfusePhaseID   string `json:"langfuse_phase_id,omitempty"`
+}
+
+// StructuredExtractOutput is the output from the generic StructuredExtract activity.
+// JSON field names must match activities.StructuredExtractOutput for Temporal serialization.
+type StructuredExtractOutput struct {
+	RawJSON          json.RawMessage `json:"raw_json"`
+	ModelUsed        string          `json:"model_used"`
+	InputTokenCount  int             `json:"input_token_count"`
+	OutputTokenCount int             `json:"output_token_count"`
+	StageName        string          `json:"stage_name"`
 }
 
 // PersistExtractedDataInput is the input for the PersistExtractedData activity.
@@ -2474,145 +2498,87 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		} // End of resolve stage block (stages 3-3.6)
 	} // End of skipExtract block (stages 2-3.6)
 
-	// Stage 2.5: Newsletter Extract
-	// Runs for pipelines with "newsletter_extract" stage (e.g. newsletter pipeline).
-	// Calls the LLM with the newsletter_extract prompt and stores structured JSON
-	// in content_enrichment.extracted_data['newsletter']. No assertions are created.
-	// This stage is mutually exclusive with extract_ner/extract_semantic — newsletter
-	// pipeline uses newsletter_extract instead.
-	if stageInPipeline(stageConfigMap, "newsletter_extract") {
-		newsletterStart := workflow.Now(ctx)
-		logger.Info("pipeline stage starting",
-			"source_id", input.SourceID,
-			"stage", "newsletter_extract",
-			"total_steps", state.status.TotalSteps,
-		)
+	// Stages 2.5+: Structured Extract (generic loop)
+	// Runs for any pipeline stage where stage_kind == "structured_extract".
+	// Replaces bespoke newsletter_extract and notification_extract dispatch.
+	if stageConfigMap != nil {
+		for _, stage := range orderedStages(stageConfigMap) {
+			if stage.StageKind != "structured_extract" || !stage.Enabled {
+				continue
+			}
 
-		var newsletterOutput NewsletterExtractOutput
-		newsletterOpts := stageOpts("newsletter_extract", llmOpts)
-		ctxNewsletter := workflow.WithActivityOptions(ctx, newsletterOpts)
-		newsletterErr := workflow.ExecuteActivity(ctxNewsletter, pkgtemporal.ActivityNewsletterExtract, NewsletterExtractInput{
-			TenantID: input.TenantID,
-			SourceID: input.SourceID,
-			Content:  parsedContent,
-		}).Get(ctx, &newsletterOutput)
-
-		if newsletterErr != nil {
-			logger.Warn("pipeline stage failed (non-blocking)",
+			seStart := workflow.Now(ctx)
+			logger.Info("pipeline stage starting",
 				"source_id", input.SourceID,
-				"stage", "newsletter_extract",
-				"duration_ms", workflow.Now(ctx).Sub(newsletterStart).Milliseconds(),
-				"error", newsletterErr.Error(),
-			)
-		} else {
-			logger.Info("pipeline stage completed",
-				"source_id", input.SourceID,
-				"stage", "newsletter_extract",
-				"duration_ms", workflow.Now(ctx).Sub(newsletterStart).Milliseconds(),
-				"model_used", newsletterOutput.ModelUsed,
-				"output_length", len(newsletterOutput.RawJSON),
+				"stage", stage.Stage,
+				"stage_kind", "structured_extract",
+				"persist_key", stage.PersistKey,
 			)
 
-			// Persist the structured JSON to content_enrichment.extracted_data['newsletter'].
-			ctxPersistJSON := workflow.WithActivityOptions(ctx, fastOpts)
-			var persistJSONOutput PersistExtractedDataOutput
-			persistJSONErr := workflow.ExecuteActivity(ctxPersistJSON, pkgtemporal.ActivityPersistExtractedData, PersistExtractedDataInput{
-				TenantID: input.TenantID,
-				SourceID: input.SourceID,
-				Key:      "newsletter",
-				Data:     newsletterOutput.RawJSON,
-			}).Get(ctx, &persistJSONOutput)
+			var seOutput StructuredExtractOutput
+			seOpts := stageOpts(stage.Stage, llmOpts)
+			ctxSE := workflow.WithActivityOptions(ctx, seOpts)
+			seErr := workflow.ExecuteActivity(ctxSE, pkgtemporal.ActivityStructuredExtract, StructuredExtractInput{
+				TenantID:       input.TenantID,
+				SourceID:       input.SourceID,
+				Content:        parsedContent,
+				StageName:      stage.Stage,
+				PromptOverride: stage.PromptOverride,
+			}).Get(ctx, &seOutput)
 
-			if persistJSONErr != nil {
-				logger.Warn("persist extracted_data failed (non-blocking)",
+			if seErr != nil {
+				logger.Warn("pipeline stage failed (non-blocking)",
 					"source_id", input.SourceID,
-					"key", "newsletter",
-					"error", persistJSONErr.Error(),
+					"stage", stage.Stage,
+					"duration_ms", workflow.Now(ctx).Sub(seStart).Milliseconds(),
+					"error", seErr.Error(),
 				)
 			} else {
-				logger.Info("newsletter extracted data persisted",
+				logger.Info("pipeline stage completed",
 					"source_id", input.SourceID,
-					"updated", persistJSONOutput.Updated,
+					"stage", stage.Stage,
+					"duration_ms", workflow.Now(ctx).Sub(seStart).Milliseconds(),
+					"model_used", seOutput.ModelUsed,
+					"output_length", len(seOutput.RawJSON),
 				)
+
+				// Persist the structured JSON to content_enrichment.extracted_data[persist_key].
+				persistKey := stage.PersistKey
+				if persistKey == "" {
+					// Fallback: strip _extract suffix for compatibility
+					persistKey = strings.TrimSuffix(stage.Stage, "_extract")
+				}
+				ctxPersistJSON := workflow.WithActivityOptions(ctx, fastOpts)
+				var persistJSONOutput PersistExtractedDataOutput
+				persistJSONErr := workflow.ExecuteActivity(ctxPersistJSON, pkgtemporal.ActivityPersistExtractedData, PersistExtractedDataInput{
+					TenantID: input.TenantID,
+					SourceID: input.SourceID,
+					Key:      persistKey,
+					Data:     seOutput.RawJSON,
+				}).Get(ctx, &persistJSONOutput)
+
+				if persistJSONErr != nil {
+					logger.Warn("persist extracted_data failed (non-blocking)",
+						"source_id", input.SourceID,
+						"key", persistKey,
+						"error", persistJSONErr.Error(),
+					)
+				} else {
+					logger.Info("structured extract data persisted",
+						"source_id", input.SourceID,
+						"key", persistKey,
+						"updated", persistJSONOutput.Updated,
+					)
+				}
 			}
-		}
 
-		state.status.StepsCompleted++
+			state.status.StepsCompleted++
 
-		if checkCancellation() {
-			state.result.Status = "cancelled"
-			state.result.Error = state.cancelReason
-			return state.result, nil
-		}
-	}
-
-	// Stage 2.6: Notification Extract
-	// Runs for pipelines with "notification_extract" stage (e.g. notification pipeline).
-	// Calls the LLM with the notification_extract prompt and stores structured JSON
-	// in content_enrichment.extracted_data['notification']. No assertions are created.
-	if stageInPipeline(stageConfigMap, "notification_extract") {
-		notificationStart := workflow.Now(ctx)
-		logger.Info("pipeline stage starting",
-			"source_id", input.SourceID,
-			"stage", "notification_extract",
-			"total_steps", state.status.TotalSteps,
-		)
-
-		var notificationOutput NotificationExtractOutput
-		notificationOpts := stageOpts("notification_extract", llmOpts)
-		ctxNotification := workflow.WithActivityOptions(ctx, notificationOpts)
-		notificationErr := workflow.ExecuteActivity(ctxNotification, pkgtemporal.ActivityNotificationExtract, NotificationExtractInput{
-			TenantID: input.TenantID,
-			SourceID: input.SourceID,
-			Content:  parsedContent,
-		}).Get(ctx, &notificationOutput)
-
-		if notificationErr != nil {
-			logger.Warn("pipeline stage failed (non-blocking)",
-				"source_id", input.SourceID,
-				"stage", "notification_extract",
-				"duration_ms", workflow.Now(ctx).Sub(notificationStart).Milliseconds(),
-				"error", notificationErr.Error(),
-			)
-		} else {
-			logger.Info("pipeline stage completed",
-				"source_id", input.SourceID,
-				"stage", "notification_extract",
-				"duration_ms", workflow.Now(ctx).Sub(notificationStart).Milliseconds(),
-				"model_used", notificationOutput.ModelUsed,
-				"output_length", len(notificationOutput.RawJSON),
-			)
-
-			// Persist the structured JSON to content_enrichment.extracted_data['notification'].
-			ctxPersistJSON := workflow.WithActivityOptions(ctx, fastOpts)
-			var persistJSONOutput PersistExtractedDataOutput
-			persistJSONErr := workflow.ExecuteActivity(ctxPersistJSON, pkgtemporal.ActivityPersistExtractedData, PersistExtractedDataInput{
-				TenantID: input.TenantID,
-				SourceID: input.SourceID,
-				Key:      "notification",
-				Data:     notificationOutput.RawJSON,
-			}).Get(ctx, &persistJSONOutput)
-
-			if persistJSONErr != nil {
-				logger.Warn("persist extracted_data failed (non-blocking)",
-					"source_id", input.SourceID,
-					"key", "notification",
-					"error", persistJSONErr.Error(),
-				)
-			} else {
-				logger.Info("notification extracted data persisted",
-					"source_id", input.SourceID,
-					"updated", persistJSONOutput.Updated,
-				)
+			if checkCancellation() {
+				state.result.Status = "cancelled"
+				state.result.Error = state.cancelReason
+				return state.result, nil
 			}
-		}
-
-		state.status.StepsCompleted++
-
-		if checkCancellation() {
-			state.result.Status = "cancelled"
-			state.result.Error = state.cancelReason
-			return state.result, nil
 		}
 	}
 
@@ -3527,6 +3493,19 @@ func promptOverrideForStage(stageConfigMap map[string]PipelineStageConfig, stage
 		return 0
 	}
 	return cfg.PromptOverride
+}
+
+// orderedStages returns pipeline stages sorted by StageOrder ascending.
+// Used by the generic structured_extract loop to process stages in definition order.
+func orderedStages(m map[string]PipelineStageConfig) []PipelineStageConfig {
+	stages := make([]PipelineStageConfig, 0, len(m))
+	for _, s := range m {
+		stages = append(stages, s)
+	}
+	sort.Slice(stages, func(i, j int) bool {
+		return stages[i].StageOrder < stages[j].StageOrder
+	})
+	return stages
 }
 
 // looksLikeNotificationSender returns true when the sender address is a known

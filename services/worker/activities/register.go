@@ -42,6 +42,7 @@ type Registrar struct {
 	digestActivities                  *DigestActivities
 	newsletterExtractActivities       *NewsletterExtractActivities
 	notificationExtractActivities     *NotificationExtractActivities
+	structuredExtractActivities       *StructuredExtractActivities
 	digestRollupActivities            *DigestRollupActivities
 	journalRollupActivities           *JournalRollupActivities
 }
@@ -206,6 +207,12 @@ func (r *Registrar) WithNewsletterExtractActivities(nea *NewsletterExtractActivi
 // WithNotificationExtractActivities adds notification structured extraction activities to the registrar.
 func (r *Registrar) WithNotificationExtractActivities(nea *NotificationExtractActivities) *Registrar {
 	r.notificationExtractActivities = nea
+	return r
+}
+
+// WithStructuredExtractActivities adds generic structured extraction activities to the registrar.
+func (r *Registrar) WithStructuredExtractActivities(sea *StructuredExtractActivities) *Registrar {
+	r.structuredExtractActivities = sea
 	return r
 }
 
@@ -539,6 +546,13 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		// The notification_extract stage reuses that shared activity.
 	}
 
+	// Generic structured extraction activity (replaces bespoke newsletter/notification extract)
+	if r.structuredExtractActivities != nil {
+		w.RegisterActivityWithOptions(r.structuredExtractActivities.StructuredExtract, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityStructuredExtract,
+		})
+	}
+
 	// Digest rollup activities (GatherRollupContent, GenerateRollupSummary, DeliverRollupResults)
 	// RecordExecutionMetadata is registered once — from digestRollupActivities if available,
 	// otherwise from journalRollupActivities as a fallback.
@@ -833,6 +847,10 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		}
 		// NotificationExtract (PersistExtractedData is shared with newsletter, not counted again)
 		if r.notificationExtractActivities != nil {
+			count += 1
+		}
+		// StructuredExtract
+		if r.structuredExtractActivities != nil {
 			count += 1
 		}
 		// GatherRollupContent, GenerateRollupSummary, DeliverRollupResults, RecordExecutionMetadata
