@@ -40,7 +40,7 @@ func (r *PostgresNewsletterContextRepository) ListActiveProjects(ctx context.Con
 	rows, err := r.pool.Query(ctx, `
 		SELECT name, COALESCE(description, '')
 		FROM projects
-		WHERE tenant_id = $1
+		WHERE tenant_id = $1 AND status = 'active'
 		ORDER BY name
 		LIMIT $2
 	`, tenantID, limit)
