@@ -2508,6 +2508,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			}
 
 			seStart := workflow.Now(ctx)
+			sePhaseID := sideEffectUUID(ctx)
 			logger.Info("pipeline stage starting",
 				"source_id", input.SourceID,
 				"stage", stage.Stage,
@@ -2519,11 +2520,13 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			seOpts := stageOpts(stage.Stage, llmOpts)
 			ctxSE := workflow.WithActivityOptions(ctx, seOpts)
 			seErr := workflow.ExecuteActivity(ctxSE, pkgtemporal.ActivityStructuredExtract, StructuredExtractInput{
-				TenantID:       input.TenantID,
-				SourceID:       input.SourceID,
-				Content:        parsedContent,
-				StageName:      stage.Stage,
-				PromptOverride: stage.PromptOverride,
+				TenantID:        input.TenantID,
+				SourceID:        input.SourceID,
+				Content:         parsedContent,
+				StageName:       stage.Stage,
+				PromptOverride:  stage.PromptOverride,
+				LangfuseTraceID: langfuseTraceID,
+				LangfusePhaseID: sePhaseID,
 			}).Get(ctx, &seOutput)
 
 			if seErr != nil {
@@ -2570,6 +2573,28 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 						"updated", persistJSONOutput.Updated,
 					)
 				}
+			}
+
+			// Langfuse: report structured extract phase span
+			if langfuseTraceID != "" {
+				sePhaseEnd := workflow.Now(ctx)
+				phaseInput := ReportLangfusePhaseInput{
+					PhaseID:      sePhaseID,
+					TraceID:      langfuseTraceID,
+					PhaseName:    stage.Stage,
+					StartTime:    seStart,
+					EndTime:      sePhaseEnd,
+					ParentSpanID: rootSpanID,
+				}
+				if seErr != nil {
+					phaseInput.StatusMessage = seErr.Error()
+					phaseInput.Level = "ERROR"
+				}
+				_ = workflow.ExecuteActivity(
+					workflow.WithActivityOptions(ctx, fastOpts),
+					pkgtemporal.ActivityReportLangfusePhase,
+					phaseInput,
+				).Get(ctx, nil)
 			}
 
 			state.status.StepsCompleted++

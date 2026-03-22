@@ -10,6 +10,7 @@ import (
 
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
+	"google.golang.org/grpc/metadata"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
@@ -128,15 +129,24 @@ func (a *StructuredExtractActivities) StructuredExtract(ctx context.Context, inp
 
 	activity.RecordHeartbeat(ctx, fmt.Sprintf("calling LLM for %s extraction", input.StageName))
 
+	// Attach Langfuse tracing metadata for AI coordinator generation observation linkage.
+	callCtx := ctx
+	if input.LangfuseTraceID != "" {
+		md := metadata.Pairs(
+			"x-langfuse-trace-id", input.LangfuseTraceID,
+			"x-langfuse-phase-id", input.LangfusePhaseID,
+		)
+		callCtx = metadata.NewOutgoingContext(ctx, md)
+	}
+
 	// Call the AI coordinator with JSON mode enabled.
-	// Note: SummaryRequest does not yet have Langfuse fields — that wiring is handled in shard 3.
 	jsonMode := true
 	req := &aiv1.SummaryRequest{
 		Content:  renderedPrompt.String(),
 		JsonMode: &jsonMode,
 	}
 
-	resp, err := a.aiClient.GenerateSummary(ctx, req)
+	resp, err := a.aiClient.GenerateSummary(callCtx, req)
 	if err != nil {
 		return nil, fmt.Errorf("%s LLM call: %w", input.StageName, err)
 	}
