@@ -4,8 +4,8 @@ last_verified: "2026-03-18"
 category: newsletter
 
 routing:
-  content_subtype: NEWSLETTER
-  pipeline: newsletter
+  content_subtype: NEWSLETTER_INTERNAL
+  pipeline: newsletter_internal
   must_complete:
     - parse
     - triage

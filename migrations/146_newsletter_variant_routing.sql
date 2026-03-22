@@ -48,21 +48,38 @@ END $$;
 
 -- c) Pipeline definitions for newsletter_internal (4 stages, same structure as newsletter)
 -- newsletter_extract uses prompt_override = 3 to select the variant v3 prompt.
+-- Uses conditional logic to handle stage_kind/persist_key columns (migration 144).
 DO $$
 DECLARE
   t_id UUID;
   t_rec RECORD;
+  has_stage_kind BOOLEAN;
 BEGIN
+  SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'pipeline_definitions' AND column_name = 'stage_kind'
+  ) INTO has_stage_kind;
+
   FOR t_rec IN SELECT id FROM tenants LOOP
     t_id := t_rec.id;
 
-    INSERT INTO pipeline_definitions (tenant_id, pipeline, stage, stage_order, enabled, skip_when_low, optional, timeout_seconds, model_override, prompt_override, stage_kind, persist_key)
-    VALUES
-      (t_id, 'newsletter_internal', 'parse',              0, true, false, false,  60, NULL, NULL, 'code_only',          NULL),
-      (t_id, 'newsletter_internal', 'triage',             1, true, false, false, 120, NULL, NULL, 'llm',                NULL),
-      (t_id, 'newsletter_internal', 'newsletter_extract', 2, true, false, false, 120, NULL, 3,    'structured_extract', 'newsletter'),
-      (t_id, 'newsletter_internal', 'embed',              3, true, false, false,  60, NULL, NULL, 'embedding',          NULL)
-    ON CONFLICT (tenant_id, pipeline, stage) DO NOTHING;
+    IF has_stage_kind THEN
+      INSERT INTO pipeline_definitions (tenant_id, pipeline, stage, stage_order, enabled, skip_when_low, optional, timeout_seconds, model_override, prompt_override, stage_kind, persist_key)
+      VALUES
+        (t_id, 'newsletter_internal', 'parse',              0, true, false, false,  60, NULL, NULL, 'code_only',          NULL),
+        (t_id, 'newsletter_internal', 'triage',             1, true, false, false, 120, NULL, NULL, 'llm',                NULL),
+        (t_id, 'newsletter_internal', 'newsletter_extract', 2, true, false, false, 120, NULL, 3,    'structured_extract', 'newsletter'),
+        (t_id, 'newsletter_internal', 'embed',              3, true, false, false,  60, NULL, NULL, 'embedding',          NULL)
+      ON CONFLICT (tenant_id, pipeline, stage) DO NOTHING;
+    ELSE
+      INSERT INTO pipeline_definitions (tenant_id, pipeline, stage, stage_order, enabled, skip_when_low, optional, timeout_seconds, model_override, prompt_override)
+      VALUES
+        (t_id, 'newsletter_internal', 'parse',              0, true, false, false,  60, NULL, NULL),
+        (t_id, 'newsletter_internal', 'triage',             1, true, false, false, 120, NULL, NULL),
+        (t_id, 'newsletter_internal', 'newsletter_extract', 2, true, false, false, 120, NULL, 3),
+        (t_id, 'newsletter_internal', 'embed',              3, true, false, false,  60, NULL, NULL)
+      ON CONFLICT (tenant_id, pipeline, stage) DO NOTHING;
+    END IF;
 
   END LOOP;
 END $$;

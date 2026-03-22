@@ -17,20 +17,27 @@ func TestMatchRoutingCompiles(t *testing.T) {
 
 func TestInferPipeline(t *testing.T) {
 	tests := []struct {
-		name     string
-		stages   []string
-		expected string
+		name           string
+		stages         []string
+		contentSubtype string
+		expected       string
 	}{
-		{"newsletter", []string{"parse", "triage", "newsletter_extract", "embed"}, "newsletter"},
-		{"standard", []string{"parse", "triage", "extract_semantic", "extract_ner", "embed"}, "standard"},
-		{"notification", []string{"parse", "triage", "summarize", "embed"}, "notification"},
-		{"empty", []string{}, "unknown"},
+		{"newsletter", []string{"parse", "triage", "newsletter_extract", "embed"}, "", "newsletter"},
+		{"newsletter_internal", []string{"parse", "triage", "newsletter_extract", "embed"}, "NEWSLETTER_INTERNAL", "newsletter_internal"},
+		{"standard", []string{"parse", "triage", "extract_semantic", "extract_ner", "embed"}, "", "standard"},
+		{"notification", []string{"parse", "triage", "summarize", "embed"}, "", "notification"},
+		{"empty", []string{}, "", "unknown"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := inferPipeline(tt.stages)
+			var got string
+			if tt.contentSubtype != "" {
+				got = inferPipeline(tt.stages, tt.contentSubtype)
+			} else {
+				got = inferPipeline(tt.stages)
+			}
 			if got != tt.expected {
-				t.Errorf("inferPipeline(%v) = %q, want %q", tt.stages, got, tt.expected)
+				t.Errorf("inferPipeline(%v, %q) = %q, want %q", tt.stages, tt.contentSubtype, got, tt.expected)
 			}
 		})
 	}

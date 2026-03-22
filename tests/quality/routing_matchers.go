@@ -108,9 +108,9 @@ func MatchRouting(t *testing.T, env *QualityEnv, sourceID int64, expected *Routi
 		})
 	}
 
-	// Check 4: pipeline name (infer from stages)
+	// Check 4: pipeline name (infer from stages + subtype)
 	if expected.Pipeline != "" {
-		inferredPipeline := inferPipeline(completedStages)
+		inferredPipeline := inferPipeline(completedStages, expected.ContentSubtype)
 		pass := inferredPipeline == expected.Pipeline
 		if !pass {
 			t.Errorf("routing.pipeline: expected %q, inferred %q from stages", expected.Pipeline, inferredPipeline)
@@ -126,9 +126,14 @@ func MatchRouting(t *testing.T, env *QualityEnv, sourceID int64, expected *Routi
 	return details
 }
 
-// inferPipeline infers the pipeline name from completed stages.
-func inferPipeline(stages []string) string {
+// inferPipeline infers the pipeline name from completed stages and optional content subtype.
+// The contentSubtype disambiguates variant pipelines that share the same stages
+// (e.g. newsletter vs newsletter_internal both run newsletter_extract).
+func inferPipeline(stages []string, contentSubtype ...string) string {
 	if slices.Contains(stages, "newsletter_extract") {
+		if len(contentSubtype) > 0 && contentSubtype[0] == "NEWSLETTER_INTERNAL" {
+			return "newsletter_internal"
+		}
 		return "newsletter"
 	}
 	if slices.Contains(stages, "notification_extract") {
