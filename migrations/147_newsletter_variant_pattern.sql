@@ -132,7 +132,9 @@ SELECT
     cr.priority                                           AS rule_priority,
     cmc.value                                             AS match_value,
     pd_extract.prompt_override                            AS prompt_version,
-    COUNT(pd.stage) OVER (PARTITION BY pr.tenant_id, pr.pipeline) AS stage_count
+    (SELECT COUNT(*) FROM pipeline_definitions pd
+     WHERE pd.tenant_id = pr.tenant_id
+       AND pd.pipeline = pr.pipeline)                     AS stage_count
 FROM pipeline_routing pr
 JOIN classification_rules cr
     ON cr.tenant_id = pr.tenant_id
@@ -144,9 +146,6 @@ LEFT JOIN pipeline_definitions pd_extract
     ON pd_extract.tenant_id = pr.tenant_id
    AND pd_extract.pipeline = pr.pipeline
    AND pd_extract.stage = 'newsletter_extract'
-LEFT JOIN pipeline_definitions pd
-    ON pd.tenant_id = pr.tenant_id
-   AND pd.pipeline = pr.pipeline
 WHERE pr.content_type = 'EMAIL'
   AND pr.content_subtype LIKE 'NEWSLETTER%';
 

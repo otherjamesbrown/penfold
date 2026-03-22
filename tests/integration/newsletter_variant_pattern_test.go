@@ -78,50 +78,17 @@ func TestMigration147_NewsletterVariantOverviewColumns(t *testing.T) {
 	}
 }
 
-// TestMigration147_NewsletterVariantOverviewQueryable verifies the view can be queried
-// without error and returns results for the existing Post-Its variant (from migration 146).
-func TestMigration147_NewsletterVariantOverviewQueryable(t *testing.T) {
+// TestMigration147_RegisterAndQueryVariant registers a test variant using the
+// function, then verifies it appears in the newsletter_variant_overview view.
+// Self-contained — does not depend on migration 146 data being present.
+func TestMigration147_RegisterAndQueryVariant(t *testing.T) {
 	db := SetupTestDBNoMigrations(t)
 	ctx := context.Background()
 
-	// The view should be queryable (no runtime errors).
-	rows, err := db.Pool.Query(ctx, `SELECT variant_name, content_subtype, rule_name, rule_priority, match_value, prompt_version, stage_count FROM newsletter_variant_overview`)
-	require.NoError(t, err, "newsletter_variant_overview should be queryable")
-	defer rows.Close()
-
-	// At least the Post-Its variant from migration 146 should be visible.
-	var found bool
-	for rows.Next() {
-		var variantName, contentSubtype, ruleName, matchValue string
-		var rulePriority, stageCount int
-		var promptVersion *int
-
-		err := rows.Scan(&variantName, &contentSubtype, &ruleName, &rulePriority, &matchValue, &promptVersion, &stageCount)
-		require.NoError(t, err)
-
-		if variantName == "newsletter_internal" {
-			found = true
-			assert.Equal(t, "NEWSLETTER_INTERNAL", contentSubtype)
-			assert.Equal(t, "newsletter_internal_corporate", ruleName)
-			assert.Equal(t, "Post-Its", matchValue)
-			assert.Equal(t, 4, stageCount, "newsletter_internal pipeline should have 4 stages")
-		}
-	}
-	require.NoError(t, rows.Err())
-	assert.True(t, found, "newsletter_variant_overview should include the newsletter_internal variant (from migration 146)")
-}
-
-// TestMigration147_RegisterNewsletterVariantIsIdempotent verifies that calling
-// register_newsletter_variant() twice for the same variant does not error.
-// Uses a throwaway variant name to avoid interfering with production data.
-func TestMigration147_RegisterNewsletterVariantIsIdempotent(t *testing.T) {
-	db := SetupTestDBNoMigrations(t)
-	ctx := context.Background()
-
-	// Use a unique test variant name to avoid collisions with production data.
-	variantName := "newsletter_test_idempotent_147"
-	contentSubtype := "NEWSLETTER_TEST_IDEMPOTENT"
-	ruleName := "newsletter_test_idempotent_147"
+	// Names must fit varchar(20) and start with NEWSLETTER to match the view filter
+	variantName := "newsletter_t_view"
+	contentSubtype := "NEWSLETTER_T_VIEW"
+	ruleName := "nl_test_view_rule"
 
 	// Cleanup after the test, best-effort.
 	t.Cleanup(func() {
@@ -129,16 +96,88 @@ func TestMigration147_RegisterNewsletterVariantIsIdempotent(t *testing.T) {
 		_, _ = db.Pool.Exec(cleanCtx, `
 			DELETE FROM classification_match_conditions WHERE rule_id IN (
 				SELECT id FROM classification_rules WHERE name = $1
-			)
-		`, ruleName)
+			)`, ruleName)
 		_, _ = db.Pool.Exec(cleanCtx, `DELETE FROM classification_rules WHERE name = $1`, ruleName)
-		_, _ = db.Pool.Exec(cleanCtx, `
-			DELETE FROM pipeline_routing WHERE pipeline = $1
-		`, variantName)
+		_, _ = db.Pool.Exec(cleanCtx, `DELETE FROM pipeline_routing WHERE pipeline = $1`, variantName)
 		_, _ = db.Pool.Exec(cleanCtx, `DELETE FROM pipeline_definitions WHERE pipeline = $1`, variantName)
+		_, _ = db.Pool.Exec(cleanCtx, `DELETE FROM prompt_templates WHERE stage = 'newsletter_extract' AND version = 998`)
+	})
+
+	// Register a test variant
+	_, err := db.Pool.Exec(ctx, `
+		SELECT register_newsletter_variant(
+			p_variant_name        := $1,
+			p_content_subtype     := $2,
+			p_rule_name           := $3,
+			p_rule_priority       := 75,
+			p_match_field         := 'subject',
+			p_match_type          := 'contains',
+			p_match_value         := 'View Test',
+			p_match_case_sensitive := false,
+			p_prompt_version      := 998,
+			p_prompt_content      := 'Test prompt for view queryability.',
+			p_prompt_description  := 'Test prompt — safe to delete'
+		)
+	`, variantName, contentSubtype, ruleName)
+	require.NoError(t, err, "register_newsletter_variant should succeed")
+
+	// Query the view for our test variant (use DISTINCT since the view may have
+	// one row per tenant and we only care about the variant shape)
+	rows, err := db.Pool.Query(ctx, `
+		SELECT DISTINCT variant_name, content_subtype, rule_name, rule_priority, match_value, prompt_version, stage_count
+		FROM newsletter_variant_overview
+		WHERE variant_name = $1
+	`, variantName)
+	require.NoError(t, err, "newsletter_variant_overview should be queryable")
+	defer rows.Close()
+
+	var found bool
+	for rows.Next() {
+		var vName, cSubtype, rName, mValue string
+		var rPriority, sCount int
+		var pVersion *int
+
+		err := rows.Scan(&vName, &cSubtype, &rName, &rPriority, &mValue, &pVersion, &sCount)
+		require.NoError(t, err)
+
+		found = true
+		assert.Equal(t, variantName, vName)
+		assert.Equal(t, contentSubtype, cSubtype)
+		assert.Equal(t, ruleName, rName)
+		assert.Equal(t, 75, rPriority)
+		assert.Equal(t, "View Test", mValue)
+		assert.NotNil(t, pVersion)
+		if pVersion != nil {
+			assert.Equal(t, 998, *pVersion)
+		}
+		assert.Equal(t, 4, sCount, "variant pipeline should have 4 stages")
+	}
+	require.NoError(t, rows.Err())
+	assert.True(t, found, "registered variant should appear in newsletter_variant_overview")
+}
+
+// TestMigration147_RegisterNewsletterVariantIsIdempotent verifies that calling
+// register_newsletter_variant() twice for the same variant does not error.
+func TestMigration147_RegisterNewsletterVariantIsIdempotent(t *testing.T) {
+	db := SetupTestDBNoMigrations(t)
+	ctx := context.Background()
+
+	// Names must fit varchar(20) and start with NEWSLETTER to match view filter
+	variantName := "newsletter_t_idem"
+	contentSubtype := "NEWSLETTER_T_IDEM"
+	ruleName := "nl_test_idem_rule"
+
+	// Cleanup after the test, best-effort.
+	t.Cleanup(func() {
+		cleanCtx := context.Background()
 		_, _ = db.Pool.Exec(cleanCtx, `
-			DELETE FROM prompt_templates WHERE stage = 'newsletter_extract' AND version = 999
-		`)
+			DELETE FROM classification_match_conditions WHERE rule_id IN (
+				SELECT id FROM classification_rules WHERE name = $1
+			)`, ruleName)
+		_, _ = db.Pool.Exec(cleanCtx, `DELETE FROM classification_rules WHERE name = $1`, ruleName)
+		_, _ = db.Pool.Exec(cleanCtx, `DELETE FROM pipeline_routing WHERE pipeline = $1`, variantName)
+		_, _ = db.Pool.Exec(cleanCtx, `DELETE FROM pipeline_definitions WHERE pipeline = $1`, variantName)
+		_, _ = db.Pool.Exec(cleanCtx, `DELETE FROM prompt_templates WHERE stage = 'newsletter_extract' AND version = 999`)
 	})
 
 	call := `
@@ -149,10 +188,10 @@ func TestMigration147_RegisterNewsletterVariantIsIdempotent(t *testing.T) {
 			p_rule_priority       := 75,
 			p_match_field         := 'subject',
 			p_match_type          := 'contains',
-			p_match_value         := 'Test Idempotent Newsletter',
+			p_match_value         := 'Test Idem',
 			p_match_case_sensitive := false,
 			p_prompt_version      := 999,
-			p_prompt_content      := 'Test prompt content for idempotency check.',
+			p_prompt_content      := 'Test prompt for idempotency check.',
 			p_prompt_description  := 'Idempotency test prompt — safe to delete'
 		)
 	`
