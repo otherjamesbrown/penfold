@@ -401,6 +401,9 @@ func newFullRegistrar() *Registrar {
 		}).
 		WithJournalRollupActivities(&JournalRollupActivities{
 			logger: logger,
+		}).
+		WithStructuredExtractActivities(&StructuredExtractActivities{
+			logger: logger,
 		})
 }
 

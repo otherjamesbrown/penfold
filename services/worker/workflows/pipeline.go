@@ -2520,13 +2520,14 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			seOpts := stageOpts(stage.Stage, llmOpts)
 			ctxSE := workflow.WithActivityOptions(ctx, seOpts)
 			seErr := workflow.ExecuteActivity(ctxSE, pkgtemporal.ActivityStructuredExtract, StructuredExtractInput{
-				TenantID:        input.TenantID,
-				SourceID:        input.SourceID,
-				Content:         parsedContent,
-				StageName:       stage.Stage,
-				PromptOverride:  stage.PromptOverride,
-				LangfuseTraceID: langfuseTraceID,
-				LangfusePhaseID: sePhaseID,
+				TenantID:          input.TenantID,
+				SourceID:          input.SourceID,
+				Content:           parsedContent,
+				StageName:         stage.Stage,
+				PromptOverride:    stage.PromptOverride,
+				BackgroundContext: extractionContext,
+				LangfuseTraceID:  langfuseTraceID,
+				LangfusePhaseID:  sePhaseID,
 			}).Get(ctx, &seOutput)
 
 			if seErr != nil {

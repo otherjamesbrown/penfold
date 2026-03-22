@@ -154,6 +154,12 @@ func (m *mockPipelineClient) AuditPipelineCompleteness(ctx context.Context, in *
 func (m *mockPipelineClient) ComparePipelineRuns(ctx context.Context, in *pipelinev1.ComparePipelineRunsRequest, opts ...grpc.CallOption) (*pipelinev1.ComparePipelineRunsResponse, error) {
 	return nil, nil
 }
+func (m *mockPipelineClient) GetOperationalConfig(ctx context.Context, in *pipelinev1.GetOperationalConfigRequest, opts ...grpc.CallOption) (*pipelinev1.GetOperationalConfigResponse, error) {
+	return nil, nil
+}
+func (m *mockPipelineClient) SetOperationalConfig(ctx context.Context, in *pipelinev1.SetOperationalConfigRequest, opts ...grpc.CallOption) (*pipelinev1.SetOperationalConfigResponse, error) {
+	return nil, nil
+}
 
 // Compile-time check that mockPipelineClient satisfies the interface.
 var _ pipelinev1.PipelineServiceClient = (*mockPipelineClient)(nil)

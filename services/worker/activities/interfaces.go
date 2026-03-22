@@ -9,7 +9,14 @@ import (
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/classification"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/routing"
+	"github.com/otherjamesbrown/penfold/pkg/pipeline"
 )
+
+// PromptRepository defines the interface for loading prompt templates by stage.
+// It is satisfied by *pipeline.Repository, and may be mocked in tests.
+type PromptRepository interface {
+	GetPromptByStage(ctx context.Context, stage string, version int) (*pipeline.PromptTemplate, error)
+}
 
 // SourceRepository defines the interface for source data access.
 type SourceRepository interface {

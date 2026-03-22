@@ -8,13 +8,11 @@ import (
 	"fmt"
 	"text/template"
 
-	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 	"google.golang.org/grpc/metadata"
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
-	"github.com/otherjamesbrown/penfold/pkg/pipeline"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -23,7 +21,7 @@ import (
 type StructuredExtractActivities struct {
 	db         *pgxpool.Pool
 	aiClient   AIClient
-	promptRepo *pipeline.Repository
+	promptRepo PromptRepository
 	logger     logging.Logger
 }
 
@@ -31,7 +29,7 @@ type StructuredExtractActivities struct {
 func NewStructuredExtractActivities(
 	db *pgxpool.Pool,
 	aiClient AIClient,
-	promptRepo *pipeline.Repository,
+	promptRepo PromptRepository,
 	logger logging.Logger,
 ) *StructuredExtractActivities {
 	if db == nil {
@@ -86,7 +84,7 @@ func (a *StructuredExtractActivities) StructuredExtract(ctx context.Context, inp
 		logging.F("content_length", len(input.Content)),
 	)
 
-	activity.RecordHeartbeat(ctx, fmt.Sprintf("starting structured extraction for %s", input.StageName))
+	safeRecordHeartbeat(ctx, fmt.Sprintf("starting structured extraction for %s", input.StageName))
 
 	logger.Info("Starting structured extraction")
 
@@ -127,7 +125,7 @@ func (a *StructuredExtractActivities) StructuredExtract(ctx context.Context, inp
 		return nil, fmt.Errorf("render %s prompt: %w", input.StageName, err)
 	}
 
-	activity.RecordHeartbeat(ctx, fmt.Sprintf("calling LLM for %s extraction", input.StageName))
+	safeRecordHeartbeat(ctx, fmt.Sprintf("calling LLM for %s extraction", input.StageName))
 
 	// Attach Langfuse tracing metadata for AI coordinator generation observation linkage.
 	callCtx := ctx
@@ -151,7 +149,7 @@ func (a *StructuredExtractActivities) StructuredExtract(ctx context.Context, inp
 		return nil, fmt.Errorf("%s LLM call: %w", input.StageName, err)
 	}
 
-	activity.RecordHeartbeat(ctx, fmt.Sprintf("%s extraction complete", input.StageName))
+	safeRecordHeartbeat(ctx, fmt.Sprintf("%s extraction complete", input.StageName))
 
 	var inputTokens, outputTokens int
 	if resp.InputTokens != nil {
