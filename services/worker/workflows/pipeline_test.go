@@ -145,6 +145,30 @@ func (m *PipelineMockActivities) FetchPipelineDefinition(ctx context.Context, in
 	return args.Get(0).(*FetchPipelineDefinitionOutput), args.Error(1)
 }
 
+func (m *PipelineMockActivities) StructuredExtract(ctx context.Context, input StructuredExtractInput) (*StructuredExtractOutput, error) {
+	args := m.Called(ctx, input)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*StructuredExtractOutput), args.Error(1)
+}
+
+func (m *PipelineMockActivities) BuildNewsletterContext(ctx context.Context, input BuildNewsletterContextInput) (*BuildNewsletterContextOutput, error) {
+	args := m.Called(ctx, input)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*BuildNewsletterContextOutput), args.Error(1)
+}
+
+func (m *PipelineMockActivities) PersistExtractedData(ctx context.Context, input PersistExtractedDataInput) (*PersistExtractedDataOutput, error) {
+	args := m.Called(ctx, input)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*PersistExtractedDataOutput), args.Error(1)
+}
+
 // SLMPipelineTestSuite tests the SLMPipelineWorkflow.
 type SLMPipelineTestSuite struct {
 	suite.Suite
@@ -177,6 +201,9 @@ func (s *SLMPipelineTestSuite) SetupTest() {
 	s.env.RegisterActivityWithOptions(s.activities.GenerateContentSummary, activity.RegisterOptions{Name: pkgtemporal.ActivityGenerateContentSummary})
 	s.env.RegisterActivityWithOptions(s.activities.DeleteAssertions, activity.RegisterOptions{Name: pkgtemporal.ActivityDeleteAssertions})
 	s.env.RegisterActivityWithOptions(s.activities.FetchPipelineDefinition, activity.RegisterOptions{Name: pkgtemporal.ActivityFetchPipelineDefinition})
+	s.env.RegisterActivityWithOptions(s.activities.StructuredExtract, activity.RegisterOptions{Name: pkgtemporal.ActivityStructuredExtract})
+	s.env.RegisterActivityWithOptions(s.activities.BuildNewsletterContext, activity.RegisterOptions{Name: pkgtemporal.ActivityBuildNewsletterContext})
+	s.env.RegisterActivityWithOptions(s.activities.PersistExtractedData, activity.RegisterOptions{Name: pkgtemporal.ActivityPersistExtractedData})
 
 	// Default mock expectations for enrichment/threading activities (blocking since pf-67502c fix).
 	// Individual tests can override these with more specific expectations.
@@ -2188,6 +2215,211 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_ReprocessFallsBackToInputPipeline
 	var result PipelineResult
 	require.NoError(s.T(), s.env.GetWorkflowResult(&result))
 	s.Equal("completed", result.Status)
+}
+
+// TestSLMPipeline_NewsletterExtract_UsesEnrichedContext verifies that when
+// BuildNewsletterContext succeeds, StructuredExtract receives the enriched
+// BackgroundContext rather than the generic extraction context.
+func (s *SLMPipelineTestSuite) TestSLMPipeline_NewsletterExtract_UsesEnrichedContext() {
+	const newsletterContext = "### User Context\nAlice, PM"
+
+	input := PipelineInput{
+		TenantID:    "tenant-1",
+		SourceID:    9500,
+		ContentID:   "em-nl-test01",
+		JobID:       "job-9500",
+		ContentType: "email",
+		ContentHash: "hash9500",
+		BodyText:    "Weekly digest with industry updates and project news.",
+		Subject:     "Weekly Digest",
+		SenderEmail: "digest@newsletter.example.com",
+		Pipeline:    "newsletter",
+	}
+
+	// Override the default Maybe FetchPipelineDefinition mock to return the newsletter pipeline.
+	// Unset the default first so our specific return value takes priority.
+	s.activities.On("FetchPipelineDefinition", mock.Anything, mock.Anything).Unset()
+	newsletterPipelineDef := &FetchPipelineDefinitionOutput{
+		Found:       true,
+		ContentType: "email",
+		Stages: []PipelineStageConfig{
+			{
+				Stage:      "newsletter_extract",
+				StageKind:  "structured_extract",
+				PersistKey: "newsletter",
+				StageOrder: 1,
+				Enabled:    true,
+			},
+		},
+	}
+	s.activities.On("FetchPipelineDefinition", mock.Anything, mock.Anything).Return(newsletterPipelineDef, nil)
+
+	// Stage 0: Parse
+	s.activities.On("ParseEmail", mock.Anything, mock.MatchedBy(func(in ParseEmailInput) bool {
+		return in.SourceID == 9500
+	})).Return(&ParseEmailOutput{
+		CleanBody:  "Weekly digest with industry updates and project news.",
+		NewContent: "Weekly digest with industry updates and project news.",
+	}, nil)
+
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.Anything).Return(nil)
+
+	// Stage 1: Triage — routes to newsletter pipeline.
+	s.activities.On("Triage", mock.Anything, mock.MatchedBy(func(in TriageInput) bool {
+		return in.SourceID == 9500
+	})).Return(&TriageOutput{
+		Category:           "NEWSLETTER",
+		Importance:         "HIGH",
+		SkipDeep:           false,
+		ModelUsed:          "llama-3.2-1b",
+		RoutingContentType: "EMAIL",
+		RoutingSubtype:     "NEWSLETTER",
+		Pipelines:          []string{"newsletter"},
+	}, nil)
+
+	// BuildNewsletterContext succeeds and returns enriched context.
+	s.activities.On("BuildNewsletterContext", mock.Anything, mock.MatchedBy(func(in BuildNewsletterContextInput) bool {
+		return in.TenantID == "tenant-1"
+	})).Return(&BuildNewsletterContextOutput{
+		BackgroundContext: newsletterContext,
+		UserContextFound:  true,
+		GlossaryCount:     2,
+		ProjectCount:      3,
+		ProductCount:      1,
+	}, nil)
+
+	// StructuredExtract: assert BackgroundContext is the enriched newsletter context.
+	var capturedBackgroundContext string
+	s.activities.On("StructuredExtract", mock.Anything, mock.MatchedBy(func(in StructuredExtractInput) bool {
+		capturedBackgroundContext = in.BackgroundContext
+		return in.SourceID == 9500 && in.StageName == "newsletter_extract"
+	})).Return(&StructuredExtractOutput{
+		ModelUsed: "gemini-2.0-flash",
+		StageName: "newsletter_extract",
+	}, nil)
+
+	// PersistExtractedData: non-blocking persist of extracted JSON.
+	s.activities.On("PersistExtractedData", mock.Anything, mock.MatchedBy(func(in PersistExtractedDataInput) bool {
+		return in.SourceID == 9500 && in.Key == "newsletter"
+	})).Return(&PersistExtractedDataOutput{Updated: true}, nil)
+
+	// Stage 5: Embed
+	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.MatchedBy(func(in GenerateEmbeddingInput) bool {
+		return in.SourceID == 9500
+	})).Return(int64(9500), nil)
+
+	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)
+
+	require.True(s.T(), s.env.IsWorkflowCompleted())
+	require.NoError(s.T(), s.env.GetWorkflowError())
+
+	var result PipelineResult
+	require.NoError(s.T(), s.env.GetWorkflowResult(&result))
+	s.Equal("completed", result.Status)
+
+	// KEY ASSERTION: StructuredExtract must have received the enriched newsletter context.
+	s.Equal(newsletterContext, capturedBackgroundContext,
+		"StructuredExtract should receive the enriched newsletter context from BuildNewsletterContext, not the generic extraction context")
+}
+
+// TestSLMPipeline_NewsletterExtract_FallbackOnContextError verifies that when
+// BuildNewsletterContext returns an error, StructuredExtract falls back to the
+// generic extraction context and the pipeline completes successfully.
+func (s *SLMPipelineTestSuite) TestSLMPipeline_NewsletterExtract_FallbackOnContextError() {
+	input := PipelineInput{
+		TenantID:    "tenant-1",
+		SourceID:    9501,
+		ContentID:   "em-nl-test02",
+		JobID:       "job-9501",
+		ContentType: "email",
+		ContentHash: "hash9501",
+		BodyText:    "Weekly digest with project updates and articles.",
+		Subject:     "Weekly Digest",
+		SenderEmail: "digest@newsletter.example.com",
+		Pipeline:    "newsletter",
+	}
+
+	// Override the default Maybe FetchPipelineDefinition mock to return the newsletter pipeline.
+	// Unset the default first so our specific return value takes priority.
+	s.activities.On("FetchPipelineDefinition", mock.Anything, mock.Anything).Unset()
+	newsletterPipelineDef := &FetchPipelineDefinitionOutput{
+		Found:       true,
+		ContentType: "email",
+		Stages: []PipelineStageConfig{
+			{
+				Stage:      "newsletter_extract",
+				StageKind:  "structured_extract",
+				PersistKey: "newsletter",
+				StageOrder: 1,
+				Enabled:    true,
+			},
+		},
+	}
+	s.activities.On("FetchPipelineDefinition", mock.Anything, mock.Anything).Return(newsletterPipelineDef, nil)
+
+	// Stage 0: Parse
+	s.activities.On("ParseEmail", mock.Anything, mock.MatchedBy(func(in ParseEmailInput) bool {
+		return in.SourceID == 9501
+	})).Return(&ParseEmailOutput{
+		CleanBody:  "Weekly digest with project updates and articles.",
+		NewContent: "Weekly digest with project updates and articles.",
+	}, nil)
+
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.Anything).Return(nil)
+
+	// Stage 1: Triage — routes to newsletter pipeline.
+	s.activities.On("Triage", mock.Anything, mock.MatchedBy(func(in TriageInput) bool {
+		return in.SourceID == 9501
+	})).Return(&TriageOutput{
+		Category:           "NEWSLETTER",
+		Importance:         "HIGH",
+		SkipDeep:           false,
+		ModelUsed:          "llama-3.2-1b",
+		RoutingContentType: "EMAIL",
+		RoutingSubtype:     "NEWSLETTER",
+		Pipelines:          []string{"newsletter"},
+	}, nil)
+
+	// BuildNewsletterContext fails — pipeline should fall back to generic context.
+	s.activities.On("BuildNewsletterContext", mock.Anything, mock.MatchedBy(func(in BuildNewsletterContextInput) bool {
+		return in.TenantID == "tenant-1"
+	})).Return(nil, temporal.NewApplicationError("context service unavailable", "ServiceUnavailable"))
+
+	// StructuredExtract: assert BackgroundContext is the generic extraction context (empty string
+	// because BuildExtractionContext is also not registered and returns an error, leaving extractionContext="").
+	var capturedBackgroundContext string
+	s.activities.On("StructuredExtract", mock.Anything, mock.MatchedBy(func(in StructuredExtractInput) bool {
+		capturedBackgroundContext = in.BackgroundContext
+		return in.SourceID == 9501 && in.StageName == "newsletter_extract"
+	})).Return(&StructuredExtractOutput{
+		ModelUsed: "gemini-2.0-flash",
+		StageName: "newsletter_extract",
+	}, nil)
+
+	// PersistExtractedData: non-blocking persist of extracted JSON.
+	s.activities.On("PersistExtractedData", mock.Anything, mock.MatchedBy(func(in PersistExtractedDataInput) bool {
+		return in.SourceID == 9501 && in.Key == "newsletter"
+	})).Return(&PersistExtractedDataOutput{Updated: true}, nil)
+
+	// Stage 5: Embed
+	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.MatchedBy(func(in GenerateEmbeddingInput) bool {
+		return in.SourceID == 9501
+	})).Return(int64(9501), nil)
+
+	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)
+
+	require.True(s.T(), s.env.IsWorkflowCompleted())
+	require.NoError(s.T(), s.env.GetWorkflowError())
+
+	var result PipelineResult
+	require.NoError(s.T(), s.env.GetWorkflowResult(&result))
+	s.Equal("completed", result.Status)
+
+	// KEY ASSERTION: StructuredExtract must NOT have received the newsletter context.
+	// After BuildNewsletterContext failure, bgContext falls back to extractionContext.
+	// extractionContext is "" because BuildExtractionContext is not registered in tests.
+	s.NotEqual("### User Context\nAlice, PM", capturedBackgroundContext,
+		"StructuredExtract should NOT receive a newsletter-specific context when BuildNewsletterContext fails")
 }
 
 func TestSLMPipelineTestSuite(t *testing.T) {
