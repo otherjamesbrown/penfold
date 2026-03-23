@@ -25,9 +25,9 @@ UPDATE pipeline_definitions
     SET context_providers = '{glossary,topics}'
     WHERE pipeline = 'standard' AND stage = 'analyze';
 
--- Standard pipeline extract_ner: glossary only
+-- Standard pipeline extract_ner: glossary + topics (mirrors DefaultConfigs["extract_ner"] SectionTopics)
 UPDATE pipeline_definitions
-    SET context_providers = '{glossary}'
+    SET context_providers = '{glossary,topics}'
     WHERE pipeline = 'standard' AND stage = 'extract_ner';
 
 -- +goose Down

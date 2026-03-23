@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/otherjamesbrown/penfold/pkg/logging"
-	"github.com/otherjamesbrown/penfold/services/worker/activities"
 )
 
 // TestBuildStageContext_Integration verifies the DB round-trip:
