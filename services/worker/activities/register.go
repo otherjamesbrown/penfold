@@ -354,10 +354,13 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		})
 	}
 
-	// Triage activities for Stage 1 (triage)
+	// Triage activities for Stage 1 (triage + pre-classification)
 	if r.triageActivities != nil {
 		w.RegisterActivityWithOptions(r.triageActivities.Triage, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityTriage,
+		})
+		w.RegisterActivityWithOptions(r.triageActivities.PreClassifyContent, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityPreClassifyContent,
 		})
 	}
 
@@ -786,9 +789,9 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		if r.persistActivities != nil {
 			count += 1
 		}
-		// Triage
+		// Triage, PreClassifyContent
 		if r.triageActivities != nil {
-			count += 1
+			count += 2
 		}
 		// BuildExtractionContext, BuildContextPackage, BuildNewsletterContext
 		if r.contextBuilderActivities != nil {

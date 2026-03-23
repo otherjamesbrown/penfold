@@ -12,7 +12,9 @@ import (
 
 	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/classification"
+	"github.com/otherjamesbrown/penfold/pkg/enrichment/routing"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
 func TestTriage_Success(t *testing.T) {
@@ -1280,4 +1282,217 @@ func TestTriage_RuleEngineNotificationCap_pf2d512a(t *testing.T) {
 	// Contribution should be capped at LOW (NOTIFICATION cap from pf-bcb565)
 	require.Equal(t, "LOW", output.ContentContribution,
 		"pf-2d512a: NOTIFICATION from rule engine should trigger contribution cap")
+}
+
+// mockRoutingRepo is a mock for RoutingRepository.
+type mockRoutingRepo struct {
+	loadRoutesFn func(ctx context.Context, tenantID string) ([]routing.Route, error)
+}
+
+func (m *mockRoutingRepo) LoadRoutes(ctx context.Context, tenantID string) ([]routing.Route, error) {
+	if m.loadRoutesFn != nil {
+		return m.loadRoutesFn(ctx, tenantID)
+	}
+	return nil, nil
+}
+
+// TestPreClassifyContent_NotificationSender verifies that the rule engine
+// correctly pre-classifies a known notification sender and resolves the pipeline.
+func TestPreClassifyContent_NotificationSender(t *testing.T) {
+	logger := logging.NewNopLogger()
+	activities := NewTriageActivities(logger, &mockAIClient{}, nil, nil, &mockClassificationRepo{
+		loadRulesFn: func(_ context.Context, _ string) ([]classification.ClassificationRule, error) {
+			return []classification.ClassificationRule{
+				{
+					ID: 1, TenantID: "t1", Name: "jira", Priority: 10, Active: true,
+					ContentTypeScope: "EMAIL", ContentType: "EMAIL", ContentSubtype: "NOTIFICATION",
+					NotificationSource: "jira",
+					Conditions: []classification.MatchCondition{
+						{Field: "from_address", MatchType: "contains", Value: "jira@"},
+					},
+				},
+			}, nil
+		},
+	})
+	activities.WithRoutingRepo(&mockRoutingRepo{
+		loadRoutesFn: func(_ context.Context, _ string) ([]routing.Route, error) {
+			return []routing.Route{
+				{ContentType: "EMAIL", ContentSubtype: "NOTIFICATION", Pipeline: "notification", Active: true},
+			}, nil
+		},
+	})
+
+	out, err := activities.PreClassifyContent(context.Background(), workflows.PreClassifyContentInput{
+		TenantID:    "t1",
+		ContentType: "email",
+		SenderEmail: "gsd-jira@akamai.com",
+		Subject:     "[JIRA] Issue Updated",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "notification", out.Pipeline)
+	require.Equal(t, "NOTIFICATION", out.ContentSubtype)
+	require.Equal(t, "jira", out.RuleName)
+}
+
+// TestPreClassifyContent_NoMatch verifies that when no rule matches,
+// an empty result is returned (fail-open to triage).
+func TestPreClassifyContent_NoMatch(t *testing.T) {
+	logger := logging.NewNopLogger()
+	activities := NewTriageActivities(logger, &mockAIClient{}, nil, nil, &mockClassificationRepo{
+		loadRulesFn: func(_ context.Context, _ string) ([]classification.ClassificationRule, error) {
+			return []classification.ClassificationRule{
+				{
+					ID: 1, TenantID: "t1", Name: "jira", Priority: 10, Active: true,
+					ContentTypeScope: "EMAIL", ContentType: "EMAIL", ContentSubtype: "NOTIFICATION",
+					Conditions: []classification.MatchCondition{
+						{Field: "from_address", MatchType: "contains", Value: "jira@"},
+					},
+				},
+			}, nil
+		},
+	})
+
+	out, err := activities.PreClassifyContent(context.Background(), workflows.PreClassifyContentInput{
+		TenantID:    "t1",
+		ContentType: "email",
+		SenderEmail: "alice@company.com",
+		Subject:     "Hello",
+	})
+	require.NoError(t, err)
+	require.Empty(t, out.Pipeline)
+	require.Empty(t, out.RuleName)
+}
+
+// TestPreClassifyContent_FailOpen_DBError verifies that when LoadRules fails,
+// the activity returns an empty result rather than an error.
+func TestPreClassifyContent_FailOpen_DBError(t *testing.T) {
+	logger := logging.NewNopLogger()
+	activities := NewTriageActivities(logger, &mockAIClient{}, nil, nil, &mockClassificationRepo{
+		loadRulesFn: func(_ context.Context, _ string) ([]classification.ClassificationRule, error) {
+			return nil, errors.New("database connection refused")
+		},
+	})
+
+	out, err := activities.PreClassifyContent(context.Background(), workflows.PreClassifyContentInput{
+		TenantID:    "t1",
+		ContentType: "email",
+		SenderEmail: "jira@atlassian.net",
+	})
+	require.NoError(t, err)
+	require.Empty(t, out.Pipeline)
+}
+
+// TestPreClassifyContent_FailOpen_NoClassificationRepo verifies that when
+// the classification repo is nil, the activity returns an empty result.
+func TestPreClassifyContent_FailOpen_NoClassificationRepo(t *testing.T) {
+	logger := logging.NewNopLogger()
+	activities := NewTriageActivities(logger, &mockAIClient{}, nil, nil, nil)
+
+	out, err := activities.PreClassifyContent(context.Background(), workflows.PreClassifyContentInput{
+		TenantID:    "t1",
+		ContentType: "email",
+		SenderEmail: "jira@atlassian.net",
+	})
+	require.NoError(t, err)
+	require.Empty(t, out.Pipeline)
+}
+
+// TestPreClassifyContent_RoutingRepoError verifies that when routing fails,
+// the activity still returns the classification result without a pipeline.
+func TestPreClassifyContent_RoutingRepoError(t *testing.T) {
+	logger := logging.NewNopLogger()
+	activities := NewTriageActivities(logger, &mockAIClient{}, nil, nil, &mockClassificationRepo{
+		loadRulesFn: func(_ context.Context, _ string) ([]classification.ClassificationRule, error) {
+			return []classification.ClassificationRule{
+				{
+					ID: 1, TenantID: "t1", Name: "jira", Priority: 10, Active: true,
+					ContentTypeScope: "EMAIL", ContentType: "EMAIL", ContentSubtype: "NOTIFICATION",
+					Conditions: []classification.MatchCondition{
+						{Field: "from_address", MatchType: "contains", Value: "jira@"},
+					},
+				},
+			}, nil
+		},
+	})
+	activities.WithRoutingRepo(&mockRoutingRepo{
+		loadRoutesFn: func(_ context.Context, _ string) ([]routing.Route, error) {
+			return nil, errors.New("routing table unavailable")
+		},
+	})
+
+	out, err := activities.PreClassifyContent(context.Background(), workflows.PreClassifyContentInput{
+		TenantID:    "t1",
+		ContentType: "email",
+		SenderEmail: "gsd-jira@akamai.com",
+	})
+	require.NoError(t, err)
+	require.Empty(t, out.Pipeline) // No pipeline because routing failed
+	require.Equal(t, "NOTIFICATION", out.ContentSubtype)
+	require.Equal(t, "jira", out.RuleName)
+}
+
+// TestPreClassifyContent_AllNotificationSources verifies all 7 known notification
+// sources are correctly pre-classified by the rule engine.
+func TestPreClassifyContent_AllNotificationSources(t *testing.T) {
+	// Build rules matching the 7 known notification sources from the design
+	rules := []classification.ClassificationRule{
+		{ID: 1, TenantID: "t1", Name: "jira", Priority: 10, Active: true, ContentTypeScope: "EMAIL", ContentType: "EMAIL", ContentSubtype: "NOTIFICATION",
+			Conditions: []classification.MatchCondition{{Field: "from_address", MatchType: "contains", Value: "jira"}}},
+		{ID: 2, TenantID: "t1", Name: "aha", Priority: 10, Active: true, ContentTypeScope: "EMAIL", ContentType: "EMAIL", ContentSubtype: "NOTIFICATION",
+			Conditions: []classification.MatchCondition{{Field: "from_address", MatchType: "contains", Value: "aha-notifications"}}},
+		{ID: 3, TenantID: "t1", Name: "google_docs", Priority: 10, Active: true, ContentTypeScope: "EMAIL", ContentType: "EMAIL", ContentSubtype: "NOTIFICATION",
+			Conditions: []classification.MatchCondition{{Field: "from_address", MatchType: "contains", Value: "noreply@google.com"}}},
+		{ID: 4, TenantID: "t1", Name: "google_security", Priority: 10, Active: true, ContentTypeScope: "EMAIL", ContentType: "EMAIL", ContentSubtype: "NOTIFICATION",
+			Conditions: []classification.MatchCondition{{Field: "from_address", MatchType: "contains", Value: "accounts.google.com"}}},
+		{ID: 5, TenantID: "t1", Name: "webex", Priority: 10, Active: true, ContentTypeScope: "EMAIL", ContentType: "EMAIL", ContentSubtype: "NOTIFICATION",
+			Conditions: []classification.MatchCondition{{Field: "from_address", MatchType: "contains", Value: "webex"}}},
+		{ID: 6, TenantID: "t1", Name: "smartsheet", Priority: 10, Active: true, ContentTypeScope: "EMAIL", ContentType: "EMAIL", ContentSubtype: "NOTIFICATION",
+			Conditions: []classification.MatchCondition{{Field: "from_address", MatchType: "contains", Value: "smartsheet"}}},
+		{ID: 7, TenantID: "t1", Name: "it_notification", Priority: 10, Active: true, ContentTypeScope: "EMAIL", ContentType: "EMAIL", ContentSubtype: "NOTIFICATION",
+			Conditions: []classification.MatchCondition{{Field: "from_address", MatchType: "contains", Value: "oracle-hcm-prod"}}},
+	}
+
+	routes := []routing.Route{
+		{ContentType: "EMAIL", ContentSubtype: "NOTIFICATION", Pipeline: "notification", Active: true},
+	}
+
+	tests := []struct {
+		name        string
+		sender      string
+		wantRule    string
+	}{
+		{"jira", "gsd-jira@akamai.com", "jira"},
+		{"aha", "aha-notifications@mailer.aha.io", "aha"},
+		{"google_docs", "noreply@google.com", "google_docs"},
+		{"google_security", "no-reply@accounts.google.com", "google_security"},
+		{"webex", "webex@webex.com", "webex"},
+		{"smartsheet", "noreply@smartsheet.com", "smartsheet"},
+		{"it_notification", "oracle-hcm-prod@akamai.com", "it_notification"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger := logging.NewNopLogger()
+			act := NewTriageActivities(logger, &mockAIClient{}, nil, nil, &mockClassificationRepo{
+				loadRulesFn: func(_ context.Context, _ string) ([]classification.ClassificationRule, error) {
+					return rules, nil
+				},
+			})
+			act.WithRoutingRepo(&mockRoutingRepo{
+				loadRoutesFn: func(_ context.Context, _ string) ([]routing.Route, error) {
+					return routes, nil
+				},
+			})
+
+			out, err := act.PreClassifyContent(context.Background(), workflows.PreClassifyContentInput{
+				TenantID:    "t1",
+				ContentType: "email",
+				SenderEmail: tt.sender,
+			})
+			require.NoError(t, err)
+			require.Equal(t, "notification", out.Pipeline, "sender %s should route to notification pipeline", tt.sender)
+			require.Equal(t, "NOTIFICATION", out.ContentSubtype)
+			require.Equal(t, tt.wantRule, out.RuleName)
+		})
+	}
 }

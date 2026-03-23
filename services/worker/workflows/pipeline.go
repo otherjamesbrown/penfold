@@ -158,6 +158,24 @@ type TriageOutput struct {
 	Pipelines          []string `json:"pipelines,omitempty"` // matched pipeline names; empty = skip all
 }
 
+// PreClassifyContentInput is the input for the PreClassifyContent activity.
+// It runs the DB-driven classification rule engine before triage to determine
+// the pipeline name early (e.g. "notification"), enabling prompt_override on first ingestion.
+type PreClassifyContentInput struct {
+	TenantID    string            `json:"tenant_id"`
+	ContentType string            `json:"content_type"`
+	SenderEmail string            `json:"sender_email"`
+	Subject     string            `json:"subject,omitempty"`
+	Headers     map[string]string `json:"headers,omitempty"`
+}
+
+// PreClassifyContentOutput is the output from the PreClassifyContent activity.
+type PreClassifyContentOutput struct {
+	Pipeline       string `json:"pipeline,omitempty"`        // Resolved pipeline name from routing table (e.g. "notification"); empty = no match
+	ContentSubtype string `json:"content_subtype,omitempty"` // Classification result subtype (e.g. "NOTIFICATION")
+	RuleName       string `json:"rule_name,omitempty"`       // Which classification rule matched
+}
+
 // ExtractHeaderMentionsInput is the input for the ExtractHeaderMentions activity.
 type ExtractHeaderMentionsInput struct {
 	TenantID     string        `json:"tenant_id"`
@@ -1338,24 +1356,34 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		return state.result, nil
 	}
 
-	// Pre-classification for first-time ingestion (pf-1c083d).
+	// Pre-classification via DB rule engine (pf-af8e38, replaces looksLikeNotificationSender).
 	// When input.Pipeline is empty, triage hasn't run yet so the pipeline name is
-	// unknown. For email content we can detect notification sources deterministically
-	// from the sender address — no AI call needed. If the sender matches a known
-	// notification domain pattern, pre-set the pipeline to "notification" so the
-	// early pipeline definition fetch (below) fires and prompt_override=2 reaches
-	// the triage stage on first ingestion.
-	//
-	// This mirrors what triage's rule engine does internally, but without waiting
-	// for triage to complete. If triage later disagrees (edge case), the post-triage
-	// pipeline re-fetch corrects it.
+	// unknown. Run the classification rule engine against sender/subject/headers to
+	// determine the pipeline early. This enables prompt_override on first ingestion.
+	// Fail-open: if the activity fails, preclassifiedPipeline stays empty and triage
+	// proceeds without prompt_override (same as the old no-match path).
 	var preclassifiedPipeline string
 	if input.Pipeline == "" && strings.EqualFold(input.ContentType, "email") && input.SenderEmail != "" {
-		if looksLikeNotificationSender(input.SenderEmail) {
-			preclassifiedPipeline = "notification"
-			logger.Info("Pre-classified as notification pipeline from sender address",
-				"sender_email", input.SenderEmail,
+		ctxPreClassify := workflow.WithActivityOptions(ctx, fastOpts)
+		var preClassifyOut PreClassifyContentOutput
+		preClassifyErr := workflow.ExecuteActivity(ctxPreClassify, pkgtemporal.ActivityPreClassifyContent, PreClassifyContentInput{
+			TenantID:    input.TenantID,
+			ContentType: input.ContentType,
+			SenderEmail: input.SenderEmail,
+			Subject:     input.Subject,
+			Headers:     fetchedHeaders,
+		}).Get(ctx, &preClassifyOut)
+		if preClassifyErr != nil {
+			logger.Warn("Pre-classification activity failed, proceeding without pipeline hint",
+				"error", preClassifyErr,
+			)
+		} else if preClassifyOut.Pipeline != "" {
+			preclassifiedPipeline = preClassifyOut.Pipeline
+			logger.Info("Pre-classified pipeline via rule engine",
 				"pipeline", preclassifiedPipeline,
+				"rule_name", preClassifyOut.RuleName,
+				"content_subtype", preClassifyOut.ContentSubtype,
+				"sender_email", input.SenderEmail,
 			)
 		}
 	}
@@ -3580,47 +3608,6 @@ func orderedStages(m map[string]PipelineStageConfig) []PipelineStageConfig {
 	return stages
 }
 
-// looksLikeNotificationSender returns true when the sender address is a known
-// automated notification domain. This is a deterministic pre-classification check
-// used before triage to enable the early pipeline definition fetch (pf-1c083d).
-//
-// The patterns mirror the classification rule engine's seed rules (see
-// migrations/seed_classification_rules.sql) but are evaluated without a DB call,
-// so they can fire before triage. If this function returns true and triage later
-// routes to a different pipeline, the post-triage re-fetch corrects it. False
-// negatives are safe — the prompt override is a tuning hint, not a hard requirement.
-func looksLikeNotificationSender(senderEmail string) bool {
-	lower := strings.ToLower(senderEmail)
-	notificationDomainPatterns := []string{
-		// Google Docs / Sheets / Slides comment notifications
-		"noreply@docs.google.com",
-		"-noreply@docs.google.com",
-		// GitHub (issues, PRs, reviews)
-		"@github.com",
-		// Jira / Atlassian
-		"jira@",
-		"@atlassian.net",
-		// Aha!
-		"@mailer.aha.io",
-		// Slack
-		"@slack.com",
-		// Confluence
-		"confluence@",
-		// Generic noreply patterns typical of notification services
-		"noreply@",
-		"no-reply@",
-		"notifications@",
-		"notification@",
-		"do-not-reply@",
-		"donotreply@",
-	}
-	for _, pattern := range notificationDomainPatterns {
-		if strings.Contains(lower, pattern) {
-			return true
-		}
-	}
-	return false
-}
 
 // Ensure temporal package is used to avoid import errors during development.
 var _ = temporal.RetryPolicy{}
