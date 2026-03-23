@@ -385,10 +385,13 @@ type NewsletterNameDescription struct {
 	Description string
 }
 
-// PipelineRepository defines the interface for pipeline run recording.
+// PipelineRepository defines the interface for pipeline run recording and stage config access.
 type PipelineRepository interface {
 	CreateRun(ctx context.Context, input PipelineRunInput) error
 	RecordOverrides(ctx context.Context, runID int64, overrides map[string]string) error
+	// GetContextProviders returns the context_providers list for a specific pipeline stage.
+	// Returns an empty slice when the stage is not found.
+	GetContextProviders(ctx context.Context, tenantID, pipeline, stage string) ([]string, error)
 }
 
 // ClassificationRepository defines the interface for loading classification rules.

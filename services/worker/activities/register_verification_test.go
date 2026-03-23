@@ -103,6 +103,10 @@ func (r *regVerifyPipelineRepo) RecordOverrides(context.Context, int64, map[stri
 	return nil
 }
 
+func (r *regVerifyPipelineRepo) GetContextProviders(context.Context, string, string, string) ([]string, error) {
+	return nil, nil
+}
+
 type regVerifyContextPackageRepo struct{}
 
 func (r *regVerifyContextPackageRepo) GetActiveRisks(context.Context, []int64, int) ([]ContextAssertion, error) {

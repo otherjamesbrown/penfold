@@ -670,6 +670,89 @@ func extractEmailFromHeader(header string) string {
 	return ""
 }
 
+// PreClassifyContent runs the DB-driven classification rule engine against sender/subject/headers
+// to determine the pipeline name before triage. This replaces the hardcoded looksLikeNotificationSender()
+// function, making pre-triage classification fully data-driven.
+//
+// Fail-open: if classification or routing repos are unavailable, or if any DB call fails,
+// returns an empty result (no pipeline) and logs a warning. Triage proceeds without prompt_override.
+func (a *TriageActivities) PreClassifyContent(ctx context.Context, input workflows.PreClassifyContentInput) (*workflows.PreClassifyContentOutput, error) {
+	logger := a.logger.With(
+		logging.F("activity", "PreClassifyContent"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("sender_email", input.SenderEmail),
+	)
+
+	// Fail-open: no classification repo means no rules to evaluate
+	if a.classificationRepo == nil {
+		logger.Warn("Classification repo unavailable, skipping pre-classification")
+		return &workflows.PreClassifyContentOutput{}, nil
+	}
+
+	rules, err := a.classificationRepo.LoadRules(ctx, input.TenantID)
+	if err != nil {
+		logger.Warn("Failed to load classification rules, skipping pre-classification",
+			logging.Err(err),
+		)
+		return &workflows.PreClassifyContentOutput{}, nil
+	}
+
+	// Build metadata map matching the triage classification pattern
+	classificationMetadata := map[string]string{
+		"from_address": input.SenderEmail,
+		"subject":      input.Subject,
+	}
+	for k, v := range input.Headers {
+		classificationMetadata["header:"+k] = v
+	}
+
+	engine := classification.NewEngine(rules)
+	result := engine.Classify(input.ContentType, classificationMetadata)
+
+	// No rule matched — return empty (triage determines pipeline)
+	if result.RuleName == "" {
+		logger.Debug("No classification rule matched for pre-classification")
+		return &workflows.PreClassifyContentOutput{}, nil
+	}
+
+	logger.Info("Pre-classified content via rule engine",
+		logging.F("rule_name", result.RuleName),
+		logging.F("content_subtype", result.ContentSubtype),
+	)
+
+	// Resolve pipeline name via routing table
+	var pipelineName string
+	if a.routingRepo != nil {
+		routes, err := a.routingRepo.LoadRoutes(ctx, input.TenantID)
+		if err != nil {
+			logger.Warn("Failed to load routing rules, returning classification without pipeline",
+				logging.Err(err),
+			)
+			return &workflows.PreClassifyContentOutput{
+				ContentSubtype: result.ContentSubtype,
+				RuleName:       result.RuleName,
+			}, nil
+		}
+		router := routing.NewRouter(routes)
+		pipelines := router.Resolve(result.ContentType, result.ContentSubtype)
+		if len(pipelines) > 0 {
+			pipelineName = pipelines[0]
+		}
+	}
+
+	logger.Info("Pre-classification resolved pipeline",
+		logging.F("pipeline", pipelineName),
+		logging.F("rule_name", result.RuleName),
+		logging.F("content_subtype", result.ContentSubtype),
+	)
+
+	return &workflows.PreClassifyContentOutput{
+		Pipeline:       pipelineName,
+		ContentSubtype: result.ContentSubtype,
+		RuleName:       result.RuleName,
+	}, nil
+}
+
 // Ensure TriageActivities implements required interfaces at compile time.
 var _ interface {
 	Triage(ctx context.Context, input workflows.TriageInput) (*workflows.TriageOutput, error)
