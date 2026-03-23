@@ -158,24 +158,6 @@ type TriageOutput struct {
 	Pipelines          []string `json:"pipelines,omitempty"` // matched pipeline names; empty = skip all
 }
 
-// PreClassifyContentInput is the input for the PreClassifyContent activity.
-// It runs the DB-driven classification rule engine before triage to determine
-// the pipeline name early (e.g. "notification"), enabling prompt_override on first ingestion.
-type PreClassifyContentInput struct {
-	TenantID    string            `json:"tenant_id"`
-	ContentType string            `json:"content_type"`
-	SenderEmail string            `json:"sender_email"`
-	Subject     string            `json:"subject,omitempty"`
-	Headers     map[string]string `json:"headers,omitempty"`
-}
-
-// PreClassifyContentOutput is the output from the PreClassifyContent activity.
-type PreClassifyContentOutput struct {
-	Pipeline       string `json:"pipeline,omitempty"`        // Resolved pipeline name from routing table (e.g. "notification"); empty = no match
-	ContentSubtype string `json:"content_subtype,omitempty"` // Classification result subtype (e.g. "NOTIFICATION")
-	RuleName       string `json:"rule_name,omitempty"`       // Which classification rule matched
-}
-
 // ExtractHeaderMentionsInput is the input for the ExtractHeaderMentions activity.
 type ExtractHeaderMentionsInput struct {
 	TenantID     string        `json:"tenant_id"`
@@ -839,26 +821,6 @@ type RecordSkippedStageInput struct {
 	LangfuseTraceID string         `json:"langfuse_trace_id,omitempty"`
 }
 
-// PreClassifyInput is the input for the PreClassify activity (pf-b375ad).
-// Runs the DB-backed rule engine against sender metadata before triage,
-// in shadow mode alongside looksLikeNotificationSender().
-type PreClassifyInput struct {
-	TenantID    string            `json:"tenant_id"`
-	ContentType string            `json:"content_type"`
-	SenderEmail string            `json:"sender_email"`
-	Subject     string            `json:"subject,omitempty"`
-	Headers     map[string]string `json:"headers,omitempty"`
-}
-
-// PreClassifyOutput is the output from the PreClassify activity.
-type PreClassifyOutput struct {
-	Matched        bool   `json:"matched"`                   // True if a rule matched
-	ContentSubtype string `json:"content_subtype,omitempty"` // e.g. "NOTIFICATION", "NEWSLETTER", "HUMAN"
-	RuleName       string `json:"rule_name,omitempty"`       // Name of the matched rule
-	PipelineName   string `json:"pipeline_name,omitempty"`   // Resolved pipeline name from routing table (empty = no route)
-	Error          string `json:"error,omitempty"`           // Non-empty if rule loading/evaluation failed
-}
-
 // pipelineState maintains the internal state of the pipeline workflow.
 type pipelineState struct {
 	status          PipelineStatus
@@ -932,7 +894,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		status: PipelineStatus{
 			Stage:          "initializing",
 			StepsCompleted: 0,
-			TotalSteps:     pkgtemporal.FullPipelineTotalSteps(),
+			TotalSteps:     0, // Updated after pipeline definition loads
 			LastActivity:   "",
 			StartedAt:      workflow.Now(ctx),
 			LastUpdated:    workflow.Now(ctx),
@@ -1376,131 +1338,25 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		return state.result, nil
 	}
 
-	// Pre-classification via DB rule engine (pf-af8e38, replaces looksLikeNotificationSender).
+	// Pre-classification for first-time ingestion (pf-1c083d).
 	// When input.Pipeline is empty, triage hasn't run yet so the pipeline name is
-	// unknown. Run the classification rule engine against sender/subject/headers to
-	// determine the pipeline early. This enables prompt_override on first ingestion.
-	// Fail-open: if the activity fails, preclassifiedPipeline stays empty and triage
-	// proceeds without prompt_override (same as the old no-match path).
+	// unknown. For email content we can detect notification sources deterministically
+	// from the sender address — no AI call needed. If the sender matches a known
+	// notification domain pattern, pre-set the pipeline to "notification" so the
+	// early pipeline definition fetch (below) fires and prompt_override=2 reaches
+	// the triage stage on first ingestion.
+	//
+	// This mirrors what triage's rule engine does internally, but without waiting
+	// for triage to complete. If triage later disagrees (edge case), the post-triage
+	// pipeline re-fetch corrects it.
 	var preclassifiedPipeline string
 	if input.Pipeline == "" && strings.EqualFold(input.ContentType, "email") && input.SenderEmail != "" {
-		preClassifyStart := workflow.Now(ctx)
-		preClassifyPhaseID := sideEffectUUID(ctx)
-
-		ctxPreClassify := workflow.WithActivityOptions(ctx, fastOpts)
-		var preClassifyOut PreClassifyContentOutput
-		preClassifyErr := workflow.ExecuteActivity(ctxPreClassify, pkgtemporal.ActivityPreClassifyContent, PreClassifyContentInput{
-			TenantID:    input.TenantID,
-			ContentType: input.ContentType,
-			SenderEmail: input.SenderEmail,
-			Subject:     input.Subject,
-			Headers:     fetchedHeaders,
-		}).Get(ctx, &preClassifyOut)
-
-		var classifyMeta map[string]any
-		var classifyStatusMsg string
-		if preClassifyErr != nil {
-			logger.Warn("Pre-classification activity failed, proceeding without pipeline hint",
-				"error", preClassifyErr,
-				"tenant_id", input.TenantID,
-			)
-			classifyMeta = map[string]any{
-				"status":       "activity_error",
-				"from_address": input.SenderEmail,
-				"subject":      input.Subject,
-			}
-			classifyStatusMsg = preClassifyErr.Error()
-		} else if preClassifyOut.RuleName != "" {
-			if preClassifyOut.Pipeline != "" {
-				preclassifiedPipeline = preClassifyOut.Pipeline
-			}
-			logger.Info("Pre-classified pipeline via rule engine",
-				"pipeline", preClassifyOut.Pipeline,
-				"rule_name", preClassifyOut.RuleName,
-				"content_subtype", preClassifyOut.ContentSubtype,
+		if looksLikeNotificationSender(input.SenderEmail) {
+			preclassifiedPipeline = "notification"
+			logger.Info("Pre-classified as notification pipeline from sender address",
 				"sender_email", input.SenderEmail,
+				"pipeline", preclassifiedPipeline,
 			)
-			classifyMeta = map[string]any{
-				"status":            "matched",
-				"rule_name":         preClassifyOut.RuleName,
-				"content_subtype":   preClassifyOut.ContentSubtype,
-				"matched_condition": input.SenderEmail,
-				"from_address":      input.SenderEmail,
-				"pipeline_name":     preClassifyOut.Pipeline,
-			}
-		} else {
-			classifyMeta = map[string]any{
-				"status":       "no_match",
-				"from_address": input.SenderEmail,
-				"subject":      input.Subject,
-			}
-		}
-
-		// Langfuse: report PreClassify span with classification decision (best-effort, non-blocking).
-		if langfuseTraceID != "" {
-			_ = workflow.ExecuteActivity(
-				workflow.WithActivityOptions(ctx, fastOpts),
-				pkgtemporal.ActivityReportLangfusePhase,
-				ReportLangfusePhaseInput{
-					PhaseID:       preClassifyPhaseID,
-					TraceID:       langfuseTraceID,
-					PhaseName:     "PreClassify",
-					StartTime:     preClassifyStart,
-					EndTime:       workflow.Now(ctx),
-					ParentSpanID:  rootSpanID,
-					Metadata:      classifyMeta,
-					StatusMessage: classifyStatusMsg,
-				},
-			).Get(ctx, nil)
-		}
-
-		// Shadow-mode rule engine pre-classification (pf-b375ad).
-		// Run the DB-backed rule engine in parallel with looksLikeNotificationSender()
-		// and log any disagreements. The hardcoded result is still used for pipeline
-		// selection — the rule engine is observation-only at this stage.
-		ctxPreClassify := workflow.WithActivityOptions(ctx, fastOpts)
-		var preClassifyOut PreClassifyOutput
-		preClassifyErr := workflow.ExecuteActivity(ctxPreClassify, pkgtemporal.ActivityPreClassify, PreClassifyInput{
-			TenantID:    input.TenantID,
-			ContentType: input.ContentType,
-			SenderEmail: input.SenderEmail,
-			Subject:     input.Subject,
-			Headers:     fetchedHeaders,
-		}).Get(ctx, &preClassifyOut)
-
-		if preClassifyErr != nil {
-			logger.Warn("Shadow pre-classify activity failed, skipping parity check",
-				"error", preClassifyErr,
-				"sender_email", input.SenderEmail,
-			)
-		} else if preClassifyOut.Error != "" {
-			logger.Warn("Shadow pre-classify rule loading failed, skipping parity check",
-				"rule_error", preClassifyOut.Error,
-				"sender_email", input.SenderEmail,
-			)
-		} else {
-			// Compare: looksLikeNotificationSender() says "notification" vs rule engine result.
-			hardcodedIsNotification := preclassifiedPipeline == "notification"
-			ruleEngineIsNotification := preClassifyOut.ContentSubtype == "NOTIFICATION"
-
-			if hardcodedIsNotification != ruleEngineIsNotification {
-				logger.Warn("Pre-classify parity MISMATCH: hardcoded and rule engine disagree",
-					"sender_email", input.SenderEmail,
-					"subject", input.Subject,
-					"hardcoded_notification", hardcodedIsNotification,
-					"rule_engine_notification", ruleEngineIsNotification,
-					"rule_engine_subtype", preClassifyOut.ContentSubtype,
-					"rule_engine_rule_name", preClassifyOut.RuleName,
-					"rule_engine_pipeline", preClassifyOut.PipelineName,
-				)
-			} else {
-				logger.Info("Pre-classify parity OK: hardcoded and rule engine agree",
-					"sender_email", input.SenderEmail,
-					"notification", hardcodedIsNotification,
-					"rule_engine_subtype", preClassifyOut.ContentSubtype,
-					"rule_engine_rule_name", preClassifyOut.RuleName,
-				)
-			}
 		}
 	}
 
@@ -1766,7 +1622,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// ==================== Pipeline Definition Lookup ====================
 	// Determine the pipeline name and fetch its definition from the database.
 	// If not provided in input, use the first routed pipeline (or "standard" as default).
-	// Falls back to SLMPipelineStages if no definition found.
+	// A missing or failed definition causes the workflow to fail — no silent fallback.
 	pipelineName := ""
 	if len(triageOutput.Pipelines) > 0 {
 		pipelineName = triageOutput.Pipelines[0]
@@ -1812,24 +1668,46 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			Pipeline: pipelineName,
 		}).Get(ctx, &defOut)
 		if defErr != nil {
-			logger.Warn("Failed to fetch pipeline definition, using SLMPipelineStages fallback",
-				"pipeline", pipelineName,
-				"error", defErr,
-			)
-		} else if defOut.Found {
-			pipelineDef = &defOut
-			logger.Info("Pipeline definition loaded from DB",
-				"pipeline", pipelineName,
-				"stage_count", len(defOut.Stages),
-			)
-		} else {
-			logger.Info("No pipeline definition found in DB, using SLMPipelineStages fallback",
-				"pipeline", pipelineName,
+			return state.result, temporal.NewNonRetryableApplicationError(
+				fmt.Sprintf("pipeline definition not found: pipeline=%s tenant=%s", pipelineName, input.TenantID),
+				"configuration_error",
+				defErr,
 			)
 		}
+		if !defOut.Found {
+			return state.result, temporal.NewNonRetryableApplicationError(
+				fmt.Sprintf("pipeline definition not found: pipeline=%s tenant=%s", pipelineName, input.TenantID),
+				"configuration_error",
+				nil,
+			)
+		}
+		pipelineDef = &defOut
+		logger.Info("Pipeline definition loaded from DB",
+			"pipeline", pipelineName,
+			"stage_count", len(defOut.Stages),
+		)
 		// Rebuild stageConfigMap with the resolved pipeline definition.
 		stageConfigMap = buildStageConfigMap(pipelineDef)
 	}
+
+	// Fail if the definition has no enabled stages — a misconfigured pipeline
+	// would silently produce no output otherwise.
+	enabledStageCount := 0
+	for _, s := range pipelineDef.Stages {
+		if s.Enabled {
+			enabledStageCount++
+		}
+	}
+	if enabledStageCount == 0 {
+		return state.result, temporal.NewNonRetryableApplicationError(
+			fmt.Sprintf("Pipeline %s has no enabled stages", pipelineName),
+			"configuration_error",
+			nil,
+		)
+	}
+
+	// Update total steps now that the pipeline definition is loaded.
+	state.status.TotalSteps = enabledStageCount
 
 	// Enrich Langfuse trace with pipeline definition metadata (best-effort).
 	if pipelineDef != nil && langfuseTraceID != "" {
@@ -1932,6 +1810,177 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		).Get(ctx, nil)
 	}
 
+	// Contribution-based gating (in addition to existing SkipDeep)
+	// Determine which stages to skip based on content contribution
+	skipExtract := false // Skip stages 2-3.5 (extract, assertions, context, person metadata)
+	skipAnalyze := false // Skip stage 4-4.5 (deep analysis, persist findings)
+
+	switch contribution {
+	case "NONE":
+		skipExtract = true // Skip stages 2, 2b, 3, 3.5
+		skipAnalyze = true // Skip stage 4, 4.5
+		logger.Info("contribution-based gating: NONE - skipping extract and analyze",
+			"source_id", input.SourceID,
+			"contribution", contribution,
+			"reason", triageOutput.ContributionReason,
+		)
+	case "LOW":
+		skipExtract = true // Skip stages 2, 2b, 3, 3.5 — trivial content produces empty outputs
+		skipAnalyze = true // Skip stage 4, 4.5
+		logger.Info("contribution-based gating: LOW - skipping extract and analyze",
+			"source_id", input.SourceID,
+			"contribution", contribution,
+			"reason", triageOutput.ContributionReason,
+		)
+	case "MEDIUM", "HIGH":
+		// Run everything
+		logger.Info("contribution-based gating: running full pipeline",
+			"source_id", input.SourceID,
+			"contribution", contribution,
+			"reason", triageOutput.ContributionReason,
+		)
+	}
+
+	// Merge with existing SkipDeep logic (category/importance-based)
+	if triageOutput.SkipDeep {
+		skipExtract = true
+		skipAnalyze = true
+		logger.Info("category-based gating: skip_deep enabled",
+			"source_id", input.SourceID,
+			"category", triageOutput.Category,
+			"importance", triageOutput.Importance,
+		)
+	}
+
+	// Pipeline definition override: if the definition says skip_when_low=false
+	// for extraction/analyze stages, honor that over triage SkipDeep.
+	// This allows pipelines like "transcript" to declare "never skip extraction".
+	if stageConfigMap != nil && (skipExtract || skipAnalyze) {
+		extractStages := []string{"extract_ner", "extract_assertions", "extract_semantic", "resolve"}
+		analyzeStages := []string{"analyze"}
+
+		if skipExtract {
+			for _, s := range extractStages {
+				if cfg, ok := stageConfigMap[s]; ok && cfg.Enabled && !cfg.SkipWhenLow {
+					skipExtract = false
+					logger.Info("Pipeline definition override: skip_when_low=false bypassed contribution gate",
+						"source_id", input.SourceID,
+						"pipeline", pipelineName,
+						"stage", s,
+						"contribution", contribution,
+					)
+					logger.Info("pipeline definition override: extraction not skipped (skip_when_low=false)",
+						"source_id", input.SourceID,
+						"pipeline", pipelineName,
+						"stage", s,
+					)
+					break
+				}
+			}
+		}
+		if skipAnalyze {
+			for _, s := range analyzeStages {
+				if cfg, ok := stageConfigMap[s]; ok && cfg.Enabled && !cfg.SkipWhenLow {
+					skipAnalyze = false
+					logger.Info("Pipeline definition override: skip_when_low=false bypassed contribution gate",
+						"source_id", input.SourceID,
+						"pipeline", pipelineName,
+						"stage", s,
+						"contribution", contribution,
+					)
+					logger.Info("pipeline definition override: analyze not skipped (skip_when_low=false)",
+						"source_id", input.SourceID,
+						"pipeline", pipelineName,
+						"stage", s,
+					)
+					break
+				}
+			}
+		}
+	}
+
+	// Triage gate: skip Stages 2-4.5 for LOW/PERSONAL content or low contribution
+	if skipExtract || skipAnalyze {
+		// Determine skip reason for logging and provenance recording
+		skipReason := "skip_deep"
+		if skipExtract && !triageOutput.SkipDeep {
+			// Contribution-based: NONE skips everything
+			skipReason = fmt.Sprintf("contribution_gating:%s", contribution)
+		} else if !skipExtract && skipAnalyze {
+			// LOW contribution: only analyze/persist are skipped
+			skipReason = fmt.Sprintf("contribution_gating:%s", contribution)
+		} else if triageOutput.SkipDeep {
+			// Category/importance-based skip
+			skipReason = fmt.Sprintf("category_skip:%s/%s", triageOutput.Category, triageOutput.Importance)
+		}
+
+		// Log skip for each deep processing stage.
+		for _, sc := range stageConfigMap {
+			if sc.SkipWhenLow && sc.Enabled {
+				logger.Info("pipeline stage skipped",
+					"source_id", input.SourceID,
+					"stage", sc.Stage,
+					"stage_order", sc.StageOrder,
+					"pipeline", pipelineName,
+					"reason", skipReason,
+					"contribution", contribution,
+				)
+			}
+		}
+
+		// Build list of skipped DB stage names for provenance recording.
+		// DB stage names differ from the pipeline Stage.Name labels.
+		// Only record skipped stages that are actually in the pipeline definition;
+		// stages absent from the pipeline are simply not part of it (not "skipped").
+		var skippedStages []SkippedStage
+		if skipExtract {
+			// All deep stages are skipped: extract, resolve, analyze, persist
+			for _, s := range []string{"extract_ner", "extract_semantic", "resolve", "analyze", "persist"} {
+				if stageInPipeline(stageConfigMap, s) {
+					skippedStages = append(skippedStages, SkippedStage{Stage: s, SkipReason: skipReason})
+				}
+			}
+		} else if skipAnalyze {
+			// Only analyze and persist are skipped
+			for _, s := range []string{"analyze", "persist"} {
+				if stageInPipeline(stageConfigMap, s) {
+					skippedStages = append(skippedStages, SkippedStage{Stage: s, SkipReason: skipReason})
+				}
+			}
+		}
+
+		if len(skippedStages) > 0 {
+			ctxSkip := workflow.WithActivityOptions(ctx, fastOpts)
+			_ = workflow.ExecuteActivity(ctxSkip, pkgtemporal.ActivityRecordSkippedStage, RecordSkippedStageInput{
+				SourceID:        input.SourceID,
+				Stages:          skippedStages,
+				LangfuseTraceID: langfuseTraceID,
+			}).Get(ctx, nil)
+
+			reportLangfuseSkip("ContributionGatingSkip", skipReason)
+		}
+
+		// pf-91b00d: When extraction is skipped entirely (contribution=NONE or SkipDeep),
+		// delete any assertions left over from a prior run. This ensures reprocessing an
+		// item that previously extracted assertions (e.g. was MEDIUM, now reclassified to
+		// NONE) clears stale data rather than leaving orphaned assertions in the DB.
+		// Best-effort — failure does not block the workflow.
+		if skipExtract {
+			ctxCleanup := workflow.WithActivityOptions(ctx, fastOpts)
+			_ = workflow.ExecuteActivity(ctxCleanup, pkgtemporal.ActivityDeleteAssertions, DeleteAssertionsInput{
+				TenantID: input.TenantID,
+				SourceID: input.SourceID,
+			}).Get(ctx, nil)
+		}
+
+		requiredSteps := 0
+		for _, s := range stageConfigMap {
+			if s.Enabled && !s.SkipWhenLow {
+				requiredSteps++
+			}
+		}
+		state.status.TotalSteps = requiredSteps
+	}
 
 	// Source system now classified in Triage activity via rule engine.
 	// Fall back to human_email if the field is empty (e.g. early return paths).
@@ -2171,7 +2220,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// Pre-extraction context: fetch glossary + topics for extraction grounding (pf-2f8c70).
 	// Runs before Stage 2 so the extraction model has domain definitions.
 	var extractionContext string
-	{
+	if !skipExtract {
 		ctxPreExtract := workflow.WithActivityOptions(ctx, fastOpts)
 		var preCtxOutput BuildExtractionContextOutput
 		err := workflow.ExecuteActivity(ctxPreExtract, pkgtemporal.ActivityBuildExtractionContext, BuildExtractionContextInput{
@@ -2186,7 +2235,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		}
 	}
 
-	if stageInPipeline(stageConfigMap, "extract_ner") || stageInPipeline(stageConfigMap, "extract_semantic") {
+	if !skipExtract && (stageInPipeline(stageConfigMap, "extract_ner") || stageInPipeline(stageConfigMap, "extract_semantic")) {
 		// Stage 2: Extract
 		updateStatus("extracting", "ExtractEntities")
 		extractStage := stageByStatus("extracting")
@@ -2477,7 +2526,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				}
 			}
 		} // End of resolve stage block (stages 3-3.6)
-	} // End of extract block (stages 2-3.6)
+	} // End of skipExtract block (stages 2-3.6)
 
 	// Stages 2.5+: Structured Extract (generic loop)
 	// Runs for any pipeline stage where stage_kind == "structured_extract".
@@ -2624,11 +2673,11 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		return state.result, nil
 	}
 
-	// Stages 4-4.6: Deep Analysis and Findings (gated by pipeline definition)
+	// Stages 4-4.6: Deep Analysis and Findings (gated by skipAnalyze and pipeline definition)
 	var analyzeOutput *DeepAnalyzeOutput
 	analyzeFailed := false
 
-	if stageInPipeline(stageConfigMap, "analyze") {
+	if !skipAnalyze && stageInPipeline(stageConfigMap, "analyze") {
 		// Stage 4: Deep Analysis (optional — failure does NOT block pipeline)
 		updateStatus("analyzing", "DeepAnalyze")
 		analyzeStage := stageByStatus("analyzing")
@@ -2756,7 +2805,8 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// Runs for any pipeline with "persist" in its definition, even without "analyze"
 	// (e.g. notification/newsletter pipelines). Skipped if analyze ran but failed.
 	persistShouldRun := stageInPipeline(stageConfigMap, "persist") &&
-		!analyzeFailed
+		!analyzeFailed &&
+		(!stageInPipeline(stageConfigMap, "analyze") || !skipAnalyze)
 	if persistShouldRun {
 		updateStatus("persisting", "PersistFindings")
 		persistStage := stageByStatus("persisting")
@@ -2841,7 +2891,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		}
 	}
 
-	if stageInPipeline(stageConfigMap, "analyze") {
+	if !skipAnalyze && stageInPipeline(stageConfigMap, "analyze") {
 		state.status.StepsCompleted = 6
 
 		// Stage 4.6: Tag Projects (match project keywords)
@@ -3076,9 +3126,21 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	})
 
 	if triageOutput.SkipDeep {
-		state.status.StepsCompleted = pkgtemporal.SkipDeepTotalSteps()
+		skipDeepCompleted := 0
+		for _, s := range stageConfigMap {
+			if s.Enabled && !s.SkipWhenLow {
+				skipDeepCompleted++
+			}
+		}
+		state.status.StepsCompleted = skipDeepCompleted
 	} else {
-		state.status.StepsCompleted = pkgtemporal.FullPipelineTotalSteps()
+		allCompleted := 0
+		for _, s := range stageConfigMap {
+			if s.Enabled {
+				allCompleted++
+			}
+		}
+		state.status.StepsCompleted = allCompleted
 	}
 
 	// Record overrides if any were provided
@@ -3164,14 +3226,8 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	return state.result, nil
 }
 
-// stageByStatus returns the Stage metadata for a given StatusName.
-// If not found, returns a minimal Stage with the status name.
+// stageByStatus returns a minimal Stage with the given status name for logging.
 func stageByStatus(statusName string) pkgtemporal.Stage {
-	for _, s := range pkgtemporal.SLMPipelineStages {
-		if s.StatusName == statusName {
-			return s
-		}
-	}
 	return pkgtemporal.Stage{Name: statusName, StatusName: statusName}
 }
 
@@ -3477,7 +3533,7 @@ func buildPipelineDefinitionMetadata(pipelineName string, def *FetchPipelineDefi
 }
 
 // buildStageConfigMap creates a lookup map from stage name to its config.
-// If pipelineDef is nil (fallback case), returns nil; callers should use SLMPipelineStages defaults.
+// Returns nil if pipelineDef is nil, not found, or has no stages.
 func buildStageConfigMap(def *FetchPipelineDefinitionOutput) map[string]PipelineStageConfig {
 	if def == nil || !def.Found || len(def.Stages) == 0 {
 		return nil
@@ -3543,6 +3599,47 @@ func orderedStages(m map[string]PipelineStageConfig) []PipelineStageConfig {
 	return stages
 }
 
+// looksLikeNotificationSender returns true when the sender address is a known
+// automated notification domain. This is a deterministic pre-classification check
+// used before triage to enable the early pipeline definition fetch (pf-1c083d).
+//
+// The patterns mirror the classification rule engine's seed rules (see
+// migrations/seed_classification_rules.sql) but are evaluated without a DB call,
+// so they can fire before triage. If this function returns true and triage later
+// routes to a different pipeline, the post-triage re-fetch corrects it. False
+// negatives are safe — the prompt override is a tuning hint, not a hard requirement.
+func looksLikeNotificationSender(senderEmail string) bool {
+	lower := strings.ToLower(senderEmail)
+	notificationDomainPatterns := []string{
+		// Google Docs / Sheets / Slides comment notifications
+		"noreply@docs.google.com",
+		"-noreply@docs.google.com",
+		// GitHub (issues, PRs, reviews)
+		"@github.com",
+		// Jira / Atlassian
+		"jira@",
+		"@atlassian.net",
+		// Aha!
+		"@mailer.aha.io",
+		// Slack
+		"@slack.com",
+		// Confluence
+		"confluence@",
+		// Generic noreply patterns typical of notification services
+		"noreply@",
+		"no-reply@",
+		"notifications@",
+		"notification@",
+		"do-not-reply@",
+		"donotreply@",
+	}
+	for _, pattern := range notificationDomainPatterns {
+		if strings.Contains(lower, pattern) {
+			return true
+		}
+	}
+	return false
+}
 
 // Ensure temporal package is used to avoid import errors during development.
 var _ = temporal.RetryPolicy{}

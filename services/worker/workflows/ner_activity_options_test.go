@@ -43,11 +43,13 @@ func (s *NERActivityOptionsTestSuite) SetupTest() {
 	s.env.RegisterActivityWithOptions(s.activities.GroupEmailThread, activity.RegisterOptions{Name: "GroupEmailThread"})
 	s.env.RegisterActivityWithOptions(s.activities.CreateEnrichmentRecord, activity.RegisterOptions{Name: "CreateEnrichmentRecord"})
 	s.env.RegisterActivityWithOptions(s.activities.GenerateContentSummary, activity.RegisterOptions{Name: "GenerateContentSummary"})
+	s.env.RegisterActivityWithOptions(s.activities.FetchPipelineDefinition, activity.RegisterOptions{Name: "FetchPipelineDefinition"})
 
 	// Default mock expectations for enrichment/threading activities
 	s.activities.On("CreateEnrichmentRecord", mock.Anything, mock.Anything).Maybe().Return(&CreateEnrichmentRecordOutput{EnrichmentID: 1}, nil)
 	s.activities.On("GroupEmailThread", mock.Anything, mock.Anything).Maybe().Return(&GroupEmailThreadOutput{}, nil)
 	s.activities.On("GenerateContentSummary", mock.Anything, mock.Anything).Maybe().Return(int64(0), nil)
+	s.activities.On("FetchPipelineDefinition", mock.Anything, mock.Anything).Maybe().Return(standardTestPipelineDef(), nil)
 }
 
 func (s *NERActivityOptionsTestSuite) AfterTest(suiteName, testName string) {

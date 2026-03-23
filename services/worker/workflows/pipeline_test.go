@@ -14,6 +14,26 @@ import (
 	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 )
 
+// standardTestPipelineDef returns a pipeline definition matching the standard SLM pipeline stages.
+// Used as the default mock return for FetchPipelineDefinition in tests that don't need a specific definition.
+func standardTestPipelineDef() *FetchPipelineDefinitionOutput {
+	return &FetchPipelineDefinitionOutput{
+		Found:       true,
+		ContentType: "email",
+		Stages: []PipelineStageConfig{
+			{Stage: "parse", StageOrder: 0, Enabled: true},
+			{Stage: "triage", StageOrder: 1, Enabled: true},
+			{Stage: "extract_ner", StageOrder: 2, Enabled: true, SkipWhenLow: true},
+			{Stage: "extract_assertions", StageOrder: 3, Enabled: true, SkipWhenLow: true},
+			{Stage: "resolve", StageOrder: 4, Enabled: true, SkipWhenLow: true},
+			{Stage: "enrich_entities", StageOrder: 5, Enabled: true, SkipWhenLow: true, Optional: true},
+			{Stage: "analyze", StageOrder: 6, Enabled: true, SkipWhenLow: true, Optional: true},
+			{Stage: "persist", StageOrder: 7, Enabled: true, SkipWhenLow: true},
+			{Stage: "embed", StageOrder: 8, Enabled: true},
+		},
+	}
+}
+
 // PipelineMockActivities provides mock implementations for pipeline activities.
 type PipelineMockActivities struct {
 	mock.Mock
@@ -222,9 +242,9 @@ func (s *SLMPipelineTestSuite) SetupTest() {
 	s.activities.On("GenerateContentSummary", mock.Anything, mock.Anything).Maybe().Return(int64(0), nil)
 	// pf-91b00d: DeleteAssertions is best-effort; default to no-op so tests that don't care about it pass.
 	s.activities.On("DeleteAssertions", mock.Anything, mock.Anything).Maybe().Return(&DeleteAssertionsOutput{Deleted: 0}, nil)
-	// FetchPipelineDefinition: default to not-found so tests that don't set input.Pipeline skip the early fetch.
-	// Tests that explicitly set input.Pipeline must override this with specific expectations.
-	s.activities.On("FetchPipelineDefinition", mock.Anything, mock.Anything).Maybe().Return(&FetchPipelineDefinitionOutput{Found: false}, nil)
+	// FetchPipelineDefinition: default to standard pipeline definition.
+	// Tests that need a specific pipeline definition must override this.
+	s.activities.On("FetchPipelineDefinition", mock.Anything, mock.Anything).Maybe().Return(standardTestPipelineDef(), nil)
 }
 
 func (s *SLMPipelineTestSuite) AfterTest(suiteName, testName string) {
@@ -2140,16 +2160,9 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_ReprocessPrefersTriageRouting() {
 	// This is the key assertion: fresh triage routing wins.
 	s.activities.On("FetchPipelineDefinition", mock.Anything, mock.MatchedBy(func(in FetchPipelineDefinitionInput) bool {
 		return in.Pipeline == "newsletter"
-	})).Return(&FetchPipelineDefinitionOutput{Found: false}, nil)
+	})).Return(standardTestPipelineDef(), nil)
 
-	// Downstream stages: stageConfigMap is nil (no pipeline def found), so all default stages run.
-	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.Anything).Return(&SLMPipelineExtractEntitiesOutput{}, nil)
-	s.activities.On("ExtractAssertions", mock.Anything, mock.Anything).Return(0, nil)
-	s.activities.On("BuildContextPackage", mock.Anything, mock.Anything).Return(&BuildContextOutput{}, nil)
-	s.activities.On("DeepAnalyze", mock.Anything, mock.Anything).Return(&DeepAnalyzeOutput{
-		Summary: "Newsletter summary", ModelUsed: "gemini-2.0-flash",
-	}, nil)
-	s.activities.On("PersistFindings", mock.Anything, mock.Anything).Return(&PersistFindingsOutput{}, nil)
+	// Downstream stages: SkipDeep=true so extract/analyze/persist are skipped; only embed runs.
 	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.Anything).Return(int64(9301), nil)
 
 	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)
@@ -2185,7 +2198,7 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_ReprocessFallsBackToInputPipeline
 	}
 
 	// Early fetch: called with "standard" because input.Pipeline="standard"
-	earlyFetchDef := &FetchPipelineDefinitionOutput{Found: false}
+	earlyFetchDef := standardTestPipelineDef()
 	s.activities.On("FetchPipelineDefinition", mock.Anything, mock.MatchedBy(func(in FetchPipelineDefinitionInput) bool {
 		return in.Pipeline == "standard"
 	})).Return(earlyFetchDef, nil)
@@ -2212,8 +2225,8 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_ReprocessFallsBackToInputPipeline
 	}, nil)
 
 	// Post-triage: pipelineName falls back to input.Pipeline="standard".
-	// earlyPipelineDef is nil (because Found=false above), so the post-triage branch
-	// calls FetchPipelineDefinition again with "standard". The default Maybe() mock handles it.
+	// earlyPipelineName="standard" and earlyPipelineDef is non-nil (Found=true above),
+	// so the post-triage branch reuses earlyPipelineDef without a second fetch.
 
 	// Downstream stages
 	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.Anything).Return(&SLMPipelineExtractEntitiesOutput{}, nil)
