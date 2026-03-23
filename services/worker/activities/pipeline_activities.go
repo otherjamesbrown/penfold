@@ -11,6 +11,7 @@ import (
 	pipelinev1 "github.com/otherjamesbrown/penfold/api/proto/pipeline/v1"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/pipeline"
+	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
@@ -296,6 +297,7 @@ func (a *PipelineActivities) FetchPipelineDefinition(ctx context.Context, input 
 			SkipWhenLow:    s.SkipWhenLow,
 			Optional:       s.Optional,
 			TimeoutSeconds: s.TimeoutSeconds,
+			DependsOn:      s.DependsOn,
 		}
 		if s.ModelOverride != nil {
 			out.Stages[i].ModelOverride = *s.ModelOverride
@@ -306,6 +308,26 @@ func (a *PipelineActivities) FetchPipelineDefinition(ctx context.Context, input 
 		if s.PersistKey != nil {
 			out.Stages[i].PersistKey = *s.PersistKey
 		}
+	}
+
+	// Validate DAG at pipeline load time — fail fast before any stage executes.
+	temporalStages := make([]pkgtemporal.PipelineStageConfig, len(out.Stages))
+	for i, s := range out.Stages {
+		temporalStages[i] = pkgtemporal.PipelineStageConfig{
+			Stage:     s.Stage,
+			DependsOn: s.DependsOn,
+		}
+	}
+	if err := pkgtemporal.ValidatePipelineDependencies(temporalStages); err != nil {
+		logger.Error("Pipeline definition has invalid dependencies",
+			logging.F("pipeline", input.Pipeline),
+			logging.Err(err),
+		)
+		return nil, temporal.NewNonRetryableApplicationError(
+			fmt.Sprintf("pipeline %q has invalid dependencies: %v", input.Pipeline, err),
+			"ConfigurationError",
+			err,
+		)
 	}
 
 	logger.Info("Pipeline definition fetched",

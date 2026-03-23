@@ -822,16 +822,17 @@ type FetchPipelineDefinitionOutput struct {
 
 // PipelineStageConfig describes a stage's configuration from pipeline_definitions.
 type PipelineStageConfig struct {
-	Stage          string `json:"stage"`
-	StageKind      string `json:"stage_kind"`
-	PersistKey     string `json:"persist_key,omitempty"`
-	StageOrder     int    `json:"stage_order"`
-	Enabled        bool   `json:"enabled"`
-	SkipWhenLow    bool   `json:"skip_when_low"`
-	Optional       bool   `json:"optional"`
-	TimeoutSeconds int    `json:"timeout_seconds"`
-	ModelOverride  string `json:"model_override,omitempty"`
-	PromptOverride int32  `json:"prompt_override,omitempty"`
+	Stage          string   `json:"stage"`
+	StageKind      string   `json:"stage_kind"`
+	PersistKey     string   `json:"persist_key,omitempty"`
+	StageOrder     int      `json:"stage_order"`
+	Enabled        bool     `json:"enabled"`
+	SkipWhenLow    bool     `json:"skip_when_low"`
+	Optional       bool     `json:"optional"`
+	TimeoutSeconds int      `json:"timeout_seconds"`
+	ModelOverride  string   `json:"model_override,omitempty"`
+	PromptOverride int32    `json:"prompt_override,omitempty"`
+	DependsOn      []string `json:"depends_on,omitempty"` // Stage names that must complete successfully before this stage runs
 }
 
 // RecordSkippedStageInput is the input for the RecordSkippedStage activity.
