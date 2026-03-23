@@ -429,6 +429,17 @@ func main() {
 		logger.Warn("DATABASE_URL not configured - activities requiring database will fail")
 	}
 
+	// Validate pipeline definitions — fail fast if any are broken or missing.
+	// Prevents the worker from running in a state where every workflow would fail immediately.
+	if dbPool != nil {
+		baseRepo := pipeline.NewRepository(dbPool)
+		if err := pipeline.ValidateAllDefinitions(context.Background(), baseRepo, pkgconfig.DefaultTenantID().String()); err != nil {
+			logger.Error("Pipeline definition validation failed — exiting", logging.Err(err))
+			os.Exit(1)
+		}
+		logger.Info("Pipeline definitions validated")
+	}
+
 	// Initialize timeout configuration
 	ctx := context.Background()
 	// Guard against nil-pointer-in-interface: a nil *pgxpool.Pool passed as
