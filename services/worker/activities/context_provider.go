@@ -6,21 +6,16 @@ import (
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
-// ContextProvider is the interface for config-driven context providers.
-// Each provider contributes one markdown section to the assembled BackgroundContext.
-// Build returns an empty string (not an error) when no data is available.
-// Errors are non-blocking: the provider logs a warning and returns ("", nil).
+// ContextProvider is the interface for pluggable context providers.
+// Each provider produces a markdown section for inclusion in a prompt's background context.
 type ContextProvider interface {
-	// Name returns the provider identifier used in pipeline_definitions.context_providers.
 	Name() string
-
-	// Build assembles the markdown section for this provider and returns it.
-	// An empty return value means the section is omitted from the final context.
 	Build(ctx context.Context, input ContextProviderInput) (string, error)
 }
 
-// ContextProviderInput carries all data that context providers may need.
-// Not all fields are used by every provider.
+// ContextProviderInput carries all fields a provider might need.
+// It mirrors BuildContextInput and adds optional resolved entity outputs
+// for providers that consume entity resolution results.
 type ContextProviderInput struct {
 	TenantID          string
 	SourceID          int64
@@ -36,14 +31,20 @@ type ContextProviderInput struct {
 	ParticipantEmails []workflows.Participant
 	ConversationID    string
 	Extraction        *workflows.SLMPipelineExtractEntitiesOutput
-	// Optional: populated after entity resolution, for providers that need resolved data.
+
+	// ResolvedPeople and ResolvedProjects are populated by BuildContextPackage
+	// after entity resolution. Providers that need them (e.g. entity_mentions)
+	// receive them here rather than re-resolving themselves.
 	ResolvedPeople   []workflows.ResolvedPerson
 	ResolvedProjects []workflows.ResolvedProject
 }
 
-// providerRegistry maps provider name to ContextProvider implementation.
-// Register new providers here. The generic context builder uses this map
-// to resolve names declared in pipeline_definitions.context_providers.
-var providerRegistry = map[string]ContextProvider{
-	"tracked_products": &TrackedProductsProvider{},
+// providerRegistry maps provider names to their implementations.
+// Providers are registered here as they are implemented.
+var providerRegistry = map[string]ContextProvider{}
+
+// LookupProvider returns the provider registered under the given name.
+func LookupProvider(name string) (ContextProvider, bool) {
+	p, ok := providerRegistry[name]
+	return p, ok
 }
