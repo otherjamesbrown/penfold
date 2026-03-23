@@ -128,15 +128,17 @@ func (a *StructuredExtractActivities) StructuredExtract(ctx context.Context, inp
 
 	safeRecordHeartbeat(ctx, fmt.Sprintf("calling LLM for %s extraction", input.StageName))
 
-	// Attach Langfuse tracing metadata for AI coordinator generation observation linkage.
+	// Attach metadata for AI coordinator generation — always send stage name and context meta,
+	// even when LangfuseTraceID is empty (the AI coordinator creates its own trace).
 	callCtx := ctx
-	if input.LangfuseTraceID != "" {
+	{
 		pairs := []string{
-			"x-langfuse-trace-id", input.LangfuseTraceID,
-			"x-langfuse-phase-id", input.LangfusePhaseID,
 			"x-langfuse-stage-name", input.StageName,
 		}
-		// Pass context metadata as extra Langfuse metadata
+		if input.LangfuseTraceID != "" {
+			pairs = append(pairs, "x-langfuse-trace-id", input.LangfuseTraceID)
+			pairs = append(pairs, "x-langfuse-phase-id", input.LangfusePhaseID)
+		}
 		if input.ContextMeta != nil {
 			for k, v := range input.ContextMeta {
 				pairs = append(pairs, "x-langfuse-meta-"+k, v)
