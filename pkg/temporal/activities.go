@@ -84,6 +84,9 @@ const (
 
 	// Newsletter context builder — enriches extraction context with user/project/product data.
 	ActivityBuildNewsletterContext = "BuildNewsletterContext"
+
+	// Pre-classify — rule engine classification before triage (pf-b375ad shadow mode).
+	ActivityPreClassify = "PreClassify"
 )
 
 // AI Task Queue activity names (4 unique activities).

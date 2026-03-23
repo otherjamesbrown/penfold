@@ -13,11 +13,8 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/ingest/eml"
 )
 
-// TestIngestStoresHeaders verifies that the ingest processor preserves specified headers
+// TestIngestStoresHeaders verifies that the ingest processor preserves all headers
 // in the ingestion_metadata["headers"] map.
-//
-// This test SHOULD FAIL initially because processor.go sets PreserveHeaders: nil,
-// meaning no headers are preserved during parsing.
 func TestIngestStoresHeaders(t *testing.T) {
 	// Create a test .eml with Auto-Submitted and X-Jira-Issue headers
 	emlContent := `From: jira@example.com
@@ -40,19 +37,8 @@ Issue PROJ-123 has been updated.
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
-	// Parse with options matching processor.go (after fix)
+	// Parse with default options — all headers are now preserved unconditionally
 	parseOpts := eml.DefaultParseOptions()
-	// Preserve headers needed for content classification
-	parseOpts.PreserveHeaders = []string{
-		"Auto-Submitted",
-		"Precedence",
-		"X-Auto-Response-Suppress",
-		"X-Mailer",
-		"X-MS-Exchange-Organization-AuthAs",
-		"X-Jira-Issue",
-		"X-Jira-Fingerprint",
-		"X-Aha-Issue",
-	}
 	parser := eml.NewParser(parseOpts)
 
 	result, err := parser.ParseFile(emlPath)
@@ -77,7 +63,7 @@ Issue PROJ-123 has been updated.
 	t.Run("headers map exists", func(t *testing.T) {
 		headersIface, ok := metadata["headers"]
 		if !ok {
-			t.Errorf("EXPECTED FAILURE: metadata[\"headers\"] not present - PreserveHeaders is nil")
+			t.Errorf("metadata[\"headers\"] not present")
 			return
 		}
 
@@ -100,7 +86,7 @@ Issue PROJ-123 has been updated.
 		headers := headersIface.(map[string]string)
 		autoSubmitted, ok := headers["Auto-Submitted"]
 		if !ok {
-			t.Error("EXPECTED FAILURE: Auto-Submitted header not preserved")
+			t.Error("Auto-Submitted header not preserved")
 			return
 		}
 
@@ -118,7 +104,7 @@ Issue PROJ-123 has been updated.
 		headers := headersIface.(map[string]string)
 		jiraIssue, ok := headers["X-Jira-Issue"]
 		if !ok {
-			t.Error("EXPECTED FAILURE: X-Jira-Issue header not preserved")
+			t.Error("X-Jira-Issue header not preserved")
 			return
 		}
 
@@ -136,7 +122,7 @@ Issue PROJ-123 has been updated.
 		headers := headersIface.(map[string]string)
 		precedence, ok := headers["Precedence"]
 		if !ok {
-			t.Error("EXPECTED FAILURE: Precedence header not preserved")
+			t.Error("Precedence header not preserved")
 			return
 		}
 
@@ -169,20 +155,8 @@ This is your weekly digest.
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
-	// Parse with options matching processor.go
+	// Parse with default options — all headers are now preserved unconditionally
 	parseOpts := eml.DefaultParseOptions()
-	parseOpts.PreserveHeaders = []string{
-		"Auto-Submitted",
-		"List-Id",
-		"List-Unsubscribe",
-		"Precedence",
-		"X-Aha-Issue",
-		"X-Auto-Response-Suppress",
-		"X-Jira-Fingerprint",
-		"X-Jira-Issue",
-		"X-Mailer",
-		"X-MS-Exchange-Organization-AuthAs",
-	}
 	parser := eml.NewParser(parseOpts)
 
 	result, err := parser.ParseFile(emlPath)

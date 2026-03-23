@@ -92,19 +92,6 @@ func NewProcessor(
 	// Enable attachment content loading for extraction
 	parseOpts := eml.DefaultParseOptions()
 	parseOpts.IncludeAttachmentContent = true
-	// Preserve headers needed for content classification
-	parseOpts.PreserveHeaders = []string{
-		"Auto-Submitted",
-		"List-Id",
-		"List-Unsubscribe",
-		"Precedence",
-		"X-Aha-Issue",
-		"X-Auto-Response-Suppress",
-		"X-Jira-Fingerprint",
-		"X-Jira-Issue",
-		"X-Mailer",
-		"X-MS-Exchange-Organization-AuthAs",
-	}
 
 	// Create attachment extractor
 	extractor, err := attachments.NewExtractor(repo, logger)
