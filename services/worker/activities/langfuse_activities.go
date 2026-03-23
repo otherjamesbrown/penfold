@@ -118,6 +118,7 @@ func (a *LangfuseActivities) ReportLangfusePhase(ctx context.Context, input work
 		EndTime:       input.EndTime,
 		Level:         input.Level,
 		StatusMessage: input.StatusMessage,
+		Metadata:      input.Metadata,
 	})
 
 	if err := a.ingestion.Flush(ctx); err != nil {

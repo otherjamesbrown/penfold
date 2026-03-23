@@ -1384,6 +1384,9 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// proceeds without prompt_override (same as the old no-match path).
 	var preclassifiedPipeline string
 	if input.Pipeline == "" && strings.EqualFold(input.ContentType, "email") && input.SenderEmail != "" {
+		preClassifyStart := workflow.Now(ctx)
+		preClassifyPhaseID := sideEffectUUID(ctx)
+
 		ctxPreClassify := workflow.WithActivityOptions(ctx, fastOpts)
 		var preClassifyOut PreClassifyContentOutput
 		preClassifyErr := workflow.ExecuteActivity(ctxPreClassify, pkgtemporal.ActivityPreClassifyContent, PreClassifyContentInput{
@@ -1393,18 +1396,62 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			Subject:     input.Subject,
 			Headers:     fetchedHeaders,
 		}).Get(ctx, &preClassifyOut)
+
+		var classifyMeta map[string]any
+		var classifyStatusMsg string
 		if preClassifyErr != nil {
 			logger.Warn("Pre-classification activity failed, proceeding without pipeline hint",
 				"error", preClassifyErr,
+				"tenant_id", input.TenantID,
 			)
-		} else if preClassifyOut.Pipeline != "" {
-			preclassifiedPipeline = preClassifyOut.Pipeline
+			classifyMeta = map[string]any{
+				"status":       "activity_error",
+				"from_address": input.SenderEmail,
+				"subject":      input.Subject,
+			}
+			classifyStatusMsg = preClassifyErr.Error()
+		} else if preClassifyOut.RuleName != "" {
+			if preClassifyOut.Pipeline != "" {
+				preclassifiedPipeline = preClassifyOut.Pipeline
+			}
 			logger.Info("Pre-classified pipeline via rule engine",
-				"pipeline", preclassifiedPipeline,
+				"pipeline", preClassifyOut.Pipeline,
 				"rule_name", preClassifyOut.RuleName,
 				"content_subtype", preClassifyOut.ContentSubtype,
 				"sender_email", input.SenderEmail,
 			)
+			classifyMeta = map[string]any{
+				"status":            "matched",
+				"rule_name":         preClassifyOut.RuleName,
+				"content_subtype":   preClassifyOut.ContentSubtype,
+				"matched_condition": input.SenderEmail,
+				"from_address":      input.SenderEmail,
+				"pipeline_name":     preClassifyOut.Pipeline,
+			}
+		} else {
+			classifyMeta = map[string]any{
+				"status":       "no_match",
+				"from_address": input.SenderEmail,
+				"subject":      input.Subject,
+			}
+		}
+
+		// Langfuse: report PreClassify span with classification decision (best-effort, non-blocking).
+		if langfuseTraceID != "" {
+			_ = workflow.ExecuteActivity(
+				workflow.WithActivityOptions(ctx, fastOpts),
+				pkgtemporal.ActivityReportLangfusePhase,
+				ReportLangfusePhaseInput{
+					PhaseID:       preClassifyPhaseID,
+					TraceID:       langfuseTraceID,
+					PhaseName:     "PreClassify",
+					StartTime:     preClassifyStart,
+					EndTime:       workflow.Now(ctx),
+					ParentSpanID:  rootSpanID,
+					Metadata:      classifyMeta,
+					StatusMessage: classifyStatusMsg,
+				},
+			).Get(ctx, nil)
 		}
 
 		// Shadow-mode rule engine pre-classification (pf-b375ad).
