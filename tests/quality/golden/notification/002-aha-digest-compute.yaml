@@ -1,0 +1,31 @@
+email: emails/notification/002-aha-digest-compute.eml
+description: "Aha! hourly digest — Compute Feedback Engine project updates"
+last_verified: "2026-03-23"
+category: notification
+
+routing:
+  content_subtype: NOTIFICATION
+  notification_source: aha
+  must_complete:
+    - parse
+    - triage
+    - extract_ner
+    - extract_semantic
+    - embed
+
+triage:
+  importance:
+    one_of: [LOW, MEDIUM]
+    must_not_be: [HIGH, CRITICAL]
+  category:
+    one_of: [notification, system_update, project_update]
+
+notification_extract:
+  handling_mode: daily_summary
+  notification_source: aha
+  activity_summary:
+    min_length: 20
+
+intent:
+  description: "Aha! hourly digest — never surface individually. Aggregate activity by project into end-of-day summary: who updated what on which epic."
+  value: low

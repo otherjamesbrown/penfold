@@ -1,0 +1,29 @@
+email: emails/notification/006-google-signin-alert.eml
+description: "Google sign-in security alert — routine new device notification"
+last_verified: "2026-03-23"
+category: notification
+
+routing:
+  content_subtype: NOTIFICATION
+  notification_source: google
+  must_complete:
+    - parse
+    - triage
+    - extract_ner
+    - extract_semantic
+    - embed
+
+triage:
+  importance:
+    one_of: [LOW, MEDIUM]
+    must_not_be: [CRITICAL]
+  category:
+    one_of: [notification, system_update, action_request]
+
+notification_extract:
+  handling_mode: daily_summary
+  notification_source: google
+
+intent:
+  description: "Google sign-in alert — routine security notification. Batch into end-of-day summary unless the sign-in is unrecognised (in which case this would warrant immediate_escalate treatment)."
+  value: low

@@ -1,0 +1,50 @@
+From: The Bitmovin Team <product-feedback@bitmovin.com>
+To: jabrown@akamai.com
+Date: Mon, 24 Nov 2025 16:43:59 +0000
+Subject: =?UTF-8?B?4pqg77iPIEFjdGlvbiBSZXF1aXJlZDogTmV3IEJpdG1vdmluIFBsYXllciBVSQ==?=
+Message-ID: <1764002639628.65b4070a-ec0b-4cf0-bccd-ca4048cacc53@bf05x.hubspotemail.net>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+
+Prepare for the UI update by January 2026 Start Your Trial Dear Bitmovin Customer, Following our announcement in September, we'd like to share more details about the newly released Bitmovin Player UI, Major Version 4 🎉 The new UI is currently
+ZjQcmQRYFpfptBannerStart
+This Message Is From an External Sender 
+This message came from outside your organization. 
+ 
+ZjQcmQRYFpfptBannerEnd
+⚠️ Action Required: New Bitmovin Player UI
+Prepare for the UI update by January 2026
+Start Your Trial
+Dear Bitmovin Customer,Following our announcement in September, we'd like to share more details about the newly released Bitmovin Player UI, Major Version 4 🎉The new UI is currently opt-in and will become the default on January 31st 2026, across all platforms.
+What does this mean for your integration?
+⚠️ Action required if you are using the Bitmovin Player Web SDK without explicit versioning:
+If you are using the latest (i.e., no explicit version specified) Bitmovin Player Web SDK, your integration will automatically start using the new UI after your first Player update following January 31st, 2026, meaning your current UI may change unless you take action.
+Action plan:
+To ensure a smooth transition, we recommend you to proactively opt in and migrate to the latest UI version. You can follow these steps here and, if needed, review our migration guide, especially if you've customized or extended HTML/CSS components.If you prefer full control over when the new UI is applied, you can pin your integration to a specific player version. Here's how to do it for the NPM integration (package.json):
+- "bitmovin-player": "^8.x.x"+ "bitmovin-player": "8.x.x"
+
+Important: If you're still using our CDN distribution (i.e. https://cdn.bitmovin.com/player/web/8/bitmovinplayer.js), please migrate to the NPM integration instead, as the CDN distribution is generally not intended for production use and is subject to rate limiting.
+
+Finally, instead of specifying an exact version in your NPM integration, you can also update your PlayerConfig to reference the old UI version within your Web SDK integration.
+For all other integrations (including the Mobile SDKs):
+ℹ️ No immediate action is required.
+
+Your apps will continue to function normally, and only the first player release after January 31st, 2026 will introduce the new UI version. Similar to our Web SDK, we recommend you to opt in early and review the migration guide if you have custom UI components.
+
+If you need additional time before migrating, you can also opt out temporarily.
+Highlights of the new Bitmovin Player UI v4
+✨ Refreshed modern designExperience a completely updated visual design with modern styling, improved color schemes using white accent elements, and an enhanced icon system with modern 24x24px icons. The new design provides a cleaner, more professional appearance that adapts beautifully across all device types.
+⚙️ Enhanced settings panelNavigate playback configuration with ease using our completely redesigned settings panel featuring dynamic navigation, interactive selection items, and improved remote control navigation support. It provides a more intuitive user experience compared to traditional select boxes.
+📱 Mobile-first touch interactionsEnjoy new touch interactions explicitly designed for mobile devices, including single-tap visibility toggle, double-tap skip functionality, and seamless safe-area support for modern smartphones with notched displays. These improvements ensure optimal usability across all touch-enabled devices.
+
+You can find all updates in our What's new in Bitmovin Player UI v4 guide.
+Got further questions?
+If you have any questions or need support preparing for this transition, please reach out to your Account Manager or contact us via our Bitmovin Dashboard.
+
+Best regards,
+The Bitmovin team
+
+Update your email preferences to choose the types of emails you receive.
+Unsubscribe from all future emails.© Bitmovin GmbH - Schleppeplatz 7, Klagenfurt, Kärnten, 9020, Austria
+
+

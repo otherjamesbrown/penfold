@@ -1,0 +1,29 @@
+email: emails/notification/008-bitmovin-action-required.eml
+description: "Bitmovin — action required notice for new Player UI v4 migration"
+last_verified: "2026-03-23"
+category: notification
+
+routing:
+  content_subtype: NOTIFICATION
+  notification_source: bitmovin
+  must_complete:
+    - parse
+    - triage
+    - extract_ner
+    - extract_semantic
+    - embed
+
+triage:
+  importance:
+    one_of: [LOW, MEDIUM]
+    must_not_be: [CRITICAL]
+  category:
+    one_of: [notification, system_update, action_request]
+
+notification_extract:
+  handling_mode: triage_once
+  notification_source: bitmovin
+
+intent:
+  description: "Bitmovin vendor action notice — surface once for mine-or-delegated triage. Likely delegated to engineering team; suppress after triage and roll into daily summary."
+  value: low

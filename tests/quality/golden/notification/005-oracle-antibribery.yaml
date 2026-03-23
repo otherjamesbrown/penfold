@@ -1,0 +1,33 @@
+email: emails/notification/005-oracle-antibribery.eml
+description: "Oracle Learning — overdue reminder for Annual Anti-Bribery & Anti-Corruption Training"
+last_verified: "2026-03-23"
+category: notification
+
+routing:
+  content_subtype: NOTIFICATION
+  notification_source: oracle
+  must_complete:
+    - parse
+    - triage
+    - extract_ner
+    - extract_semantic
+    - embed
+
+triage:
+  importance:
+    one_of: [LOW, MEDIUM, HIGH]
+  category:
+    one_of: [notification, system_update, compliance, internal_comms]
+
+notification_extract:
+  handling_mode: compliance_status
+  notification_source: oracle
+  compliance:
+    course_name:
+      must_mention: ["Anti-Bribery"]
+    due_date_present: true
+    overdue: true
+
+intent:
+  description: "Oracle compliance training reminder — group into Security and Compliance Training view. Surface once when new, weekly reminder until completed. Track James and direct reports."
+  value: medium
