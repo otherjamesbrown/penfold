@@ -49,18 +49,19 @@ type TopicResult struct {
 
 // ContextBuilderActivities holds dependencies for context building activities.
 type ContextBuilderActivities struct {
-	logger                logging.Logger
-	entityResolver        EntityResolverInterface
-	entityRepo            EntityLookupInterface
-	contextRepo           ContextPackageRepository
-	topicRepo             TopicLookupInterface
-	pipelineRepo          PipelineRepository
-	configResolver        *enrichmentconfig.ConfigResolver
-	newsletterContextRepo NewsletterContextRepository
-	langfuseIngestion     *langfuse.Ingestion // optional; nil disables Langfuse spans
+	logger            logging.Logger
+	entityResolver    EntityResolverInterface
+	entityRepo        EntityLookupInterface
+	contextRepo       ContextPackageRepository
+	topicRepo         TopicLookupInterface
+	pipelineRepo      PipelineRepository
+	configResolver    *enrichmentconfig.ConfigResolver
+	langfuseIngestion *langfuse.Ingestion // optional; nil disables Langfuse spans
 }
 
 // NewContextBuilderActivities creates a new ContextBuilderActivities instance.
+// newsletterRepo is optional; when non-nil it enables user_context, active_projects,
+// and tracked_products context providers for newsletter pipeline stages.
 func NewContextBuilderActivities(
 	logger logging.Logger,
 	entityResolver EntityResolverInterface,
@@ -94,18 +95,16 @@ func NewContextBuilderActivities(
 		pipelineRepo:   pipelineRepo,
 		configResolver: configResolver,
 	}
-	// Register built-in context providers. newsletterRepo is nil until
-	// WithNewsletterContextRepo is called; user_context and active_projects
-	// providers will return "" until then.
+	// Register built-in context providers with a nil newsletterRepo.
+	// Call WithNewsletterContextRepo after construction to enable newsletter providers.
 	RegisterContextProviders(a.logger, contextRepo, nil, topicRepo)
 	return a
 }
 
-// WithNewsletterContextRepo injects an optional NewsletterContextRepository.
-// When set, BuildNewsletterContext will use it to populate user, project, and product sections.
-// Also re-registers context providers so user_context and active_projects use the new repo.
+// WithNewsletterContextRepo injects an optional NewsletterContextRepository and
+// re-registers context providers so user_context, active_projects, and
+// tracked_products providers use the new repo.
 func (a *ContextBuilderActivities) WithNewsletterContextRepo(repo NewsletterContextRepository) *ContextBuilderActivities {
-	a.newsletterContextRepo = repo
 	RegisterContextProviders(a.logger, a.contextRepo, repo, a.topicRepo)
 	return a
 }
@@ -228,28 +227,38 @@ func (a *ContextBuilderActivities) BuildContextPackage(ctx context.Context, inpu
 		logging.F("resolved", len(resolvedProjects)),
 		logging.F("unresolved", len(unresolvedProjects)))
 
-	// Step 3: Build context package via unified BuildContext (pf-7aa11e).
+	// Step 3: Build context via BuildStageContext (config-driven provider assembly).
 	recordHeartbeat(ctx, "building context package")
-	contextPackage, err := a.BuildContext(ctx, "deep_analyze", input, resolvedPeople, resolvedProjects)
+	bgContext, err := a.BuildStageContext(ctx, workflows.BuildStageContextInput{
+		TenantID:          input.TenantID,
+		Pipeline:          "standard",
+		Stage:             "deep_analyze",
+		SourceID:          input.SourceID,
+		ContentID:         input.ContentID,
+		JobID:             input.JobID,
+		ContentType:       input.ContentType,
+		ContentSubtype:    input.ContentSubtype,
+		Content:           input.Content,
+		Subject:           input.Subject,
+		SenderEmail:       input.SenderEmail,
+		SenderName:        input.SenderName,
+		ThreadID:          input.ThreadID,
+		ParticipantEmails: input.ParticipantEmails,
+		ConversationID:    input.ConversationID,
+		Extraction:        input.Extraction,
+		ResolvedPeople:    resolvedPeople,
+		ResolvedProjects:  resolvedProjects,
+	})
 	if err != nil {
 		pe := perrors.ClassifyError(err, "resolve")
-		logger.Error("Failed to build context package", logging.Err(pe))
+		logger.Error("Failed to build stage context", logging.Err(pe))
 		return nil, WrapForTemporal(pe)
 	}
 
-	output.ContextPackage = contextPackage
-	output.TokensUsed = contextPackage.TotalTokensUsed
-	output.TokenBudget = contextPackage.TokenBudget
+	output.BackgroundContext = bgContext
 
-	logger.Info("Context package built successfully",
-		logging.F("tokens_used", contextPackage.TotalTokensUsed),
-		logging.F("token_budget", contextPackage.TokenBudget),
-		logging.F("active_risks", len(contextPackage.ActiveRisks)),
-		logging.F("open_actions", len(contextPackage.OpenActions)),
-		logging.F("recent_decisions", len(contextPackage.RecentDecisions)),
-		logging.F("product_events", len(contextPackage.ProductEvents)),
-		logging.F("glossary_terms", len(contextPackage.GlossaryTerms)),
-		logging.F("topic_descriptions", len(contextPackage.TopicDescriptions)))
+	logger.Info("Context assembled via BuildStageContext",
+		logging.F("context_length", len(bgContext)))
 
 	// Record pipeline run for provenance tracking (Stage 3: resolve)
 	if a.pipelineRepo != nil {
@@ -266,8 +275,7 @@ func (a *ContextBuilderActivities) BuildContextPackage(ctx context.Context, inpu
 		outputJSON, _ := json.Marshal(map[string]interface{}{
 			"resolved_people":   len(resolvedPeople),
 			"resolved_projects": len(resolvedProjects),
-			"tokens_used":       contextPackage.TotalTokensUsed,
-			"token_budget":      contextPackage.TokenBudget,
+			"context_length":    len(bgContext),
 		})
 		parsedJSON, _ := json.Marshal(output)
 
@@ -803,259 +811,31 @@ func (a *ContextBuilderActivities) reclassifyOrganisations(ctx context.Context, 
 	extraction.Organisations = remainingOrgs
 }
 
-// BuildContext is the unified entry point for assembling background context for any
-// pipeline stage (pf-7aa11e). Pre-NER stages pass Extraction=nil and gather functions
-// degrade to body-scan only. Post-NER stages get full context with NER candidates merged.
-//
-// resolvedPeople and resolvedProjects are only populated for post-NER stages; pre-NER
-// callers pass nil/empty slices.
-func (a *ContextBuilderActivities) BuildContext(
-	ctx context.Context,
-	stage string,
-	input workflows.BuildContextInput,
-	resolvedPeople []workflows.ResolvedPerson,
-	resolvedProjects []workflows.ResolvedProject,
-) (*workflows.ContextPackage, error) {
-	cfg, ok := DefaultConfigs()[stage]
-	if !ok {
-		return nil, fmt.Errorf("no context config for stage: %s", stage)
-	}
-
-	// Determine token budget: content-type override for deep_analyze, config default otherwise.
-	tokenBudget := cfg.TokenBudget
-	if stage == "deep_analyze" {
-		tokenBudget = a.getTokenBudget(input.ContentType)
-	}
-
-	// Reduce context for notification content (pf-bcb565).
-	// Notifications (Jira, Google Docs, Aha, etc.) need minimal grounding —
-	// just enough glossary for name resolution, not full topic context.
-	if strings.HasPrefix(input.ContentSubtype, "notification/") {
-		tokenBudget = tokenBudget / 2
-	}
-
-	cp := &workflows.ContextPackage{
-		TokenBudget:        tokenBudget,
-		TotalTokensUsed:    0,
-		ActiveRisks:        []workflows.ContextAssertion{},
-		OpenActions:        []workflows.ContextAssertion{},
-		RecentDecisions:    []workflows.ContextAssertion{},
-		ProductEvents:      []workflows.ContextProductEvent{},
-		GlossaryTerms:      []workflows.ContextGlossaryTerm{},
-		TopicDescriptions:  []workflows.ContextTopicDescription{},
-		ParticipantContext: resolvedPeople,
-	}
-
-	if a.contextRepo == nil {
-		return cp, nil
-	}
-
-	// Collect resolved project IDs (empty for pre-NER stages).
-	projectIDs := make([]int64, 0, len(resolvedProjects))
-	for _, rp := range resolvedProjects {
-		if rp.ProjectID != nil {
-			projectIDs = append(projectIDs, *rp.ProjectID)
-		}
-	}
-
-	tokensUsed := 0
-
-	// Participant context (always include, ~15 tokens per participant).
-	participantTokens := len(resolvedPeople) * 15
-	tokensUsed += participantTokens
-
-	// Iterate configured sections.
-	for _, section := range cfg.Sections {
-		switch section {
-		case SectionRisks:
-			if len(projectIDs) > 0 && tokensUsed+250 <= tokenBudget {
-				risks, err := a.contextRepo.GetActiveRisks(ctx, projectIDs, cfg.QueryLimit(SectionRisks, 10))
-				if err == nil {
-					riskTokens := len(risks) * 25
-					if tokensUsed+riskTokens <= tokenBudget {
-						cp.ActiveRisks = toWorkflowAssertions(risks)
-						tokensUsed += riskTokens
-					}
-				}
-			}
-
-		case SectionActions:
-			if len(projectIDs) > 0 && tokensUsed+250 <= tokenBudget {
-				actions, err := a.contextRepo.GetOpenActions(ctx, input.ConversationID, projectIDs, cfg.QueryLimit(SectionActions, 10))
-				if err == nil {
-					actionTokens := len(actions) * 25
-					if tokensUsed+actionTokens <= tokenBudget {
-						cp.OpenActions = toWorkflowAssertions(actions)
-						tokensUsed += actionTokens
-					}
-				}
-			}
-
-		case SectionDecisions:
-			if len(projectIDs) > 0 && tokensUsed+125 <= tokenBudget {
-				decisions, err := a.contextRepo.GetRecentDecisions(ctx, projectIDs, cfg.Recency(SectionDecisions, 60), cfg.QueryLimit(SectionDecisions, 5))
-				if err == nil {
-					decisionTokens := len(decisions) * 25
-					if tokensUsed+decisionTokens <= tokenBudget {
-						cp.RecentDecisions = toWorkflowAssertions(decisions)
-						tokensUsed += decisionTokens
-					}
-				}
-			}
-
-		case SectionEvents:
-			if len(projectIDs) > 0 && tokensUsed+300 <= tokenBudget {
-				events, err := a.contextRepo.GetProductEvents(ctx, projectIDs, cfg.Recency(SectionEvents, 90), cfg.QueryLimit(SectionEvents, 10))
-				if err == nil {
-					eventTokens := len(events) * 30
-					if tokensUsed+eventTokens <= tokenBudget {
-						cp.ProductEvents = toWorkflowEvents(events)
-						tokensUsed += eventTokens
-					}
-				}
-			}
-
-		case SectionGlossary:
-			if tokensUsed+400 <= tokenBudget {
-				terms := a.gatherGlossary(ctx, input, projectIDs, cfg)
-				if len(terms) > 0 {
-					glossaryTokens := len(terms) * 20
-					if tokensUsed+glossaryTokens <= tokenBudget {
-						cp.GlossaryTerms = toWorkflowGlossary(terms)
-						tokensUsed += glossaryTokens
-					}
-				}
-			}
-
-		case SectionTopics:
-			if a.topicRepo != nil && tokensUsed+300 <= tokenBudget {
-				topics := a.gatherTopics(ctx, input, resolvedProjects, cfg)
-				if len(topics) > 0 {
-					topicTokens := len(topics) * 30
-					if tokensUsed+topicTokens <= tokenBudget {
-						cp.TopicDescriptions = toWorkflowTopics(topics)
-						tokensUsed += topicTokens
-					}
-				}
-			}
-		}
-	}
-
-	// Apply token budget enforcement: if over budget, truncate sections.
-	if tokensUsed > tokenBudget {
-		tokensUsed = a.applyTokenBudget(cp, tokenBudget)
-	}
-
-	cp.TotalTokensUsed = tokensUsed
-	return cp, nil
-}
-
-// gatherGlossary collects glossary terms from body-text scanning and (if available)
-// NER extraction output, then queries the database for matching definitions.
-// Pre-NER stages get body-scan only; post-NER stages get both sources merged.
-func (a *ContextBuilderActivities) gatherGlossary(ctx context.Context, input workflows.BuildContextInput, projectIDs []int64, cfg ContextConfig) []ContextGlossaryTerm {
-	// Always: scan raw text for acronyms.
-	allTerms := make(map[string]bool)
-	for _, t := range scanForAcronyms(input.Subject + " " + input.Content) {
-		allTerms[t] = true
-	}
-
-	// If NER extraction is available, also collect terms from extracted entities.
-	if input.Extraction != nil {
-		for _, t := range a.collectGlossaryTerms(input.Extraction) {
-			allTerms[t] = true
-		}
-	}
-
-	if len(allTerms) == 0 {
-		return nil
-	}
-
-	terms := make([]string, 0, len(allTerms))
-	for t := range allTerms {
-		terms = append(terms, t)
-	}
-
-	glossary, err := a.contextRepo.GetGlossaryTerms(ctx, input.TenantID, terms, projectIDs, cfg.QueryLimit(SectionGlossary, 20))
-	if err != nil {
-		return nil
-	}
-	return glossary
-}
-
-// gatherTopics collects topic candidates from body-text scanning and (if available)
-// NER extraction output, then queries the database for matching descriptions.
-// Pre-NER stages get body-scan only; post-NER stages get both sources merged and deduped.
-func (a *ContextBuilderActivities) gatherTopics(ctx context.Context, input workflows.BuildContextInput, resolvedProjects []workflows.ResolvedProject, cfg ContextConfig) []TopicResult {
-	var allTopicResults []TopicResult
-
-	// If NER extraction is available, collect candidates from extracted project/org names.
-	if input.Extraction != nil {
-		topicNames := a.collectTopicCandidates(input.Extraction, resolvedProjects)
-		if len(topicNames) > 0 {
-			nerTopics, err := a.topicRepo.ListForContext(ctx, input.TenantID, topicNames)
-			if err == nil {
-				allTopicResults = append(allTopicResults, nerTopics...)
-			}
-		}
-	}
-
-	// Always: scan full text (subject + body) for topic names and keywords.
-	if input.Content != "" || input.Subject != "" {
-		fullText := input.Subject + "\n" + input.Content
-		bodyTopics, err := a.topicRepo.ScanContentForTopics(ctx, input.TenantID, fullText)
-		if err == nil {
-			// Merge, dedup by topic ID.
-			seen := make(map[int64]bool)
-			for _, t := range allTopicResults {
-				seen[t.ID] = true
-			}
-			for _, t := range bodyTopics {
-				if !seen[t.ID] {
-					allTopicResults = append(allTopicResults, t)
-					seen[t.ID] = true
-				}
-			}
-		}
-	}
-
-	return allTopicResults
-}
-
 // BuildExtractionContext builds a lightweight context (glossary + topics only)
 // for injection into the extraction stage.
-//
-// Deprecated: use BuildContext with stage="extract_ner" or "extract_semantic".
-// Kept as a shim for running Temporal workflows during deploy (pf-7aa11e).
 func (a *ContextBuilderActivities) BuildExtractionContext(ctx context.Context, input workflows.BuildExtractionContextInput) (*workflows.BuildExtractionContextOutput, error) {
 	logger := a.logger.With(
 		logging.F("activity", "BuildExtractionContext"),
 		logging.F("tenant_id", input.TenantID),
 	)
 
-	cp, err := a.BuildContext(ctx, "extract_ner", workflows.BuildContextInput{
+	bgContext, err := a.BuildStageContext(ctx, workflows.BuildStageContextInput{
 		TenantID: input.TenantID,
+		Pipeline: "standard",
+		Stage:    "extract_ner",
 		Subject:  input.Subject,
 		Content:  input.Content,
-	}, nil, nil)
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	output := &workflows.BuildExtractionContextOutput{}
-	if len(cp.GlossaryTerms) == 0 && len(cp.TopicDescriptions) == 0 {
-		return output, nil
+	output := &workflows.BuildExtractionContextOutput{
+		BackgroundContext: bgContext,
 	}
-
-	output.BackgroundContext = cp.FormatForPrompt()
-	output.GlossaryCount = len(cp.GlossaryTerms)
-	output.TopicCount = len(cp.TopicDescriptions)
-
-	logger.Info("built extraction context",
-		logging.F("glossary_count", output.GlossaryCount),
-		logging.F("topic_count", output.TopicCount),
-	)
-
+	if bgContext != "" {
+		logger.Info("built extraction context", logging.F("context_length", len(bgContext)))
+	}
 	return output, nil
 }
 
@@ -1078,230 +858,12 @@ func scanForAcronyms(text string) []string {
 	return result
 }
 
-// scanForTopicCandidates extracts potential topic names from the subject line.
-// Returns individual significant words (>3 chars) and multi-word capitalized phrases.
-func scanForTopicCandidates(subject string) []string {
-	// Strip common reply/forward prefixes
-	subj := subject
-	for _, prefix := range []string{"Re: ", "RE: ", "Fwd: ", "FW: ", "Fw: "} {
-		subj = strings.TrimPrefix(subj, prefix)
-	}
-
-	candidates := make(map[string]bool)
-	words := strings.Fields(subj)
-	for _, w := range words {
-		// Skip short words and common articles/prepositions
-		clean := strings.Trim(w, ".,;:!?()[]\"'")
-		if len(clean) > 3 && clean != "from" && clean != "with" && clean != "that" && clean != "this" && clean != "have" && clean != "been" {
-			candidates[clean] = true
-		}
-	}
-
-	result := make([]string, 0, len(candidates))
-	for name := range candidates {
-		result = append(result, name)
-	}
-	return result
-}
-
-// getTokenBudget returns the token budget based on content type.
-func (a *ContextBuilderActivities) getTokenBudget(contentType string) int {
-	switch contentType {
-	case "meeting":
-		return 3000
-	case "email":
-		return 2000
-	case "slack":
-		return 1000
-	default:
-		return 2000
-	}
-}
-
-// collectGlossaryTerms extracts potential glossary terms from extraction output.
-func (a *ContextBuilderActivities) collectGlossaryTerms(extraction *workflows.SLMPipelineExtractEntitiesOutput) []string {
-	terms := make(map[string]bool)
-
-	// Add projects as potential terms
-	for _, proj := range extraction.Projects {
-		if isAcronym(proj) {
-			terms[proj] = true
-		}
-	}
-
-	// Add organisations as potential terms
-	for _, org := range extraction.Organisations {
-		if isAcronym(org) {
-			terms[org] = true
-		}
-	}
-
-	// Convert to slice
-	result := make([]string, 0, len(terms))
-	for term := range terms {
-		result = append(result, term)
-	}
-
-	return result
-}
-
 // isAcronym checks if a term looks like an acronym (all caps, 2-6 chars).
 func isAcronym(term string) bool {
 	if len(term) < 2 || len(term) > 6 {
 		return false
 	}
 	return strings.ToUpper(term) == term
-}
-
-// toWorkflowAssertions converts repository ContextAssertions to workflow ContextAssertions.
-func toWorkflowAssertions(assertions []ContextAssertion) []workflows.ContextAssertion {
-	result := make([]workflows.ContextAssertion, len(assertions))
-	for i, a := range assertions {
-		result[i] = workflows.ContextAssertion{
-			Subject:    a.OwnerName,
-			Predicate:  a.Description,
-			Object:     a.ProjectName,
-			SourceText: a.SourceQuote,
-		}
-	}
-	return result
-}
-
-// toWorkflowEvents converts repository ContextProductEvents to workflow ContextProductEvents.
-func toWorkflowEvents(events []ContextProductEvent) []workflows.ContextProductEvent {
-	result := make([]workflows.ContextProductEvent, len(events))
-	for i, e := range events {
-		result[i] = workflows.ContextProductEvent{
-			EventType:   e.EventType,
-			Description: e.Description,
-			Timestamp:   e.OccurredAt.Format(time.RFC3339),
-		}
-	}
-	return result
-}
-
-// toWorkflowGlossary converts repository ContextGlossaryTerms to workflow ContextGlossaryTerms.
-func toWorkflowGlossary(terms []ContextGlossaryTerm) []workflows.ContextGlossaryTerm {
-	result := make([]workflows.ContextGlossaryTerm, len(terms))
-	for i, t := range terms {
-		result[i] = workflows.ContextGlossaryTerm{
-			Term:       t.Term,
-			Definition: t.Definition,
-		}
-	}
-	return result
-}
-
-// collectTopicCandidates gathers names that might resolve as topics.
-// These are: unresolved project names + extracted organisations (which are often topics).
-func (a *ContextBuilderActivities) collectTopicCandidates(extraction *workflows.SLMPipelineExtractEntitiesOutput, resolvedProjects []workflows.ResolvedProject) []string {
-	if extraction == nil {
-		return nil
-	}
-
-	// Gather unresolved project names (those that didn't match a project)
-	candidates := make(map[string]bool)
-	resolvedNames := make(map[string]bool)
-	for _, rp := range resolvedProjects {
-		if rp.ProjectID != nil {
-			resolvedNames[normalizeString(rp.Name)] = true
-		}
-	}
-	for _, name := range extraction.Projects {
-		if !resolvedNames[normalizeString(name)] {
-			candidates[name] = true
-		}
-	}
-
-	// Also try organisations — many are actually topics (e.g. "Cloud NAT", "DevCloud")
-	for _, org := range extraction.Organisations {
-		candidates[org] = true
-	}
-
-	result := make([]string, 0, len(candidates))
-	for name := range candidates {
-		result = append(result, name)
-	}
-	return result
-}
-
-// toWorkflowTopics converts TopicResult slice to workflow ContextTopicDescription slice.
-func toWorkflowTopics(topics []TopicResult) []workflows.ContextTopicDescription {
-	result := make([]workflows.ContextTopicDescription, 0, len(topics))
-	for _, t := range topics {
-		if t.Description == "" {
-			continue // Skip topics without descriptions — no value for context
-		}
-		result = append(result, workflows.ContextTopicDescription{
-			Name:        t.Name,
-			Description: t.Description,
-		})
-	}
-	return result
-}
-
-// applyTokenBudget truncates sections from tail to fit within budget.
-// Order of truncation (least valuable first):
-// 1. Topics (drop from tail)
-// 2. Glossary terms (drop from tail)
-// 3. Product events (drop from tail)
-// 4. Decisions (drop from tail)
-// 5. Actions (drop from tail)
-// 6. Risks (drop from tail)
-// 7. Participants (never drop - always included)
-func (a *ContextBuilderActivities) applyTokenBudget(cp *workflows.ContextPackage, budget int) int {
-	tokensUsed := len(cp.ParticipantContext) * 15
-
-	// Try to fit everything, dropping from tail of each section if needed
-	sections := []struct {
-		name        string
-		items       int
-		tokensEach  int
-		applyTrunc  func(int)
-	}{
-		{"risks", len(cp.ActiveRisks), 25, func(keep int) { cp.ActiveRisks = cp.ActiveRisks[:keep] }},
-		{"actions", len(cp.OpenActions), 25, func(keep int) { cp.OpenActions = cp.OpenActions[:keep] }},
-		{"decisions", len(cp.RecentDecisions), 25, func(keep int) { cp.RecentDecisions = cp.RecentDecisions[:keep] }},
-		{"events", len(cp.ProductEvents), 30, func(keep int) { cp.ProductEvents = cp.ProductEvents[:keep] }},
-		{"glossary", len(cp.GlossaryTerms), 20, func(keep int) { cp.GlossaryTerms = cp.GlossaryTerms[:keep] }},
-		{"topics", len(cp.TopicDescriptions), 30, func(keep int) { cp.TopicDescriptions = cp.TopicDescriptions[:keep] }},
-	}
-
-	for i := len(sections) - 1; i >= 0; i-- {
-		section := sections[i]
-		sectionTokens := section.items * section.tokensEach
-
-		if tokensUsed+sectionTokens <= budget {
-			tokensUsed += sectionTokens
-		} else {
-			// Fit as many items as possible
-			available := budget - tokensUsed
-			keep := available / section.tokensEach
-			if keep > 0 {
-				section.applyTrunc(keep)
-				tokensUsed += keep * section.tokensEach
-			} else {
-				section.applyTrunc(0)
-			}
-		}
-	}
-
-	return tokensUsed
-}
-
-// BuildStageContextInput is the input for the BuildStageContext activity.
-type BuildStageContextInput struct {
-	// TenantID, Pipeline, and Stage identify the row in pipeline_definitions to read context_providers from.
-	TenantID string
-	Pipeline string
-	Stage    string
-
-	// ProviderInput is passed through to each context provider.
-	ProviderInput ContextProviderInput
-
-	// Optional Langfuse trace/phase IDs for observability. When empty, no span is created.
-	LangfuseTraceID string
-	LangfusePhaseID string
 }
 
 // BuildStageContext assembles a BackgroundContext markdown string for a pipeline stage.
@@ -1314,7 +876,7 @@ type BuildStageContextInput struct {
 // When a Langfuse ingestion is configured via WithLangfuse and a LangfuseTraceID is provided,
 // a span is created with assembly metadata (providers requested/succeeded/failed, context
 // length, per-provider timing).
-func (a *ContextBuilderActivities) BuildStageContext(ctx context.Context, input BuildStageContextInput) (string, error) {
+func (a *ContextBuilderActivities) BuildStageContext(ctx context.Context, input workflows.BuildStageContextInput) (string, error) {
 	startTime := time.Now()
 	logger := a.logger.WithContext(ctx).With(
 		logging.F("activity", "BuildStageContext"),
@@ -1368,7 +930,24 @@ func (a *ContextBuilderActivities) BuildStageContext(ctx context.Context, input 
 		}
 
 		t := time.Now()
-		section, buildErr := provider.Build(ctx, input.ProviderInput)
+		section, buildErr := provider.Build(ctx, ContextProviderInput{
+			TenantID:          input.TenantID,
+			SourceID:          input.SourceID,
+			ContentID:         input.ContentID,
+			JobID:             input.JobID,
+			ContentType:       input.ContentType,
+			ContentSubtype:    input.ContentSubtype,
+			Content:           input.Content,
+			Subject:           input.Subject,
+			SenderEmail:       input.SenderEmail,
+			SenderName:        input.SenderName,
+			ThreadID:          input.ThreadID,
+			ParticipantEmails: input.ParticipantEmails,
+			ConversationID:    input.ConversationID,
+			Extraction:        input.Extraction,
+			ResolvedPeople:    input.ResolvedPeople,
+			ResolvedProjects:  input.ResolvedProjects,
+		})
 		durMS := int(time.Since(t).Milliseconds())
 		timings = append(timings, providerTiming{name, durMS})
 

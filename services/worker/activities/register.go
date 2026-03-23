@@ -386,8 +386,8 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		w.RegisterActivityWithOptions(r.contextBuilderActivities.BuildContextPackage, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityBuildContextPackage,
 		})
-		w.RegisterActivityWithOptions(r.contextBuilderActivities.BuildNewsletterContext, activity.RegisterOptions{
-			Name: pkgtemporal.ActivityBuildNewsletterContext,
+		w.RegisterActivityWithOptions(r.contextBuilderActivities.BuildStageContext, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityBuildStageContext,
 		})
 	}
 
@@ -807,7 +807,7 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		if r.triageActivities != nil {
 			count += 2
 		}
-		// BuildExtractionContext, BuildContextPackage, BuildNewsletterContext
+		// BuildExtractionContext, BuildContextPackage, BuildStageContext
 		if r.contextBuilderActivities != nil {
 			count += 3
 		}

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
 // ── Mock PipelineRepository for BuildStageContext tests ──────────────────────
@@ -87,7 +88,7 @@ func TestBuildStageContext_NilPipelineRepo(t *testing.T) {
 	logger := logging.NewNopLogger()
 	a := newMinimalContextBuilderActivities(logger, nil)
 
-	_, err := a.BuildStageContext(context.Background(), BuildStageContextInput{
+	_, err := a.BuildStageContext(context.Background(), workflows.BuildStageContextInput{
 		TenantID: "t1",
 		Pipeline: "standard",
 		Stage:    "deep_analyze",
@@ -101,7 +102,7 @@ func TestBuildStageContext_DBError(t *testing.T) {
 	repo := &mockContextPipelineRepo{providerErr: errors.New("db unavailable")}
 	a := newMinimalContextBuilderActivities(logger, repo)
 
-	_, err := a.BuildStageContext(context.Background(), BuildStageContextInput{
+	_, err := a.BuildStageContext(context.Background(), workflows.BuildStageContextInput{
 		TenantID: "t1",
 		Pipeline: "standard",
 		Stage:    "deep_analyze",
@@ -115,7 +116,7 @@ func TestBuildStageContext_NoProviders(t *testing.T) {
 	repo := &mockContextPipelineRepo{providers: []string{}}
 	a := newMinimalContextBuilderActivities(logger, repo)
 
-	result, err := a.BuildStageContext(context.Background(), BuildStageContextInput{
+	result, err := a.BuildStageContext(context.Background(), workflows.BuildStageContextInput{
 		TenantID: "t1",
 		Pipeline: "standard",
 		Stage:    "deep_analyze",
@@ -130,7 +131,7 @@ func TestBuildStageContext_UnknownProvider(t *testing.T) {
 	a := newMinimalContextBuilderActivities(logger, repo)
 
 	// nonexistent_provider is not in the registry — should log warning and return empty
-	result, err := a.BuildStageContext(context.Background(), BuildStageContextInput{
+	result, err := a.BuildStageContext(context.Background(), workflows.BuildStageContextInput{
 		TenantID: "t1",
 		Pipeline: "standard",
 		Stage:    "deep_analyze",
@@ -150,7 +151,7 @@ func TestBuildStageContext_ProviderAssemblyOrder(t *testing.T) {
 	cleanup := registerMockProviders(alpha, beta, gamma)
 	defer cleanup()
 
-	result, err := a.BuildStageContext(context.Background(), BuildStageContextInput{
+	result, err := a.BuildStageContext(context.Background(), workflows.BuildStageContextInput{
 		TenantID: "t1",
 		Pipeline: "standard",
 		Stage:    "deep_analyze",
@@ -182,7 +183,7 @@ func TestBuildStageContext_EmptySectionOmitted(t *testing.T) {
 	cleanup := registerMockProviders(emptyP, nonemptyP)
 	defer cleanup()
 
-	result, err := a.BuildStageContext(context.Background(), BuildStageContextInput{
+	result, err := a.BuildStageContext(context.Background(), workflows.BuildStageContextInput{
 		TenantID: "t1",
 		Pipeline: "standard",
 		Stage:    "deep_analyze",
@@ -203,7 +204,7 @@ func TestBuildStageContext_FailedProviderSkipped(t *testing.T) {
 	cleanup := registerMockProviders(goodP, badP, good2P)
 	defer cleanup()
 
-	result, err := a.BuildStageContext(context.Background(), BuildStageContextInput{
+	result, err := a.BuildStageContext(context.Background(), workflows.BuildStageContextInput{
 		TenantID: "t1",
 		Pipeline: "standard",
 		Stage:    "deep_analyze",
@@ -224,7 +225,7 @@ func TestBuildStageContext_MixedUnknownAndValid(t *testing.T) {
 	cleanup := registerMockProviders(knownP)
 	defer cleanup()
 
-	result, err := a.BuildStageContext(context.Background(), BuildStageContextInput{
+	result, err := a.BuildStageContext(context.Background(), workflows.BuildStageContextInput{
 		TenantID: "t1",
 		Pipeline: "standard",
 		Stage:    "deep_analyze",
@@ -243,7 +244,7 @@ func TestBuildStageContext_AllEmpty(t *testing.T) {
 	cleanup := registerMockProviders(empty1, empty2)
 	defer cleanup()
 
-	result, err := a.BuildStageContext(context.Background(), BuildStageContextInput{
+	result, err := a.BuildStageContext(context.Background(), workflows.BuildStageContextInput{
 		TenantID: "t1",
 		Pipeline: "standard",
 		Stage:    "deep_analyze",
@@ -276,17 +277,12 @@ func TestBuildStageContext_ProviderReceivesInput(t *testing.T) {
 		}
 	}()
 
-	providerInput := ContextProviderInput{
+	result, err := a.BuildStageContext(context.Background(), workflows.BuildStageContextInput{
 		TenantID: "t1",
+		Pipeline: "standard",
+		Stage:    "deep_analyze",
 		Content:  "the email body",
 		Subject:  "important subject",
-	}
-
-	result, err := a.BuildStageContext(context.Background(), BuildStageContextInput{
-		TenantID:      "t1",
-		Pipeline:      "standard",
-		Stage:         "deep_analyze",
-		ProviderInput: providerInput,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "### Inspector\ncaptured", result)

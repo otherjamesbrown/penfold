@@ -177,14 +177,11 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_Newsletter_LOW_RunsExtract() {
 		Pipelines:           []string{"newsletter"},
 	}, nil)
 
-	// BuildExtractionContext and BuildNewsletterContext run before StructuredExtract.
+	// BuildExtractionContext and BuildStageContext run before StructuredExtract.
 	s.activities.On("BuildExtractionContext", mock.Anything, mock.Anything).Maybe().Return(&BuildExtractionContextOutput{
 		BackgroundContext: "email context",
 	}, nil)
-	s.activities.On("BuildNewsletterContext", mock.Anything, mock.Anything).Maybe().Return(&BuildNewsletterContextOutput{
-		BackgroundContext: "newsletter context",
-		UserContextFound:  true,
-	}, nil)
+	s.activities.On("BuildStageContext", mock.Anything, mock.Anything).Maybe().Return("newsletter context", nil)
 
 	// KEY: StructuredExtract MUST be called — skip_when_low=false means LOW contribution
 	// does NOT gate newsletter_extract.

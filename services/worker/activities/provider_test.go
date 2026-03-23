@@ -12,6 +12,68 @@ import (
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
+// ── Shared test helpers ───────────────────────────────────────────────────────
+
+// mockNewsletterContextRepo is a configurable test double for NewsletterContextRepository.
+type mockNewsletterContextRepo struct {
+	getUserContextJSONFn func(ctx context.Context, tenantID string) (string, error)
+	listActiveProjectsFn func(ctx context.Context, tenantID string, limit int) ([]NewsletterNameDescription, error)
+	listActiveProductsFn func(ctx context.Context, tenantID string, limit int) ([]NewsletterNameDescription, error)
+}
+
+func (m *mockNewsletterContextRepo) GetUserContextJSON(ctx context.Context, tenantID string) (string, error) {
+	if m.getUserContextJSONFn != nil {
+		return m.getUserContextJSONFn(ctx, tenantID)
+	}
+	return "", nil
+}
+
+func (m *mockNewsletterContextRepo) ListActiveProjects(ctx context.Context, tenantID string, limit int) ([]NewsletterNameDescription, error) {
+	if m.listActiveProjectsFn != nil {
+		return m.listActiveProjectsFn(ctx, tenantID, limit)
+	}
+	return nil, nil
+}
+
+func (m *mockNewsletterContextRepo) ListActiveProducts(ctx context.Context, tenantID string, limit int) ([]NewsletterNameDescription, error) {
+	if m.listActiveProductsFn != nil {
+		return m.listActiveProductsFn(ctx, tenantID, limit)
+	}
+	return nil, nil
+}
+
+// mockContextPackageRepoForNL is a minimal ContextPackageRepository for provider tests.
+// Only GetGlossaryTerms is exercised; the rest return empty/nil.
+type mockContextPackageRepoForNL struct {
+	glossaryTerms []ContextGlossaryTerm
+	glossaryErr   error
+}
+
+func (m *mockContextPackageRepoForNL) GetActiveRisks(_ context.Context, _ []int64, _ int) ([]ContextAssertion, error) {
+	return nil, nil
+}
+func (m *mockContextPackageRepoForNL) GetOpenActions(_ context.Context, _ string, _ []int64, _ int) ([]ContextAssertion, error) {
+	return nil, nil
+}
+func (m *mockContextPackageRepoForNL) GetRecentDecisions(_ context.Context, _ []int64, _ int, _ int) ([]ContextAssertion, error) {
+	return nil, nil
+}
+func (m *mockContextPackageRepoForNL) GetProductEvents(_ context.Context, _ []int64, _ int, _ int) ([]ContextProductEvent, error) {
+	return nil, nil
+}
+func (m *mockContextPackageRepoForNL) GetGlossaryTerms(_ context.Context, _ string, _ []string, _ []int64, _ int) ([]ContextGlossaryTerm, error) {
+	return m.glossaryTerms, m.glossaryErr
+}
+func (m *mockContextPackageRepoForNL) ResolveProjectByName(_ context.Context, _ string, _ string) (*int64, error) {
+	return nil, nil
+}
+func (m *mockContextPackageRepoForNL) ResolveProjectByKeyword(_ context.Context, _ string, _ string) (*int64, error) {
+	return nil, nil
+}
+func (m *mockContextPackageRepoForNL) ResolveProjectByNameContains(_ context.Context, _ string, _ string) (*int64, error) {
+	return nil, nil
+}
+
 // ── Shared test logger ────────────────────────────────────────────────────────
 
 func testLogger() logging.Logger {
