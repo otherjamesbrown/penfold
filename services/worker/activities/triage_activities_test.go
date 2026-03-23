@@ -1284,12 +1284,12 @@ func TestTriage_RuleEngineNotificationCap_pf2d512a(t *testing.T) {
 		"pf-2d512a: NOTIFICATION from rule engine should trigger contribution cap")
 }
 
-// mockRoutingRepo is a mock for RoutingRepository.
-type mockRoutingRepo struct {
+// mockTriageRoutingRepo is a mock for RoutingRepository.
+type mockTriageRoutingRepo struct {
 	loadRoutesFn func(ctx context.Context, tenantID string) ([]routing.Route, error)
 }
 
-func (m *mockRoutingRepo) LoadRoutes(ctx context.Context, tenantID string) ([]routing.Route, error) {
+func (m *mockTriageRoutingRepo) LoadRoutes(ctx context.Context, tenantID string) ([]routing.Route, error) {
 	if m.loadRoutesFn != nil {
 		return m.loadRoutesFn(ctx, tenantID)
 	}
@@ -1314,7 +1314,7 @@ func TestPreClassifyContent_NotificationSender(t *testing.T) {
 			}, nil
 		},
 	})
-	activities.WithRoutingRepo(&mockRoutingRepo{
+	activities.WithRoutingRepo(&mockTriageRoutingRepo{
 		loadRoutesFn: func(_ context.Context, _ string) ([]routing.Route, error) {
 			return []routing.Route{
 				{ContentType: "EMAIL", ContentSubtype: "NOTIFICATION", Pipeline: "notification", Active: true},
@@ -1414,7 +1414,7 @@ func TestPreClassifyContent_RoutingRepoError(t *testing.T) {
 			}, nil
 		},
 	})
-	activities.WithRoutingRepo(&mockRoutingRepo{
+	activities.WithRoutingRepo(&mockTriageRoutingRepo{
 		loadRoutesFn: func(_ context.Context, _ string) ([]routing.Route, error) {
 			return nil, errors.New("routing table unavailable")
 		},
@@ -1478,7 +1478,7 @@ func TestPreClassifyContent_AllNotificationSources(t *testing.T) {
 					return rules, nil
 				},
 			})
-			act.WithRoutingRepo(&mockRoutingRepo{
+			act.WithRoutingRepo(&mockTriageRoutingRepo{
 				loadRoutesFn: func(_ context.Context, _ string) ([]routing.Route, error) {
 					return routes, nil
 				},
