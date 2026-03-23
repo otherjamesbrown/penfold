@@ -1810,113 +1810,41 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		).Get(ctx, nil)
 	}
 
-	// Contribution-based gating (in addition to existing SkipDeep)
-	// Determine which stages to skip based on content contribution
-	skipExtract := false // Skip stages 2-3.5 (extract, assertions, context, person metadata)
-	skipAnalyze := false // Skip stage 4-4.5 (deep analysis, persist findings)
-
-	switch contribution {
-	case "NONE":
-		skipExtract = true // Skip stages 2, 2b, 3, 3.5
-		skipAnalyze = true // Skip stage 4, 4.5
-		logger.Info("contribution-based gating: NONE - skipping extract and analyze",
-			"source_id", input.SourceID,
-			"contribution", contribution,
-			"reason", triageOutput.ContributionReason,
-		)
-	case "LOW":
-		skipExtract = true // Skip stages 2, 2b, 3, 3.5 — trivial content produces empty outputs
-		skipAnalyze = true // Skip stage 4, 4.5
-		logger.Info("contribution-based gating: LOW - skipping extract and analyze",
-			"source_id", input.SourceID,
-			"contribution", contribution,
-			"reason", triageOutput.ContributionReason,
-		)
-	case "MEDIUM", "HIGH":
-		// Run everything
-		logger.Info("contribution-based gating: running full pipeline",
-			"source_id", input.SourceID,
-			"contribution", contribution,
-			"reason", triageOutput.ContributionReason,
-		)
-	}
-
-	// Merge with existing SkipDeep logic (category/importance-based)
-	if triageOutput.SkipDeep {
-		skipExtract = true
-		skipAnalyze = true
-		logger.Info("category-based gating: skip_deep enabled",
-			"source_id", input.SourceID,
-			"category", triageOutput.Category,
-			"importance", triageOutput.Importance,
-		)
-	}
-
-	// Pipeline definition override: if the definition says skip_when_low=false
-	// for extraction/analyze stages, honor that over triage SkipDeep.
-	// This allows pipelines like "transcript" to declare "never skip extraction".
-	if stageConfigMap != nil && (skipExtract || skipAnalyze) {
-		extractStages := []string{"extract_ner", "extract_assertions", "extract_semantic", "resolve"}
-		analyzeStages := []string{"analyze"}
-
-		if skipExtract {
-			for _, s := range extractStages {
-				if cfg, ok := stageConfigMap[s]; ok && cfg.Enabled && !cfg.SkipWhenLow {
-					skipExtract = false
-					logger.Info("Pipeline definition override: skip_when_low=false bypassed contribution gate",
-						"source_id", input.SourceID,
-						"pipeline", pipelineName,
-						"stage", s,
-						"contribution", contribution,
-					)
-					logger.Info("pipeline definition override: extraction not skipped (skip_when_low=false)",
-						"source_id", input.SourceID,
-						"pipeline", pipelineName,
-						"stage", s,
-					)
-					break
-				}
-			}
+	// Per-stage contribution gating: each stage's skip decision reads skip_when_low from
+	// pipeline_definitions. A stage is skipped when skip_when_low=true AND the content has
+	// low contribution (NONE or LOW) OR triage marked it for reduced processing (SkipDeep).
+	// This replaces the former global skipExtract/skipAnalyze switch statement.
+	shouldGateStage := func(stageName string) bool {
+		cfg, ok := stageConfigMap[stageName]
+		if !ok || !cfg.Enabled {
+			return false
 		}
-		if skipAnalyze {
-			for _, s := range analyzeStages {
-				if cfg, ok := stageConfigMap[s]; ok && cfg.Enabled && !cfg.SkipWhenLow {
-					skipAnalyze = false
-					logger.Info("Pipeline definition override: skip_when_low=false bypassed contribution gate",
-						"source_id", input.SourceID,
-						"pipeline", pipelineName,
-						"stage", s,
-						"contribution", contribution,
-					)
-					logger.Info("pipeline definition override: analyze not skipped (skip_when_low=false)",
-						"source_id", input.SourceID,
-						"pipeline", pipelineName,
-						"stage", s,
-					)
-					break
-				}
-			}
+		if !cfg.SkipWhenLow {
+			return false
 		}
+		return contribution == "NONE" || contribution == "LOW" || triageOutput.SkipDeep
 	}
 
-	// Triage gate: skip Stages 2-4.5 for LOW/PERSONAL content or low contribution
+	// skipExtract: skip the extraction block when all primary extract stages are gated.
+	// If extract_ner or extract_semantic has skip_when_low=false, the block runs.
+	extractShouldRun := (stageInPipeline(stageConfigMap, "extract_ner") && !shouldGateStage("extract_ner")) ||
+		(stageInPipeline(stageConfigMap, "extract_semantic") && !shouldGateStage("extract_semantic"))
+	skipExtract := !extractShouldRun
+
+	// skipAnalyze: skip the analyze block when the analyze stage is gated.
+	skipAnalyze := shouldGateStage("analyze")
+
+	// When any stages are gated: log each skip, record provenance, clean up stale data,
+	// and update TotalSteps to reflect only the stages that will actually run.
 	if skipExtract || skipAnalyze {
-		// Determine skip reason for logging and provenance recording
-		skipReason := "skip_deep"
-		if skipExtract && !triageOutput.SkipDeep {
-			// Contribution-based: NONE skips everything
-			skipReason = fmt.Sprintf("contribution_gating:%s", contribution)
-		} else if !skipExtract && skipAnalyze {
-			// LOW contribution: only analyze/persist are skipped
-			skipReason = fmt.Sprintf("contribution_gating:%s", contribution)
-		} else if triageOutput.SkipDeep {
-			// Category/importance-based skip
+		skipReason := fmt.Sprintf("contribution_gating:%s", contribution)
+		if triageOutput.SkipDeep {
 			skipReason = fmt.Sprintf("category_skip:%s/%s", triageOutput.Category, triageOutput.Importance)
 		}
 
-		// Log skip for each deep processing stage.
-		for _, sc := range stageConfigMap {
-			if sc.SkipWhenLow && sc.Enabled {
+		var skippedStages []SkippedStage
+		for _, sc := range orderedStages(stageConfigMap) {
+			if shouldGateStage(sc.Stage) {
 				logger.Info("pipeline stage skipped",
 					"source_id", input.SourceID,
 					"stage", sc.Stage,
@@ -1925,27 +1853,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 					"reason", skipReason,
 					"contribution", contribution,
 				)
-			}
-		}
-
-		// Build list of skipped DB stage names for provenance recording.
-		// DB stage names differ from the pipeline Stage.Name labels.
-		// Only record skipped stages that are actually in the pipeline definition;
-		// stages absent from the pipeline are simply not part of it (not "skipped").
-		var skippedStages []SkippedStage
-		if skipExtract {
-			// All deep stages are skipped: extract, resolve, analyze, persist
-			for _, s := range []string{"extract_ner", "extract_semantic", "resolve", "analyze", "persist"} {
-				if stageInPipeline(stageConfigMap, s) {
-					skippedStages = append(skippedStages, SkippedStage{Stage: s, SkipReason: skipReason})
-				}
-			}
-		} else if skipAnalyze {
-			// Only analyze and persist are skipped
-			for _, s := range []string{"analyze", "persist"} {
-				if stageInPipeline(stageConfigMap, s) {
-					skippedStages = append(skippedStages, SkippedStage{Stage: s, SkipReason: skipReason})
-				}
+				skippedStages = append(skippedStages, SkippedStage{Stage: sc.Stage, SkipReason: skipReason})
 			}
 		}
 
@@ -1956,14 +1864,11 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				Stages:          skippedStages,
 				LangfuseTraceID: langfuseTraceID,
 			}).Get(ctx, nil)
-
 			reportLangfuseSkip("ContributionGatingSkip", skipReason)
 		}
 
-		// pf-91b00d: When extraction is skipped entirely (contribution=NONE or SkipDeep),
-		// delete any assertions left over from a prior run. This ensures reprocessing an
-		// item that previously extracted assertions (e.g. was MEDIUM, now reclassified to
-		// NONE) clears stale data rather than leaving orphaned assertions in the DB.
+		// pf-91b00d: When extraction is skipped entirely, delete any assertions left over
+		// from a prior run. Ensures reprocessing a reclassified item clears stale data.
 		// Best-effort — failure does not block the workflow.
 		if skipExtract {
 			ctxCleanup := workflow.WithActivityOptions(ctx, fastOpts)
@@ -1973,13 +1878,14 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			}).Get(ctx, nil)
 		}
 
-		requiredSteps := 0
-		for _, s := range stageConfigMap {
-			if s.Enabled && !s.SkipWhenLow {
-				requiredSteps++
+		// Update TotalSteps to count only stages that will run.
+		runningSteps := 0
+		for _, sc := range stageConfigMap {
+			if sc.Enabled && !shouldGateStage(sc.Stage) {
+				runningSteps++
 			}
 		}
-		state.status.TotalSteps = requiredSteps
+		state.status.TotalSteps = runningSteps
 	}
 
 	// Source system now classified in Triage activity via rule engine.
@@ -2218,9 +2124,16 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	var contextOutput *BuildContextOutput
 
 	// Pre-extraction context: fetch glossary + topics for extraction grounding (pf-2f8c70).
-	// Runs before Stage 2 so the extraction model has domain definitions.
+	// Runs before Stage 2 (NER/semantic) and any structured_extract stages.
 	var extractionContext string
-	if !skipExtract {
+	hasActiveStructuredExtract := false
+	for _, sc := range stageConfigMap {
+		if sc.StageKind == "structured_extract" && sc.Enabled && !shouldGateStage(sc.Stage) {
+			hasActiveStructuredExtract = true
+			break
+		}
+	}
+	if !skipExtract || hasActiveStructuredExtract {
 		ctxPreExtract := workflow.WithActivityOptions(ctx, fastOpts)
 		var preCtxOutput BuildExtractionContextOutput
 		err := workflow.ExecuteActivity(ctxPreExtract, pkgtemporal.ActivityBuildExtractionContext, BuildExtractionContextInput{
@@ -2536,6 +2449,20 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			if stage.StageKind != "structured_extract" || !stage.Enabled {
 				continue
 			}
+			if shouldGateStage(stage.Stage) {
+				skipReason := fmt.Sprintf("contribution_gating:%s", contribution)
+				if triageOutput.SkipDeep {
+					skipReason = fmt.Sprintf("category_skip:%s/%s", triageOutput.Category, triageOutput.Importance)
+				}
+				logger.Info("pipeline stage skipped",
+					"source_id", input.SourceID,
+					"stage", stage.Stage,
+					"pipeline", pipelineName,
+					"reason", skipReason,
+					"contribution", contribution,
+				)
+				continue
+			}
 
 			seStart := workflow.Now(ctx)
 			sePhaseID := sideEffectUUID(ctx)
@@ -2805,6 +2732,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// Runs for any pipeline with "persist" in its definition, even without "analyze"
 	// (e.g. notification/newsletter pipelines). Skipped if analyze ran but failed.
 	persistShouldRun := stageInPipeline(stageConfigMap, "persist") &&
+		!shouldGateStage("persist") &&
 		!analyzeFailed &&
 		(!stageInPipeline(stageConfigMap, "analyze") || !skipAnalyze)
 	if persistShouldRun {
@@ -3125,23 +3053,13 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		).Get(ctx, nil)
 	})
 
-	if triageOutput.SkipDeep {
-		skipDeepCompleted := 0
-		for _, s := range stageConfigMap {
-			if s.Enabled && !s.SkipWhenLow {
-				skipDeepCompleted++
-			}
+	completedSteps := 0
+	for _, s := range stageConfigMap {
+		if s.Enabled && !shouldGateStage(s.Stage) {
+			completedSteps++
 		}
-		state.status.StepsCompleted = skipDeepCompleted
-	} else {
-		allCompleted := 0
-		for _, s := range stageConfigMap {
-			if s.Enabled {
-				allCompleted++
-			}
-		}
-		state.status.StepsCompleted = allCompleted
 	}
+	state.status.StepsCompleted = completedSteps
 
 	// Record overrides if any were provided
 	if input.ModelOverride != "" || input.TimeoutOverride > 0 {
