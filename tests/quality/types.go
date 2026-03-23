@@ -21,11 +21,12 @@ type GoldenExpectation struct {
 	Projects   *ProjectsExpectation   `yaml:"projects"`
 
 	// --- New fields for category evals ---
-	Category          string                        `yaml:"category"`
-	Routing           *RoutingExpectation           `yaml:"routing"`
-	NewsletterExtract *NewsletterExtractExpectation `yaml:"newsletter_extract"`
-	Digest            *DigestExpectation            `yaml:"digest"`
-	Intent            *IntentExpectation            `yaml:"intent"`
+	Category             string                           `yaml:"category"`
+	Routing              *RoutingExpectation              `yaml:"routing"`
+	NewsletterExtract    *NewsletterExtractExpectation    `yaml:"newsletter_extract"`
+	NotificationExtract  *NotificationExtractExpectation  `yaml:"notification_extract"`
+	Digest               *DigestExpectation               `yaml:"digest"`
+	Intent               *IntentExpectation               `yaml:"intent"`
 }
 
 // PipelineExpectation defines which pipeline stages must complete.
@@ -260,4 +261,53 @@ type ActualNewsletterAction struct {
 type ActualNewsletterPerson struct {
 	Name    string `json:"name"`
 	Context string `json:"context"`
+}
+
+// --- Notification extraction expectation types ---
+
+// NotificationExtractExpectation validates L2: notification extraction stage output.
+// HandlingMode is one of: immediate_escalate, triage_once, daily_summary, compliance_status.
+type NotificationExtractExpectation struct {
+	HandlingMode       string                  `yaml:"handling_mode"`
+	NotificationSource string                  `yaml:"notification_source"`
+	IsRepeat           *bool                   `yaml:"is_repeat"`
+	Escalation         *EscalationExpectation  `yaml:"escalation"`
+	Compliance         *ComplianceExpectation  `yaml:"compliance"`
+	ActivitySummary    *StringFieldExpectation `yaml:"activity_summary"`
+}
+
+// EscalationExpectation validates immediate_escalate extraction fields.
+type EscalationExpectation struct {
+	ThreatDescription *StringFieldExpectation `yaml:"threat_description"`
+	Urgency           *OneOfMatcher           `yaml:"urgency"`
+	RequiresResponse  *bool                   `yaml:"requires_response"`
+}
+
+// ComplianceExpectation validates compliance_status extraction fields.
+type ComplianceExpectation struct {
+	CourseName      *StringFieldExpectation `yaml:"course_name"`
+	Assignees       *ItemListExpectation    `yaml:"assignees"`
+	DueDatePresent  *bool                   `yaml:"due_date_present"`
+	Overdue         *bool                   `yaml:"overdue"`
+}
+
+// --- Actual data structs for notification extraction ---
+
+// ActualNotificationExtraction represents parsed notification_extract output from content_enrichment.
+// The notification pipeline stores this under extracted_data['notification'].
+type ActualNotificationExtraction struct {
+	SourceSystem     string                      `json:"source_system"`
+	NotificationType string                      `json:"notification_type"`
+	Summary          string                      `json:"summary"`
+	ActionRequired   bool                        `json:"action_required"`
+	Action           *string                     `json:"action"`
+	Urgency          string                      `json:"urgency"`
+	People           []ActualNotificationPerson  `json:"people"`
+	Project          *string                     `json:"project"`
+}
+
+// ActualNotificationPerson represents a person extracted from a notification.
+type ActualNotificationPerson struct {
+	Name string `json:"name"`
+	Role string `json:"role"`
 }
