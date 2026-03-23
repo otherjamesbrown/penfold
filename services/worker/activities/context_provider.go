@@ -3,6 +3,7 @@ package activities
 import (
 	"context"
 
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
@@ -47,4 +48,19 @@ var providerRegistry = map[string]ContextProvider{}
 func LookupProvider(name string) (ContextProvider, bool) {
 	p, ok := providerRegistry[name]
 	return p, ok
+}
+
+// RegisterContextProviders initializes and registers all built-in context providers.
+// Called from NewContextBuilderActivities and updated when optional repos are wired in.
+// Providers with a nil repo return "" gracefully — they are always registered.
+func RegisterContextProviders(
+	logger logging.Logger,
+	contextRepo ContextPackageRepository,
+	newsletterRepo NewsletterContextRepository,
+	topicRepo TopicLookupInterface,
+) {
+	providerRegistry["user_context"] = NewUserContextProvider(newsletterRepo, logger)
+	providerRegistry["glossary"] = NewGlossaryProvider(contextRepo, logger)
+	providerRegistry["active_projects"] = NewActiveProjectsProvider(newsletterRepo, logger)
+	providerRegistry["topics"] = NewTopicsProvider(topicRepo, logger)
 }
