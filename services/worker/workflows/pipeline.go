@@ -710,8 +710,9 @@ type StructuredExtractInput struct {
 	StageName         string `json:"stage_name"`
 	PromptOverride    int32  `json:"prompt_override,omitempty"`
 	BackgroundContext string `json:"background_context,omitempty"`
-	LangfuseTraceID   string `json:"langfuse_trace_id,omitempty"`
-	LangfusePhaseID   string `json:"langfuse_phase_id,omitempty"`
+	LangfuseTraceID   string            `json:"langfuse_trace_id,omitempty"`
+	LangfusePhaseID   string            `json:"langfuse_phase_id,omitempty"`
+	ContextMeta       map[string]string `json:"context_meta,omitempty"`
 }
 
 // StructuredExtractOutput is the output from the generic StructuredExtract activity.
@@ -843,6 +844,26 @@ type RecordSkippedStageInput struct {
 	SourceID        int64          `json:"source_id"`
 	Stages          []SkippedStage `json:"stages"`
 	LangfuseTraceID string         `json:"langfuse_trace_id,omitempty"`
+}
+
+// PreClassifyInput is the input for the PreClassify activity (pf-b375ad).
+// Runs the DB-backed rule engine against sender metadata before triage,
+// in shadow mode alongside looksLikeNotificationSender().
+type PreClassifyInput struct {
+	TenantID    string            `json:"tenant_id"`
+	ContentType string            `json:"content_type"`
+	SenderEmail string            `json:"sender_email"`
+	Subject     string            `json:"subject,omitempty"`
+	Headers     map[string]string `json:"headers,omitempty"`
+}
+
+// PreClassifyOutput is the output from the PreClassify activity.
+type PreClassifyOutput struct {
+	Matched        bool   `json:"matched"`                   // True if a rule matched
+	ContentSubtype string `json:"content_subtype,omitempty"` // e.g. "NOTIFICATION", "NEWSLETTER", "HUMAN"
+	RuleName       string `json:"rule_name,omitempty"`       // Name of the matched rule
+	PipelineName   string `json:"pipeline_name,omitempty"`   // Resolved pipeline name from routing table (empty = no route)
+	Error          string `json:"error,omitempty"`           // Non-empty if rule loading/evaluation failed
 }
 
 // pipelineState maintains the internal state of the pipeline workflow.
@@ -1379,6 +1400,55 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				"sender_email", input.SenderEmail,
 				"pipeline", preclassifiedPipeline,
 			)
+		}
+
+		// Shadow-mode rule engine pre-classification (pf-b375ad).
+		// Run the DB-backed rule engine in parallel with looksLikeNotificationSender()
+		// and log any disagreements. The hardcoded result is still used for pipeline
+		// selection — the rule engine is observation-only at this stage.
+		ctxPreClassify := workflow.WithActivityOptions(ctx, fastOpts)
+		var preClassifyOut PreClassifyOutput
+		preClassifyErr := workflow.ExecuteActivity(ctxPreClassify, pkgtemporal.ActivityPreClassify, PreClassifyInput{
+			TenantID:    input.TenantID,
+			ContentType: input.ContentType,
+			SenderEmail: input.SenderEmail,
+			Subject:     input.Subject,
+			Headers:     fetchedHeaders,
+		}).Get(ctx, &preClassifyOut)
+
+		if preClassifyErr != nil {
+			logger.Warn("Shadow pre-classify activity failed, skipping parity check",
+				"error", preClassifyErr,
+				"sender_email", input.SenderEmail,
+			)
+		} else if preClassifyOut.Error != "" {
+			logger.Warn("Shadow pre-classify rule loading failed, skipping parity check",
+				"rule_error", preClassifyOut.Error,
+				"sender_email", input.SenderEmail,
+			)
+		} else {
+			// Compare: looksLikeNotificationSender() says "notification" vs rule engine result.
+			hardcodedIsNotification := preclassifiedPipeline == "notification"
+			ruleEngineIsNotification := preClassifyOut.ContentSubtype == "NOTIFICATION"
+
+			if hardcodedIsNotification != ruleEngineIsNotification {
+				logger.Warn("Pre-classify parity MISMATCH: hardcoded and rule engine disagree",
+					"sender_email", input.SenderEmail,
+					"subject", input.Subject,
+					"hardcoded_notification", hardcodedIsNotification,
+					"rule_engine_notification", ruleEngineIsNotification,
+					"rule_engine_subtype", preClassifyOut.ContentSubtype,
+					"rule_engine_rule_name", preClassifyOut.RuleName,
+					"rule_engine_pipeline", preClassifyOut.PipelineName,
+				)
+			} else {
+				logger.Info("Pre-classify parity OK: hardcoded and rule engine agree",
+					"sender_email", input.SenderEmail,
+					"notification", hardcodedIsNotification,
+					"rule_engine_subtype", preClassifyOut.ContentSubtype,
+					"rule_engine_rule_name", preClassifyOut.RuleName,
+				)
+			}
 		}
 	}
 
@@ -2536,6 +2606,9 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			// which reads config-driven providers from pipeline_definitions.
 			// Fall back to the generic extractionContext on any error.
 			bgContext := extractionContext
+			ctxMeta := map[string]string{
+				"stage_name": stage.Stage,
+			}
 			if stage.Stage == "newsletter_extract" {
 				ctxNLCtx := workflow.WithActivityOptions(ctx, fastOpts)
 				var nlBgContext string
@@ -2552,17 +2625,23 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 						"error", nlErr.Error(),
 					)
 				} else {
-					bgContext = nlBgContext
+					bgContext = nlCtxOutput.BackgroundContext
+					ctxMeta["user_context_found"] = fmt.Sprintf("%v", nlCtxOutput.UserContextFound)
+					ctxMeta["glossary_count"] = fmt.Sprintf("%d", nlCtxOutput.GlossaryCount)
+					ctxMeta["project_count"] = fmt.Sprintf("%d", nlCtxOutput.ProjectCount)
+					ctxMeta["product_count"] = fmt.Sprintf("%d", nlCtxOutput.ProductCount)
 					logger.Info("newsletter context built",
 						"source_id", input.SourceID,
 						"context_length", len(nlBgContext),
 					)
 				}
 			}
+			ctxMeta["context_length"] = fmt.Sprintf("%d", len(bgContext))
 
 			var seOutput StructuredExtractOutput
 			seOpts := stageOpts(stage.Stage, llmOpts)
 			ctxSE := workflow.WithActivityOptions(ctx, seOpts)
+
 			seErr := workflow.ExecuteActivity(ctxSE, pkgtemporal.ActivityStructuredExtract, StructuredExtractInput{
 				TenantID:          input.TenantID,
 				SourceID:          input.SourceID,
@@ -2572,6 +2651,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				BackgroundContext: bgContext,
 				LangfuseTraceID:  langfuseTraceID,
 				LangfusePhaseID:  sePhaseID,
+				ContextMeta:      ctxMeta,
 			}).Get(ctx, &seOutput)
 
 			if seErr != nil {

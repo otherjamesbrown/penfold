@@ -1,16 +1,23 @@
 #!/bin/bash
-# Mycroft SessionStart hook — injects instance identity and work queue
+# Mycroft SessionStart hook — injects dynamic context (work queue, playbook)
+# Static context is loaded from .cxp/context/ files via pipeline config.
 # stdout becomes additionalContext in Claude Code.
 
 set -euo pipefail
 
+# If dispatched by the pipeline, skip — dispatch context is in CLAUDE.md
+if [ "${CXP_DISPATCH:-}" = "true" ]; then
+  echo "[Dispatched session — context provided via worktree CLAUDE.md]"
+  exit 0
+fi
+
 PROJ_DIR="$HOME/.claude/projects/-Users-james-github-otherjamesbrown-penfold"
 
-# 1. Instance identity (first 8 chars of conversation UUID)
+# Instance identity
 INSTANCE_ID=$(basename "$(ls -t "$PROJ_DIR"/*.jsonl 2>/dev/null | head -1)" .jsonl 2>/dev/null | cut -c1-8)
 echo "[Instance: mycroft:${INSTANCE_ID:-unknown}]"
 
-# 2. Work queue — shards marked ready for implementation
+# Work queue (dynamic — changes every session)
 READY_JSON=$(cxp shard list --type bug,task,spec --assigned-to agent-mycroft --limit 20 -o json 2>/dev/null || echo '{"results":[]}')
 READY_COUNT=$(echo "$READY_JSON" | jq '.results | length' 2>/dev/null || echo 0)
 
@@ -27,7 +34,7 @@ else
   echo "No items ready."
 fi
 
-# 3. In-progress work (from any previous session)
+# In-progress work (dynamic)
 IN_PROGRESS=$(cxp shard list --type bug,task,spec --status in_progress --assigned-to agent-mycroft --limit 10 2>/dev/null || true)
 if [ -n "$IN_PROGRESS" ] && ! echo "$IN_PROGRESS" | grep -q "No shards found"; then
   echo ""
@@ -36,7 +43,7 @@ if [ -n "$IN_PROGRESS" ] && ! echo "$IN_PROGRESS" | grep -q "No shards found"; t
   echo "$IN_PROGRESS"
 fi
 
-# 4. Blocked items needing attention
+# Blocked items (dynamic)
 BLOCKED=$(cxp shard list --label blocked --limit 10 2>/dev/null || true)
 if [ -n "$BLOCKED" ] && ! echo "$BLOCKED" | grep -q "No shards found"; then
   echo ""
@@ -45,13 +52,7 @@ if [ -n "$BLOCKED" ] && ! echo "$BLOCKED" | grep -q "No shards found"; then
   echo "$BLOCKED"
 fi
 
-# 5. Playbook
-echo ""
-echo "# Playbook #"
-echo ""
-cxp knowledge show pf-2b76b4 2>/dev/null || true
-
-# 6. Standing instructions
+# Standing instructions (dynamic)
 INSTRUCTIONS=$(cxp memory search "standing instruction for mycroft" --limit 5 2>/dev/null || true)
 if [ -n "$INSTRUCTIONS" ]; then
   echo ""
@@ -59,32 +60,3 @@ if [ -n "$INSTRUCTIONS" ]; then
   echo ""
   echo "$INSTRUCTIONS"
 fi
-
-# 7. Presentation instructions for the agent
-cat <<'INST'
-
-# Startup Instructions
-
-Present the work queue above to James as a table:
-
-| # | ID | Type | Title |
-|---|-----|------|-------|
-| 1 | pf-xxx | bug | ... |
-
-Then ask what he wants to work on:
-
-1. All items
-2. Bugs only (list IDs)
-3. Tasks only (list IDs)
-4. Pick specific items
-
-When James chooses, run /ingest.run with the selected shard IDs.
-Example: if James picks "2" and bugs are pf-xxx and pf-yyy, run /ingest.run pf-xxx pf-yyy
-
-If there are in-progress items from a previous session, mention them first and ask
-whether to resume or start fresh work.
-
-If there are blocked items, flag them prominently — these need James's input.
-
-Do NOT check the inbox — context is injected by this hook.
-INST

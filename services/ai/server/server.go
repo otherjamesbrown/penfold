@@ -230,18 +230,42 @@ func (s *AIServer) applyModelConstraints(ctx context.Context, model string, opts
 // extractLangfuseMetadata reads x-langfuse-trace-id and x-langfuse-phase-id from
 // incoming gRPC metadata. Returns empty strings if metadata is absent or the keys
 // are not present.
+// LangfuseCallMeta holds all Langfuse metadata extracted from gRPC context.
+type LangfuseCallMeta struct {
+	TraceID   string
+	PhaseID   string
+	StageName string            // e.g. "newsletter_extract" — overrides default generation name
+	Extra     map[string]string // additional metadata from x-langfuse-meta-* headers
+}
+
 func extractLangfuseMetadata(ctx context.Context) (traceID, phaseID string) {
+	m := extractLangfuseCallMeta(ctx)
+	return m.TraceID, m.PhaseID
+}
+
+func extractLangfuseCallMeta(ctx context.Context) LangfuseCallMeta {
+	m := LangfuseCallMeta{Extra: make(map[string]string)}
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
-		return "", ""
+		return m
 	}
 	if vals := md.Get("x-langfuse-trace-id"); len(vals) > 0 {
-		traceID = vals[0]
+		m.TraceID = vals[0]
 	}
 	if vals := md.Get("x-langfuse-phase-id"); len(vals) > 0 {
-		phaseID = vals[0]
+		m.PhaseID = vals[0]
 	}
-	return traceID, phaseID
+	if vals := md.Get("x-langfuse-stage-name"); len(vals) > 0 {
+		m.StageName = vals[0]
+	}
+	// Collect any x-langfuse-meta-* headers as extra metadata
+	for key, vals := range md {
+		if strings.HasPrefix(key, "x-langfuse-meta-") && len(vals) > 0 {
+			metaKey := strings.TrimPrefix(key, "x-langfuse-meta-")
+			m.Extra[metaKey] = vals[0]
+		}
+	}
+	return m
 }
 
 // reportErrorGeneration records a failed LLM call to Langfuse for observability.
@@ -447,13 +471,20 @@ func (s *AIServer) GenerateSummary(ctx context.Context, req *aiv1.SummaryRequest
 		}
 	}
 
-	// Start tracing span for the summary generation.
-	// The worker creates the stage.summarize span; this handler only creates ai.summarize.
-	ctx, span := tracing.StartLLMCall(ctx, "ai.summarize", tracing.LLMCallOptions{
+	// Start tracing span for the generation.
+	// Use stage name from caller if provided (e.g. "newsletter_extract"), else default to "summarize".
+	lfMeta := extractLangfuseCallMeta(ctx)
+	generationName := "ai.summarize"
+	taskType := "summarize"
+	if lfMeta.StageName != "" {
+		generationName = "ai." + lfMeta.StageName
+		taskType = lfMeta.StageName
+	}
+	ctx, span := tracing.StartLLMCall(ctx, generationName, tracing.LLMCallOptions{
 		Model:     model,
 		System:    tracing.AISystemMLX,
 		TenantID:  req.GetTenantId(),
-		TaskType:  "summarize",
+		TaskType:  taskType,
 		ContentID: req.GetContentId(),
 	})
 	defer span.End()
@@ -508,22 +539,32 @@ func (s *AIServer) GenerateSummary(ctx context.Context, req *aiv1.SummaryRequest
 			logging.Err(err),
 		)
 		tracing.SetError(span, err)
-		s.reportErrorGeneration(ctx, "ai.summarize", model, messages, err, startTime)
+		s.reportErrorGeneration(ctx, generationName, model, messages, err, startTime)
 		return nil, s.convertError(err)
 	}
 
 	// Report generation to Langfuse if configured and trace metadata is present.
 	if s.langfuse != nil {
-		lfTraceID, lfPhaseID := extractLangfuseMetadata(ctx)
-		if lfTraceID != "" {
+		if lfMeta.TraceID != "" {
+			// Build generation metadata from extra headers
+			genMeta := make(map[string]interface{})
+			genMeta["stage_kind"] = taskType
+			if lfMeta.StageName != "" {
+				genMeta["stage_name"] = lfMeta.StageName
+			}
+			for k, v := range lfMeta.Extra {
+				genMeta[k] = v
+			}
+
 			s.langfuse.CreateGeneration(langfuse.GenerationEvent{
 				ID:               uuid.New().String(),
-				TraceID:          lfTraceID,
-				ParentID:         lfPhaseID,
-				Name:             "ai.summarize",
+				TraceID:          lfMeta.TraceID,
+				ParentID:         lfMeta.PhaseID,
+				Name:             generationName,
 				Model:            result.Model,
 				Input:            messages,
 				Output:           result.Content,
+				Metadata:         genMeta,
 				PromptTokens:     result.InputTokens,
 				CompletionTokens: result.OutputTokens,
 				StartTime:        startTime,

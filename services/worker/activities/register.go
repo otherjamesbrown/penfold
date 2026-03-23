@@ -378,6 +378,13 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		})
 	}
 
+	// Pre-classify activities (pf-b375ad: shadow mode rule engine before triage)
+	if r.preClassifyActivities != nil {
+		w.RegisterActivityWithOptions(r.preClassifyActivities.PreClassify, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityPreClassify,
+		})
+	}
+
 	// Context builder activities for Stage 3 (context assembly)
 	if r.contextBuilderActivities != nil {
 		w.RegisterActivityWithOptions(r.contextBuilderActivities.BuildExtractionContext, activity.RegisterOptions{
