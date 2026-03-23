@@ -40,11 +40,12 @@ type ContextProviderInput struct {
 	ResolvedProjects []workflows.ResolvedProject
 }
 
-// providerRegistry maps provider names to their implementations.
-// Providers are registered here as they are implemented.
+// providerRegistry maps provider name to ContextProvider implementation.
+// Populated by RegisterContextProviders; the generic context builder uses this map
+// to resolve names declared in pipeline_definitions.context_providers.
 var providerRegistry = map[string]ContextProvider{}
 
-// LookupProvider returns the provider registered under the given name.
+// LookupProvider returns the ContextProvider registered under name, and whether it was found.
 func LookupProvider(name string) (ContextProvider, bool) {
 	p, ok := providerRegistry[name]
 	return p, ok
@@ -63,4 +64,5 @@ func RegisterContextProviders(
 	providerRegistry["glossary"] = NewGlossaryProvider(contextRepo, logger)
 	providerRegistry["active_projects"] = NewActiveProjectsProvider(newsletterRepo, logger)
 	providerRegistry["topics"] = NewTopicsProvider(topicRepo, logger)
+	providerRegistry["tracked_products"] = NewTrackedProductsProvider(newsletterRepo, logger)
 }
