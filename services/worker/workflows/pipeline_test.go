@@ -1561,8 +1561,11 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_ContentContribution_NONE() {
 	// TODO: After implementation, verify total processing time <2s (acceptance criteria)
 }
 
-// TestSLMPipeline_ContentContribution_LOW verifies that LOW contribution skips only deep analysis.
-// Acceptance criteria: When ContentContribution="LOW", only stage 4 (deep analysis) is skipped.
+// TestSLMPipeline_ContentContribution_LOW verifies that LOW contribution skips all stages
+// where skip_when_low=true in the pipeline definition.
+// Per-stage gating (pf-5f1a20): standardTestPipelineDef has extract_ner, extract_assertions,
+// resolve, analyze, and persist all with skip_when_low=true. LOW contribution gates them all.
+// Embed (skip_when_low=false) still runs.
 func (s *SLMPipelineTestSuite) TestSLMPipeline_ContentContribution_LOW() {
 	input := PipelineInput{
 		TenantID:    "tenant-1",
@@ -1583,9 +1586,7 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_ContentContribution_LOW() {
 		NewContent: "Company newsletter with generic updates.",
 	}, nil)
 
-	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
-		return in.Status == "parsed"
-	})).Return(nil)
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.Anything).Maybe().Return(nil)
 
 	// Stage 1: Triage - returns LOW contribution
 	s.activities.On("Triage", mock.Anything, mock.MatchedBy(func(in TriageInput) bool {
@@ -1600,42 +1601,18 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_ContentContribution_LOW() {
 		ContributionReason:  "Generic information, not actionable",
 	}, nil)
 
-	// Stage 2: Extract - SHOULD run for LOW contribution
-	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.MatchedBy(func(in SLMPipelineExtractEntitiesInput) bool {
-		return in.SourceID == 300
-	})).Return(&SLMPipelineExtractEntitiesOutput{
-		People: []PersonResult{},
-	}, nil)
-
-	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
-		return in.Status == "extracted"
-	})).Return(nil)
-
-	// Stage 3: Context - SHOULD run for LOW contribution
-	s.activities.On("BuildContextPackage", mock.Anything, mock.MatchedBy(func(in BuildContextInput) bool {
-		return in.SourceID == 300
-	})).Return(&BuildContextOutput{
-		EntitiesResolved: 0,
-	}, nil)
-
-	// Stage 4.5: Persist - SHOULD run for LOW contribution (persist extraction results)
-	s.activities.On("PersistFindings", mock.Anything, mock.MatchedBy(func(in PersistFindingsInput) bool {
-		return in.SourceID == 300 && in.Analysis == nil // No deep analysis
-	})).Return(&PersistFindingsOutput{
-		AssertionsCreated: 0,
-	}, nil)
-
-	// Stage 5: Embed
+	// Stage 5: Embed still runs (skip_when_low=false on embed stage)
 	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.MatchedBy(func(in GenerateEmbeddingInput) bool {
 		return in.SourceID == 300
 	})).Return(int64(5003), nil)
 
-	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
-		return in.Status == "completed"
-	})).Return(nil)
-
-	// CRITICAL: DeepAnalyze should NOT be called for LOW contribution
+	// CRITICAL: All stages with skip_when_low=true must NOT be called for LOW contribution.
+	// standardTestPipelineDef sets skip_when_low=true on: extract_ner, extract_assertions,
+	// resolve, analyze, persist. Per-stage gating (pf-5f1a20) gates each independently.
+	s.activities.AssertNotCalled(s.T(), "ExtractEntitiesActivity", mock.Anything, mock.Anything)
+	s.activities.AssertNotCalled(s.T(), "BuildContextPackage", mock.Anything, mock.Anything)
 	s.activities.AssertNotCalled(s.T(), "DeepAnalyze", mock.Anything, mock.Anything)
+	s.activities.AssertNotCalled(s.T(), "PersistFindings", mock.Anything, mock.Anything)
 
 	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)
 
