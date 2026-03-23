@@ -249,7 +249,7 @@ func (s *PipelineFallbackRemovalTestSuite) TestValidDefinition_WorkflowSucceeds(
 		Stages: []PipelineStageConfig{
 			{Stage: "parse", StageOrder: 0, Enabled: true, TimeoutSeconds: 60},
 			{Stage: "triage", StageOrder: 1, Enabled: true, TimeoutSeconds: 120},
-			{Stage: "embed", StageOrder: 5, Enabled: true, TimeoutSeconds: 60},
+			{Stage: "embed", StageKind: "embedding", StageOrder: 5, Enabled: true, TimeoutSeconds: 60},
 		},
 	}, nil)
 

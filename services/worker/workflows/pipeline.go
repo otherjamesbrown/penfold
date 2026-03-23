@@ -820,7 +820,6 @@ type FetchPipelineDefinitionOutput struct {
 	Found               bool                  `json:"found"`                  // True if definition was found in DB
 	ContentType         string                `json:"content_type,omitempty"` // Content type (email, meeting, etc.)
 	Stages              []PipelineStageConfig `json:"stages"`                 // Ordered stage configurations
-	DispatchLoopEnabled bool                  `json:"dispatch_loop_enabled"`  // Gate: routes eligible stages to generic dispatch loop
 }
 
 // PipelineStageConfig describes a stage's configuration from pipeline_definitions.
@@ -1024,11 +1023,9 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 	// Activity option presets
 	fastOpts := pkgtemporal.FastActivityOptions()
-	embeddingOpts := pkgtemporal.EmbeddingActivityOptions()
 	llmOpts := pkgtemporal.LLMActivityOptions()
 
 	fastOpts = pkgtemporal.WithNonRetryableErrors(fastOpts, pkgtemporal.NonRetryableErrors()...)
-	embeddingOpts = pkgtemporal.WithNonRetryableErrors(embeddingOpts, pkgtemporal.NonRetryableErrors()...)
 	llmOpts = pkgtemporal.WithNonRetryableErrors(llmOpts, pkgtemporal.NonRetryableErrors()...)
 
 	// stageConfigMap is populated after FetchPipelineDefinition completes.
@@ -1732,7 +1729,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				"stage_count", len(defOut.Stages),
 			)
 		} else {
-			logger.Info("No pipeline definition found in DB, using SLMPipelineStages fallback",
+			logger.Info("No pipeline definition found in DB",
 				"pipeline", pipelineName,
 			)
 		}
@@ -3028,77 +3025,65 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	embedPhaseID := sideEffectUUID(ctx)
 
 	var embeddingID int64
-	embedOpts := stageOpts("embed", embeddingOpts)
 
-	if pipelineDef != nil && pipelineDef.DispatchLoopEnabled && stageInPipeline(stageConfigMap, "embed") {
-		// --- Generic dispatch loop path (embedding stage only) ---
-		// Build []pkgtemporal.PipelineStageConfig filtered to embedding stage_kind.
-		var embeddingStages []pkgtemporal.PipelineStageConfig
-		for _, sc := range stageConfigMap {
-			if sc.StageKind == "embedding" {
-				embeddingStages = append(embeddingStages, pkgtemporal.PipelineStageConfig{
-					Stage:          sc.Stage,
-					StageKind:      sc.StageKind,
-					StageOrder:     sc.StageOrder,
-					Enabled:        sc.Enabled,
-					SkipWhenLow:    sc.SkipWhenLow,
-					Optional:       sc.Optional,
-					TimeoutSeconds: sc.TimeoutSeconds,
-					ModelOverride:  sc.ModelOverride,
-					PromptOverride: sc.PromptOverride,
-					PersistKey:     sc.PersistKey,
-					DependsOn:      sc.DependsOn,
-				})
-			}
+	// Build []pkgtemporal.PipelineStageConfig filtered to embedding stage_kind.
+	var embeddingStages []pkgtemporal.PipelineStageConfig
+	for _, sc := range stageConfigMap {
+		if sc.StageKind == "embedding" {
+			embeddingStages = append(embeddingStages, pkgtemporal.PipelineStageConfig{
+				Stage:          sc.Stage,
+				StageKind:      sc.StageKind,
+				StageOrder:     sc.StageOrder,
+				Enabled:        sc.Enabled,
+				SkipWhenLow:    sc.SkipWhenLow,
+				Optional:       sc.Optional,
+				TimeoutSeconds: sc.TimeoutSeconds,
+				ModelOverride:  sc.ModelOverride,
+				PromptOverride: sc.PromptOverride,
+				PersistKey:     sc.PersistKey,
+				DependsOn:      sc.DependsOn,
+			})
 		}
-		embeddingStages = pkgtemporal.OrderedPipelineStages(embeddingStages)
+	}
+	embeddingStages = pkgtemporal.OrderedPipelineStages(embeddingStages)
 
-		dispatchReg := pkgtemporal.NewExecutorRegistry(&pkgtemporal.NoOpLangfuseReporter{})
-		dispatchReg.Register("embedding", &pkgtemporal.EmbeddingExecutor{})
+	dispatchReg := pkgtemporal.NewExecutorRegistry(&pkgtemporal.NoOpLangfuseReporter{})
+	dispatchReg.Register("embedding", &pkgtemporal.EmbeddingExecutor{})
 
-		stageInput := pkgtemporal.StageInput{
-			TenantID:        input.TenantID,
-			SourceID:        input.SourceID,
-			ContentID:       input.ContentID,
-			Content:         parsedContent,
-			LangfuseTraceID: langfuseTraceID,
-		}
+	stageInput := pkgtemporal.StageInput{
+		TenantID:        input.TenantID,
+		SourceID:        input.SourceID,
+		ContentID:       input.ContentID,
+		Content:         parsedContent,
+		LangfuseTraceID: langfuseTraceID,
+	}
 
-		// Bridge workflow.Context into context.Context for the dispatch loop.
-		dispatchCtx := pkgtemporal.WithWorkflowContext(context.Background(), ctx)
+	// Bridge workflow.Context into context.Context for the dispatch loop.
+	dispatchCtx := pkgtemporal.WithWorkflowContext(context.Background(), ctx)
 
-		dispatchOutputs, dispatchErr := pkgtemporal.ExecutePipeline(
-			dispatchCtx,
-			dispatchReg,
-			embeddingStages,
-			stageInput,
-			logging.NewNopLogger(),
-		)
-		if dispatchErr != nil {
-			err = dispatchErr
-		} else {
-			// Extract embeddingID from the output of any succeeded embedding stage.
-			for _, out := range dispatchOutputs {
-				if out.Success && out.RawData != nil {
-					var result pkgtemporal.EmbeddingResult
-					if jsonErr := json.Unmarshal(out.RawData, &result); jsonErr == nil && result.EmbeddingID != 0 {
-						embeddingID = result.EmbeddingID
-					}
+	dispatchOutputs, dispatchErr := pkgtemporal.ExecutePipeline(
+		dispatchCtx,
+		dispatchReg,
+		embeddingStages,
+		stageInput,
+		logging.NewNopLogger(),
+	)
+	if dispatchErr != nil {
+		err = dispatchErr
+	} else {
+		// Clear any stale error from prior non-blocking stages (e.g. TagProjects).
+		// In the old sequential path, `err = workflow.ExecuteActivity(...)` always
+		// overwrote err on success; we replicate that here explicitly.
+		err = nil
+		// Extract embeddingID from the output of any succeeded embedding stage.
+		for _, out := range dispatchOutputs {
+			if out.Success && out.RawData != nil {
+				var result pkgtemporal.EmbeddingResult
+				if jsonErr := json.Unmarshal(out.RawData, &result); jsonErr == nil && result.EmbeddingID != 0 {
+					embeddingID = result.EmbeddingID
 				}
 			}
 		}
-	} else {
-		// --- Legacy embedding path ---
-		ctxEmbed := workflow.WithActivityOptions(ctx, embedOpts)
-		err = workflow.ExecuteActivity(ctxEmbed, pkgtemporal.ActivityGenerateContentEmbedding, GenerateEmbeddingInput{
-			TenantID:        input.TenantID,
-			SourceID:        input.SourceID,
-			ContentID:       input.ContentID,
-			Content:         parsedContent,
-			ContentHash:     input.ContentHash,
-			LangfuseTraceID: langfuseTraceID,
-			LangfusePhaseID: embedPhaseID,
-		}).Get(ctx, &embeddingID)
 	}
 
 	if err != nil {
@@ -3137,7 +3122,6 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	logger.Info("pipeline stage span completed",
 		"stage.name", "embed",
 		"stage.duration_ms", workflow.Now(ctx).Sub(embedStart).Milliseconds(),
-		"stage.timeout_start_to_close_ms", embedOpts.StartToCloseTimeout.Milliseconds(),
 	)
 	logger.Info("pipeline stage completed",
 		"source_id", input.SourceID,

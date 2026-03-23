@@ -29,7 +29,6 @@ type PipelineActivities struct {
 	baseRepo       *pipeline.Repository // Direct access for lookups (RecordOverrides, etc.)
 	definitionRepo pipelineDefinitionRepo // Injected for FetchPipelineDefinition; defaults to baseRepo.
 	pipelineClient pipelinev1.PipelineServiceClient
-	opConfig       OperationalConfigReader // Optional: reads pipeline_operational_config flags.
 }
 
 // NewPipelineActivities creates a new PipelineActivities instance.
@@ -59,14 +58,6 @@ func NewPipelineActivities(
 // The client is optional — if nil, KickNextPending will be a no-op.
 func (a *PipelineActivities) WithPipelineClient(client pipelinev1.PipelineServiceClient) *PipelineActivities {
 	a.pipelineClient = client
-	return a
-}
-
-// WithOperationalConfig sets the operational config reader used to resolve feature flags
-// (e.g., dispatch_loop.enabled) at activity execution time.
-// The reader is optional — when nil, all flags default to their off/zero values.
-func (a *PipelineActivities) WithOperationalConfig(r OperationalConfigReader) *PipelineActivities {
-	a.opConfig = r
 	return a
 }
 
@@ -317,16 +308,6 @@ func (a *PipelineActivities) FetchPipelineDefinition(ctx context.Context, input 
 		if s.PersistKey != nil {
 			out.Stages[i].PersistKey = *s.PersistKey
 		}
-	}
-
-	// Read dispatch_loop.enabled flag from operational config (if configured).
-	// Defaults to false when the key is absent or the config reader is not wired.
-	if a.opConfig != nil {
-		val, err := a.opConfig.GetString(ctx, input.TenantID, "dispatch_loop.enabled")
-		if err == nil {
-			out.DispatchLoopEnabled = val == "true"
-		}
-		// Missing key → stays false (feature off by default).
 	}
 
 	// Validate DAG at pipeline load time — fail fast before any stage executes.

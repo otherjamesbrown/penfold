@@ -29,7 +29,7 @@ func standardTestPipelineDef() *FetchPipelineDefinitionOutput {
 			{Stage: "enrich_entities", StageOrder: 5, Enabled: true, SkipWhenLow: true, Optional: true},
 			{Stage: "analyze", StageOrder: 6, Enabled: true, SkipWhenLow: true, Optional: true},
 			{Stage: "persist", StageOrder: 7, Enabled: true, SkipWhenLow: true},
-			{Stage: "embed", StageOrder: 8, Enabled: true},
+			{Stage: "embed", StageKind: "embedding", StageOrder: 8, Enabled: true},
 		},
 	}
 }
