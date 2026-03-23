@@ -27,6 +27,7 @@ type StageDefinition struct {
 	Temperature    *float64
 	MaxTokens      *int
 	MaxRetries     *int
+	DependsOn      []string // Stage names that must complete successfully before this stage runs
 	CreatedAt      time.Time
 }
 
@@ -74,7 +75,7 @@ func (r *Repository) ListPipelines(ctx context.Context, tenantID string) ([]Pipe
 	rows, err := r.db.Query(ctx, `
 		SELECT id, tenant_id, pipeline, content_type, stage, stage_kind, persist_key, stage_order, enabled,
 		       model_override, prompt_override, skip_when_low, optional,
-		       timeout_seconds, temperature, max_tokens, max_retries, created_at
+		       timeout_seconds, temperature, max_tokens, max_retries, depends_on, created_at
 		FROM pipeline_definitions
 		WHERE tenant_id = $1
 		ORDER BY pipeline, stage_order
@@ -92,7 +93,7 @@ func (r *Repository) ListPipelines(ctx context.Context, tenantID string) ([]Pipe
 			&sd.ID, &sd.TenantID, &sd.Pipeline, &sd.ContentType, &sd.Stage, &sd.StageKind, &sd.PersistKey, &sd.StageOrder,
 			&sd.Enabled, &sd.ModelOverride, &sd.PromptOverride,
 			&sd.SkipWhenLow, &sd.Optional, &sd.TimeoutSeconds,
-			&sd.Temperature, &sd.MaxTokens, &sd.MaxRetries, &sd.CreatedAt,
+			&sd.Temperature, &sd.MaxTokens, &sd.MaxRetries, &sd.DependsOn, &sd.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning pipeline definition: %w", err)
 		}
@@ -126,7 +127,7 @@ func (r *Repository) GetPipelineStages(ctx context.Context, tenantID, pipeline s
 	rows, err := r.db.Query(ctx, `
 		SELECT id, tenant_id, pipeline, content_type, stage, stage_kind, persist_key, stage_order, enabled,
 		       model_override, prompt_override, skip_when_low, optional,
-		       timeout_seconds, temperature, max_tokens, max_retries, created_at
+		       timeout_seconds, temperature, max_tokens, max_retries, depends_on, created_at
 		FROM pipeline_definitions
 		WHERE tenant_id = $1 AND pipeline = $2
 		ORDER BY stage_order
@@ -143,7 +144,7 @@ func (r *Repository) GetPipelineStages(ctx context.Context, tenantID, pipeline s
 			&sd.ID, &sd.TenantID, &sd.Pipeline, &sd.ContentType, &sd.Stage, &sd.StageKind, &sd.PersistKey, &sd.StageOrder,
 			&sd.Enabled, &sd.ModelOverride, &sd.PromptOverride,
 			&sd.SkipWhenLow, &sd.Optional, &sd.TimeoutSeconds,
-			&sd.Temperature, &sd.MaxTokens, &sd.MaxRetries, &sd.CreatedAt,
+			&sd.Temperature, &sd.MaxTokens, &sd.MaxRetries, &sd.DependsOn, &sd.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning pipeline stage: %w", err)
 		}
@@ -226,7 +227,7 @@ func (r *Repository) UpdateStageConfig(ctx context.Context, tenantID, pipeline, 
 		WHERE tenant_id = $1 AND pipeline = $2 AND stage = $3
 		RETURNING id, tenant_id, pipeline, content_type, stage, stage_kind, persist_key, stage_order, enabled,
 		          model_override, prompt_override, skip_when_low, optional,
-		          timeout_seconds, temperature, max_tokens, max_retries, created_at
+		          timeout_seconds, temperature, max_tokens, max_retries, depends_on, created_at
 	`, joinStrings(setClauses, ", "))
 
 	var sd StageDefinition
@@ -234,7 +235,7 @@ func (r *Repository) UpdateStageConfig(ctx context.Context, tenantID, pipeline, 
 		&sd.ID, &sd.TenantID, &sd.Pipeline, &sd.ContentType, &sd.Stage, &sd.StageKind, &sd.PersistKey, &sd.StageOrder,
 		&sd.Enabled, &sd.ModelOverride, &sd.PromptOverride,
 		&sd.SkipWhenLow, &sd.Optional, &sd.TimeoutSeconds,
-		&sd.Temperature, &sd.MaxTokens, &sd.MaxRetries, &sd.CreatedAt,
+		&sd.Temperature, &sd.MaxTokens, &sd.MaxRetries, &sd.DependsOn, &sd.CreatedAt,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, fmt.Errorf("stage %q in pipeline %q not found", stage, pipeline)
@@ -324,14 +325,14 @@ func (r *Repository) getStageDefinition(ctx context.Context, tenantID, pipeline,
 	err := r.db.QueryRow(ctx, `
 		SELECT id, tenant_id, pipeline, content_type, stage, stage_kind, persist_key, stage_order, enabled,
 		       model_override, prompt_override, skip_when_low, optional,
-		       timeout_seconds, temperature, max_tokens, max_retries, created_at
+		       timeout_seconds, temperature, max_tokens, max_retries, depends_on, created_at
 		FROM pipeline_definitions
 		WHERE tenant_id = $1 AND pipeline = $2 AND stage = $3
 	`, tenantID, pipeline, stage).Scan(
 		&sd.ID, &sd.TenantID, &sd.Pipeline, &sd.ContentType, &sd.Stage, &sd.StageKind, &sd.PersistKey, &sd.StageOrder,
 		&sd.Enabled, &sd.ModelOverride, &sd.PromptOverride,
 		&sd.SkipWhenLow, &sd.Optional, &sd.TimeoutSeconds,
-		&sd.Temperature, &sd.MaxTokens, &sd.MaxRetries, &sd.CreatedAt,
+		&sd.Temperature, &sd.MaxTokens, &sd.MaxRetries, &sd.DependsOn, &sd.CreatedAt,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, fmt.Errorf("stage %q in pipeline %q not found", stage, pipeline)

@@ -11,16 +11,17 @@ import (
 // The services/worker/workflows package has a parallel definition used by the
 // existing workflow; both will be reconciled when the generic dispatch loop lands.
 type PipelineStageConfig struct {
-	Stage          string `json:"stage"`
-	StageKind      string `json:"stage_kind"`
-	PersistKey     string `json:"persist_key,omitempty"`
-	StageOrder     int    `json:"stage_order"`
-	Enabled        bool   `json:"enabled"`
-	SkipWhenLow    bool   `json:"skip_when_low"`
-	Optional       bool   `json:"optional"`
-	TimeoutSeconds int    `json:"timeout_seconds"`
-	ModelOverride  string `json:"model_override,omitempty"`
-	PromptOverride int32  `json:"prompt_override,omitempty"`
+	Stage          string   `json:"stage"`
+	StageKind      string   `json:"stage_kind"`
+	PersistKey     string   `json:"persist_key,omitempty"`
+	StageOrder     int      `json:"stage_order"`
+	Enabled        bool     `json:"enabled"`
+	SkipWhenLow    bool     `json:"skip_when_low"`
+	Optional       bool     `json:"optional"`
+	TimeoutSeconds int      `json:"timeout_seconds"`
+	ModelOverride  string   `json:"model_override,omitempty"`
+	PromptOverride int32    `json:"prompt_override,omitempty"`
+	DependsOn      []string `json:"depends_on,omitempty"` // Stage names that must complete successfully before this stage runs
 }
 
 // StageOutput is the standard envelope returned by every StageExecutor.
