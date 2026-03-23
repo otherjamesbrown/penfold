@@ -60,8 +60,9 @@ type StructuredExtractInput struct {
 	StageName         string `json:"stage_name"`
 	PromptOverride    int32  `json:"prompt_override,omitempty"`
 	BackgroundContext string `json:"background_context,omitempty"`
-	LangfuseTraceID   string `json:"langfuse_trace_id,omitempty"`
-	LangfusePhaseID   string `json:"langfuse_phase_id,omitempty"`
+	LangfuseTraceID   string            `json:"langfuse_trace_id,omitempty"`
+	LangfusePhaseID   string            `json:"langfuse_phase_id,omitempty"`
+	ContextMeta       map[string]string `json:"context_meta,omitempty"` // metadata to attach to Langfuse generation
 }
 
 // StructuredExtractOutput is the output from the StructuredExtract activity.
@@ -130,10 +131,18 @@ func (a *StructuredExtractActivities) StructuredExtract(ctx context.Context, inp
 	// Attach Langfuse tracing metadata for AI coordinator generation observation linkage.
 	callCtx := ctx
 	if input.LangfuseTraceID != "" {
-		md := metadata.Pairs(
+		pairs := []string{
 			"x-langfuse-trace-id", input.LangfuseTraceID,
 			"x-langfuse-phase-id", input.LangfusePhaseID,
-		)
+			"x-langfuse-stage-name", input.StageName,
+		}
+		// Pass context metadata as extra Langfuse metadata
+		if input.ContextMeta != nil {
+			for k, v := range input.ContextMeta {
+				pairs = append(pairs, "x-langfuse-meta-"+k, v)
+			}
+		}
+		md := metadata.Pairs(pairs...)
 		callCtx = metadata.NewOutgoingContext(ctx, md)
 	}
 

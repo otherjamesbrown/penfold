@@ -710,8 +710,9 @@ type StructuredExtractInput struct {
 	StageName         string `json:"stage_name"`
 	PromptOverride    int32  `json:"prompt_override,omitempty"`
 	BackgroundContext string `json:"background_context,omitempty"`
-	LangfuseTraceID   string `json:"langfuse_trace_id,omitempty"`
-	LangfusePhaseID   string `json:"langfuse_phase_id,omitempty"`
+	LangfuseTraceID   string            `json:"langfuse_trace_id,omitempty"`
+	LangfusePhaseID   string            `json:"langfuse_phase_id,omitempty"`
+	ContextMeta       map[string]string `json:"context_meta,omitempty"`
 }
 
 // StructuredExtractOutput is the output from the generic StructuredExtract activity.
@@ -2605,6 +2606,9 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			// which reads config-driven providers from pipeline_definitions.
 			// Fall back to the generic extractionContext on any error.
 			bgContext := extractionContext
+			ctxMeta := map[string]string{
+				"stage_name": stage.Stage,
+			}
 			if stage.Stage == "newsletter_extract" {
 				ctxNLCtx := workflow.WithActivityOptions(ctx, fastOpts)
 				var nlBgContext string
@@ -2621,17 +2625,23 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 						"error", nlErr.Error(),
 					)
 				} else {
-					bgContext = nlBgContext
+					bgContext = nlCtxOutput.BackgroundContext
+					ctxMeta["user_context_found"] = fmt.Sprintf("%v", nlCtxOutput.UserContextFound)
+					ctxMeta["glossary_count"] = fmt.Sprintf("%d", nlCtxOutput.GlossaryCount)
+					ctxMeta["project_count"] = fmt.Sprintf("%d", nlCtxOutput.ProjectCount)
+					ctxMeta["product_count"] = fmt.Sprintf("%d", nlCtxOutput.ProductCount)
 					logger.Info("newsletter context built",
 						"source_id", input.SourceID,
 						"context_length", len(nlBgContext),
 					)
 				}
 			}
+			ctxMeta["context_length"] = fmt.Sprintf("%d", len(bgContext))
 
 			var seOutput StructuredExtractOutput
 			seOpts := stageOpts(stage.Stage, llmOpts)
 			ctxSE := workflow.WithActivityOptions(ctx, seOpts)
+
 			seErr := workflow.ExecuteActivity(ctxSE, pkgtemporal.ActivityStructuredExtract, StructuredExtractInput{
 				TenantID:          input.TenantID,
 				SourceID:          input.SourceID,
@@ -2641,6 +2651,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				BackgroundContext: bgContext,
 				LangfuseTraceID:  langfuseTraceID,
 				LangfusePhaseID:  sePhaseID,
+				ContextMeta:      ctxMeta,
 			}).Get(ctx, &seOutput)
 
 			if seErr != nil {
