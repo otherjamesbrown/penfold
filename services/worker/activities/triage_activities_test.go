@@ -772,6 +772,10 @@ func (m *mockCapturingPipelineRepo) RecordOverrides(_ context.Context, _ int64, 
 	return nil
 }
 
+func (m *mockCapturingPipelineRepo) GetContextProviders(_ context.Context, _, _, _ string) ([]string, error) {
+	return nil, nil
+}
+
 // TestTriage_MeetingTranscript_ShortCircuit_pf025e10 verifies that meeting transcripts
 // skip the AI triage call and are auto-classified as PROJECT_UPDATE/HIGH.
 // Bug pf-025e10: meetings misclassified as PERSONAL/LOW due to 500-char truncation

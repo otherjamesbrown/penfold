@@ -360,6 +360,24 @@ func (r *Repository) GetStageLLMParams(ctx context.Context, tenantID, pipeline, 
 	return &sp, nil
 }
 
+// GetContextProviders returns the context_providers text[] for a specific pipeline stage.
+// Returns an empty slice when the stage is not found or the array is empty.
+func (r *Repository) GetContextProviders(ctx context.Context, tenantID, pipelineName, stage string) ([]string, error) {
+	var providers []string
+	err := r.db.QueryRow(ctx, `
+		SELECT COALESCE(context_providers, '{}')
+		FROM pipeline_definitions
+		WHERE tenant_id = $1 AND pipeline = $2 AND stage = $3
+	`, tenantID, pipelineName, stage).Scan(&providers)
+	if err == pgx.ErrNoRows {
+		return []string{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting context providers for %s/%s: %w", pipelineName, stage, err)
+	}
+	return providers, nil
+}
+
 // joinStrings joins a slice with a separator (avoids importing strings for one use).
 func joinStrings(s []string, sep string) string {
 	if len(s) == 0 {
