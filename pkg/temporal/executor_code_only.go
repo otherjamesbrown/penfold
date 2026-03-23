@@ -73,27 +73,27 @@ func (e *CodeOnlyExecutor) Execute(ctx workflow.Context, input StageInput) (Stag
 		input.Payload,
 	).Get(ctx, &rawResult)
 
-	durationMs := workflow.Now(ctx).Sub(start).Milliseconds()
+	duration := workflow.Now(ctx).Sub(start)
 
 	if err != nil {
 		if input.Config.Optional {
 			// Non-blocking: capture the error but return success so the pipeline continues.
 			return StageOutput{
-				Success:    true,
-				Error:      err.Error(),
-				DurationMs: durationMs,
+				Success:  true,
+				Error:    err.Error(),
+				Duration: duration,
 			}, nil
 		}
 		return StageOutput{
-			Success:    false,
-			Error:      err.Error(),
-			DurationMs: durationMs,
+			Success:  false,
+			Error:    err.Error(),
+			Duration: duration,
 		}, err
 	}
 
 	return StageOutput{
-		Success:    true,
-		RawData:    rawResult,
-		DurationMs: durationMs,
+		Success:  true,
+		RawData:  rawResult,
+		Duration: duration,
 	}, nil
 }
