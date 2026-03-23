@@ -2,6 +2,7 @@
 package workflows
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/otherjamesbrown/penfold/pkg/enrichment"
 	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
+	"github.com/otherjamesbrown/penfold/pkg/logging"
 	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 )
 
@@ -815,9 +817,10 @@ type FetchPipelineDefinitionInput struct {
 
 // FetchPipelineDefinitionOutput is the output from the FetchPipelineDefinition activity.
 type FetchPipelineDefinitionOutput struct {
-	Found       bool                  `json:"found"`                  // True if definition was found in DB
-	ContentType string                `json:"content_type,omitempty"` // Content type (email, meeting, etc.)
-	Stages      []PipelineStageConfig `json:"stages"`                 // Ordered stage configurations
+	Found               bool                  `json:"found"`                  // True if definition was found in DB
+	ContentType         string                `json:"content_type,omitempty"` // Content type (email, meeting, etc.)
+	Stages              []PipelineStageConfig `json:"stages"`                 // Ordered stage configurations
+	DispatchLoopEnabled bool                  `json:"dispatch_loop_enabled"`  // Gate: routes eligible stages to generic dispatch loop
 }
 
 // PipelineStageConfig describes a stage's configuration from pipeline_definitions.
@@ -3026,17 +3029,78 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 
 	var embeddingID int64
 	embedOpts := stageOpts("embed", embeddingOpts)
-	ctxEmbed := workflow.WithActivityOptions(ctx, embedOpts)
-	err = workflow.ExecuteActivity(ctxEmbed, pkgtemporal.ActivityGenerateContentEmbedding, GenerateEmbeddingInput{
-		TenantID:        input.TenantID,
-		SourceID:        input.SourceID,
-		ContentID:       input.ContentID,
-		Content:         parsedContent,
-		ContentHash:     input.ContentHash,
-		LangfuseTraceID: langfuseTraceID,
-		LangfusePhaseID: embedPhaseID,
 
-	}).Get(ctx, &embeddingID)
+	if pipelineDef != nil && pipelineDef.DispatchLoopEnabled && stageInPipeline(stageConfigMap, "embed") {
+		// --- Generic dispatch loop path (embedding stage only) ---
+		// Build []pkgtemporal.PipelineStageConfig filtered to embedding stage_kind.
+		var embeddingStages []pkgtemporal.PipelineStageConfig
+		for _, sc := range stageConfigMap {
+			if sc.StageKind == "embedding" {
+				embeddingStages = append(embeddingStages, pkgtemporal.PipelineStageConfig{
+					Stage:          sc.Stage,
+					StageKind:      sc.StageKind,
+					StageOrder:     sc.StageOrder,
+					Enabled:        sc.Enabled,
+					SkipWhenLow:    sc.SkipWhenLow,
+					Optional:       sc.Optional,
+					TimeoutSeconds: sc.TimeoutSeconds,
+					ModelOverride:  sc.ModelOverride,
+					PromptOverride: sc.PromptOverride,
+					PersistKey:     sc.PersistKey,
+					DependsOn:      sc.DependsOn,
+				})
+			}
+		}
+		embeddingStages = pkgtemporal.OrderedPipelineStages(embeddingStages)
+
+		dispatchReg := pkgtemporal.NewExecutorRegistry(&pkgtemporal.NoOpLangfuseReporter{})
+		dispatchReg.Register("embedding", &pkgtemporal.EmbeddingExecutor{})
+
+		stageInput := pkgtemporal.StageInput{
+			TenantID:        input.TenantID,
+			SourceID:        input.SourceID,
+			ContentID:       input.ContentID,
+			Content:         parsedContent,
+			LangfuseTraceID: langfuseTraceID,
+		}
+
+		// Bridge workflow.Context into context.Context for the dispatch loop.
+		dispatchCtx := pkgtemporal.WithWorkflowContext(context.Background(), ctx)
+
+		dispatchOutputs, dispatchErr := pkgtemporal.ExecutePipeline(
+			dispatchCtx,
+			dispatchReg,
+			embeddingStages,
+			stageInput,
+			logging.NewNopLogger(),
+		)
+		if dispatchErr != nil {
+			err = dispatchErr
+		} else {
+			// Extract embeddingID from the output of any succeeded embedding stage.
+			for _, out := range dispatchOutputs {
+				if out.Success && out.RawData != nil {
+					var result pkgtemporal.EmbeddingResult
+					if jsonErr := json.Unmarshal(out.RawData, &result); jsonErr == nil && result.EmbeddingID != 0 {
+						embeddingID = result.EmbeddingID
+					}
+				}
+			}
+		}
+	} else {
+		// --- Legacy embedding path ---
+		ctxEmbed := workflow.WithActivityOptions(ctx, embedOpts)
+		err = workflow.ExecuteActivity(ctxEmbed, pkgtemporal.ActivityGenerateContentEmbedding, GenerateEmbeddingInput{
+			TenantID:        input.TenantID,
+			SourceID:        input.SourceID,
+			ContentID:       input.ContentID,
+			Content:         parsedContent,
+			ContentHash:     input.ContentHash,
+			LangfuseTraceID: langfuseTraceID,
+			LangfusePhaseID: embedPhaseID,
+		}).Get(ctx, &embeddingID)
+	}
+
 	if err != nil {
 		runCompensation(ctx)
 		pe := perrors.ClassifyError(err, "embed")

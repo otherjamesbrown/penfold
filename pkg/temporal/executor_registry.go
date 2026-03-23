@@ -83,6 +83,16 @@ type ExecutorRegistry struct {
 	reporter  LangfuseReporter
 }
 
+// NoOpLangfuseReporter is a LangfuseReporter that discards all reports.
+// Use it when Langfuse reporting is handled elsewhere (e.g., by the activity itself)
+// or in tests where tracing is not needed.
+type NoOpLangfuseReporter struct{}
+
+// ReportPhase is a no-op implementation of LangfuseReporter.
+func (n *NoOpLangfuseReporter) ReportPhase(_ context.Context, _ LangfusePhaseReport) error {
+	return nil
+}
+
 // NewExecutorRegistry creates a registry with the given Langfuse reporter.
 // The reporter is injected into every LangfuseWrappedExecutor created by Register.
 func NewExecutorRegistry(reporter LangfuseReporter) *ExecutorRegistry {
