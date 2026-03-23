@@ -32,6 +32,10 @@ func (r *capturingPipelineRepo) RecordOverrides(_ context.Context, _ int64, _ ma
 	return nil
 }
 
+func (r *capturingPipelineRepo) GetContextProviders(_ context.Context, _, _, _ string) ([]string, error) {
+	return nil, nil
+}
+
 // TestTriagePipelineRun_ModelAndTokensRecorded verifies that the Triage activity
 // populates model_id, input_tokens, and output_tokens in the pipeline_runs row.
 func TestTriagePipelineRun_ModelAndTokensRecorded(t *testing.T) {

@@ -14,6 +14,26 @@ import (
 	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 )
 
+// standardTestPipelineDef returns a pipeline definition matching the standard SLM pipeline stages.
+// Used as the default mock return for FetchPipelineDefinition in tests that don't need a specific definition.
+func standardTestPipelineDef() *FetchPipelineDefinitionOutput {
+	return &FetchPipelineDefinitionOutput{
+		Found:       true,
+		ContentType: "email",
+		Stages: []PipelineStageConfig{
+			{Stage: "parse", StageOrder: 0, Enabled: true},
+			{Stage: "triage", StageOrder: 1, Enabled: true},
+			{Stage: "extract_ner", StageOrder: 2, Enabled: true, SkipWhenLow: true},
+			{Stage: "extract_assertions", StageOrder: 3, Enabled: true, SkipWhenLow: true},
+			{Stage: "resolve", StageOrder: 4, Enabled: true, SkipWhenLow: true},
+			{Stage: "enrich_entities", StageOrder: 5, Enabled: true, SkipWhenLow: true, Optional: true},
+			{Stage: "analyze", StageOrder: 6, Enabled: true, SkipWhenLow: true, Optional: true},
+			{Stage: "persist", StageOrder: 7, Enabled: true, SkipWhenLow: true},
+			{Stage: "embed", StageOrder: 8, Enabled: true},
+		},
+	}
+}
+
 // PipelineMockActivities provides mock implementations for pipeline activities.
 type PipelineMockActivities struct {
 	mock.Mock
@@ -161,12 +181,9 @@ func (m *PipelineMockActivities) BuildExtractionContext(ctx context.Context, inp
 	return args.Get(0).(*BuildExtractionContextOutput), args.Error(1)
 }
 
-func (m *PipelineMockActivities) BuildNewsletterContext(ctx context.Context, input BuildNewsletterContextInput) (*BuildNewsletterContextOutput, error) {
+func (m *PipelineMockActivities) BuildStageContext(ctx context.Context, input BuildStageContextInput) (string, error) {
 	args := m.Called(ctx, input)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*BuildNewsletterContextOutput), args.Error(1)
+	return args.String(0), args.Error(1)
 }
 
 func (m *PipelineMockActivities) PersistExtractedData(ctx context.Context, input PersistExtractedDataInput) (*PersistExtractedDataOutput, error) {
@@ -211,7 +228,7 @@ func (s *SLMPipelineTestSuite) SetupTest() {
 	s.env.RegisterActivityWithOptions(s.activities.FetchPipelineDefinition, activity.RegisterOptions{Name: pkgtemporal.ActivityFetchPipelineDefinition})
 	s.env.RegisterActivityWithOptions(s.activities.StructuredExtract, activity.RegisterOptions{Name: pkgtemporal.ActivityStructuredExtract})
 	s.env.RegisterActivityWithOptions(s.activities.BuildExtractionContext, activity.RegisterOptions{Name: pkgtemporal.ActivityBuildExtractionContext})
-	s.env.RegisterActivityWithOptions(s.activities.BuildNewsletterContext, activity.RegisterOptions{Name: pkgtemporal.ActivityBuildNewsletterContext})
+	s.env.RegisterActivityWithOptions(s.activities.BuildStageContext, activity.RegisterOptions{Name: pkgtemporal.ActivityBuildStageContext})
 	s.env.RegisterActivityWithOptions(s.activities.PersistExtractedData, activity.RegisterOptions{Name: pkgtemporal.ActivityPersistExtractedData})
 
 	// Default mock expectations for enrichment/threading activities (blocking since pf-67502c fix).
@@ -222,9 +239,9 @@ func (s *SLMPipelineTestSuite) SetupTest() {
 	s.activities.On("GenerateContentSummary", mock.Anything, mock.Anything).Maybe().Return(int64(0), nil)
 	// pf-91b00d: DeleteAssertions is best-effort; default to no-op so tests that don't care about it pass.
 	s.activities.On("DeleteAssertions", mock.Anything, mock.Anything).Maybe().Return(&DeleteAssertionsOutput{Deleted: 0}, nil)
-	// FetchPipelineDefinition: default to not-found so tests that don't set input.Pipeline skip the early fetch.
-	// Tests that explicitly set input.Pipeline must override this with specific expectations.
-	s.activities.On("FetchPipelineDefinition", mock.Anything, mock.Anything).Maybe().Return(&FetchPipelineDefinitionOutput{Found: false}, nil)
+	// FetchPipelineDefinition: default to standard pipeline definition.
+	// Tests that need a specific pipeline definition must override this.
+	s.activities.On("FetchPipelineDefinition", mock.Anything, mock.Anything).Maybe().Return(standardTestPipelineDef(), nil)
 }
 
 func (s *SLMPipelineTestSuite) AfterTest(suiteName, testName string) {
@@ -587,6 +604,10 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_Stage4Timeout() {
 }
 
 // TestSLMPipeline_QueryStatus tests the status query handler.
+//
+// Per-stage skip_when_low gating (pf-5f1a20): TotalSteps reflects only the stages that
+// actually run. With SkipDeep=true, stages with skip_when_low=true are gated.
+// standardTestPipelineDef has parse/triage/embed with skip_when_low=false → 3 steps.
 func (s *SLMPipelineTestSuite) TestSLMPipeline_QueryStatus() {
 	input := PipelineInput{
 		TenantID:    "tenant-1",
@@ -1537,8 +1558,11 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_ContentContribution_NONE() {
 	// TODO: After implementation, verify total processing time <2s (acceptance criteria)
 }
 
-// TestSLMPipeline_ContentContribution_LOW verifies that LOW contribution skips only deep analysis.
-// Acceptance criteria: When ContentContribution="LOW", only stage 4 (deep analysis) is skipped.
+// TestSLMPipeline_ContentContribution_LOW verifies that LOW contribution skips all stages
+// where skip_when_low=true in the pipeline definition.
+// Per-stage gating (pf-5f1a20): standardTestPipelineDef has extract_ner, extract_assertions,
+// resolve, analyze, and persist all with skip_when_low=true. LOW contribution gates them all.
+// Embed (skip_when_low=false) still runs.
 func (s *SLMPipelineTestSuite) TestSLMPipeline_ContentContribution_LOW() {
 	input := PipelineInput{
 		TenantID:    "tenant-1",
@@ -1559,9 +1583,7 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_ContentContribution_LOW() {
 		NewContent: "Company newsletter with generic updates.",
 	}, nil)
 
-	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
-		return in.Status == "parsed"
-	})).Return(nil)
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.Anything).Maybe().Return(nil)
 
 	// Stage 1: Triage - returns LOW contribution
 	s.activities.On("Triage", mock.Anything, mock.MatchedBy(func(in TriageInput) bool {
@@ -1576,42 +1598,18 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_ContentContribution_LOW() {
 		ContributionReason:  "Generic information, not actionable",
 	}, nil)
 
-	// Stage 2: Extract - SHOULD run for LOW contribution
-	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.MatchedBy(func(in SLMPipelineExtractEntitiesInput) bool {
-		return in.SourceID == 300
-	})).Return(&SLMPipelineExtractEntitiesOutput{
-		People: []PersonResult{},
-	}, nil)
-
-	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
-		return in.Status == "extracted"
-	})).Return(nil)
-
-	// Stage 3: Context - SHOULD run for LOW contribution
-	s.activities.On("BuildContextPackage", mock.Anything, mock.MatchedBy(func(in BuildContextInput) bool {
-		return in.SourceID == 300
-	})).Return(&BuildContextOutput{
-		EntitiesResolved: 0,
-	}, nil)
-
-	// Stage 4.5: Persist - SHOULD run for LOW contribution (persist extraction results)
-	s.activities.On("PersistFindings", mock.Anything, mock.MatchedBy(func(in PersistFindingsInput) bool {
-		return in.SourceID == 300 && in.Analysis == nil // No deep analysis
-	})).Return(&PersistFindingsOutput{
-		AssertionsCreated: 0,
-	}, nil)
-
-	// Stage 5: Embed
+	// Stage 5: Embed still runs (skip_when_low=false on embed stage)
 	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.MatchedBy(func(in GenerateEmbeddingInput) bool {
 		return in.SourceID == 300
 	})).Return(int64(5003), nil)
 
-	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
-		return in.Status == "completed"
-	})).Return(nil)
-
-	// CRITICAL: DeepAnalyze should NOT be called for LOW contribution
+	// CRITICAL: All stages with skip_when_low=true must NOT be called for LOW contribution.
+	// standardTestPipelineDef sets skip_when_low=true on: extract_ner, extract_assertions,
+	// resolve, analyze, persist. Per-stage gating (pf-5f1a20) gates each independently.
+	s.activities.AssertNotCalled(s.T(), "ExtractEntitiesActivity", mock.Anything, mock.Anything)
+	s.activities.AssertNotCalled(s.T(), "BuildContextPackage", mock.Anything, mock.Anything)
 	s.activities.AssertNotCalled(s.T(), "DeepAnalyze", mock.Anything, mock.Anything)
+	s.activities.AssertNotCalled(s.T(), "PersistFindings", mock.Anything, mock.Anything)
 
 	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)
 
@@ -1953,6 +1951,9 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_TeamsClassification() {
 // This is Fix 2 for bug pf-91b00d: stale assertions from a prior run that extracted
 // assertions (when the item had MEDIUM contribution) are cleaned up when the item is
 // reprocessed and reclassified as contribution=NONE.
+//
+// Per-stage skip_when_low gating (pf-5f1a20): DeleteAssertions is called when extraction
+// is skipped (all extract stages gated by skip_when_low=true and contribution=NONE/LOW).
 func (s *SLMPipelineTestSuite) TestSLMPipeline_DeleteAssertions_CalledOnSkipExtract_pf91b00d() {
 	input := PipelineInput{
 		TenantID:    "tenant-fix",
@@ -2131,16 +2132,9 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_ReprocessPrefersTriageRouting() {
 	// This is the key assertion: fresh triage routing wins.
 	s.activities.On("FetchPipelineDefinition", mock.Anything, mock.MatchedBy(func(in FetchPipelineDefinitionInput) bool {
 		return in.Pipeline == "newsletter"
-	})).Return(&FetchPipelineDefinitionOutput{Found: false}, nil)
+	})).Return(standardTestPipelineDef(), nil)
 
-	// Downstream stages: stageConfigMap is nil (no pipeline def found), so all default stages run.
-	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.Anything).Return(&SLMPipelineExtractEntitiesOutput{}, nil)
-	s.activities.On("ExtractAssertions", mock.Anything, mock.Anything).Return(0, nil)
-	s.activities.On("BuildContextPackage", mock.Anything, mock.Anything).Return(&BuildContextOutput{}, nil)
-	s.activities.On("DeepAnalyze", mock.Anything, mock.Anything).Return(&DeepAnalyzeOutput{
-		Summary: "Newsletter summary", ModelUsed: "gemini-2.0-flash",
-	}, nil)
-	s.activities.On("PersistFindings", mock.Anything, mock.Anything).Return(&PersistFindingsOutput{}, nil)
+	// Downstream stages: SkipDeep=true so extract/analyze/persist are skipped; only embed runs.
 	s.activities.On("GenerateContentEmbedding", mock.Anything, mock.Anything).Return(int64(9301), nil)
 
 	s.env.ExecuteWorkflow(SLMPipelineWorkflow, input)
@@ -2176,7 +2170,7 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_ReprocessFallsBackToInputPipeline
 	}
 
 	// Early fetch: called with "standard" because input.Pipeline="standard"
-	earlyFetchDef := &FetchPipelineDefinitionOutput{Found: false}
+	earlyFetchDef := standardTestPipelineDef()
 	s.activities.On("FetchPipelineDefinition", mock.Anything, mock.MatchedBy(func(in FetchPipelineDefinitionInput) bool {
 		return in.Pipeline == "standard"
 	})).Return(earlyFetchDef, nil)
@@ -2203,8 +2197,8 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_ReprocessFallsBackToInputPipeline
 	}, nil)
 
 	// Post-triage: pipelineName falls back to input.Pipeline="standard".
-	// earlyPipelineDef is nil (because Found=false above), so the post-triage branch
-	// calls FetchPipelineDefinition again with "standard". The default Maybe() mock handles it.
+	// earlyPipelineName="standard" and earlyPipelineDef is non-nil (Found=true above),
+	// so the post-triage branch reuses earlyPipelineDef without a second fetch.
 
 	// Downstream stages
 	s.activities.On("ExtractEntitiesActivity", mock.Anything, mock.Anything).Return(&SLMPipelineExtractEntitiesOutput{}, nil)
@@ -2227,7 +2221,7 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_ReprocessFallsBackToInputPipeline
 }
 
 // TestSLMPipeline_NewsletterExtract_UsesEnrichedContext verifies that when
-// BuildNewsletterContext succeeds, StructuredExtract receives the enriched
+// BuildStageContext succeeds, StructuredExtract receives the enriched
 // BackgroundContext rather than the generic extraction context.
 func (s *SLMPipelineTestSuite) TestSLMPipeline_NewsletterExtract_UsesEnrichedContext() {
 	const newsletterContext = "### User Context\nAlice, PM"
@@ -2286,16 +2280,10 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_NewsletterExtract_UsesEnrichedCon
 		Pipelines:          []string{"newsletter"},
 	}, nil)
 
-	// BuildNewsletterContext succeeds and returns enriched context.
-	s.activities.On("BuildNewsletterContext", mock.Anything, mock.MatchedBy(func(in BuildNewsletterContextInput) bool {
-		return in.TenantID == "tenant-1"
-	})).Return(&BuildNewsletterContextOutput{
-		BackgroundContext: newsletterContext,
-		UserContextFound:  true,
-		GlossaryCount:     2,
-		ProjectCount:      3,
-		ProductCount:      1,
-	}, nil)
+	// BuildStageContext succeeds and returns enriched newsletter context.
+	s.activities.On("BuildStageContext", mock.Anything, mock.MatchedBy(func(in BuildStageContextInput) bool {
+		return in.TenantID == "tenant-1" && in.Pipeline == "newsletter" && in.Stage == "newsletter_extract"
+	})).Return(newsletterContext, nil)
 
 	// StructuredExtract: assert BackgroundContext is the enriched newsletter context.
 	var capturedBackgroundContext string
@@ -2328,11 +2316,11 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_NewsletterExtract_UsesEnrichedCon
 
 	// KEY ASSERTION: StructuredExtract must have received the enriched newsletter context.
 	s.Equal(newsletterContext, capturedBackgroundContext,
-		"StructuredExtract should receive the enriched newsletter context from BuildNewsletterContext, not the generic extraction context")
+		"StructuredExtract should receive the enriched newsletter context from BuildStageContext, not the generic extraction context")
 }
 
 // TestSLMPipeline_NewsletterExtract_FallbackOnContextError verifies that when
-// BuildNewsletterContext returns an error, StructuredExtract falls back to the
+// BuildStageContext returns an error, StructuredExtract falls back to the
 // generic extraction context and the pipeline completes successfully.
 func (s *SLMPipelineTestSuite) TestSLMPipeline_NewsletterExtract_FallbackOnContextError() {
 	input := PipelineInput{
@@ -2399,10 +2387,10 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_NewsletterExtract_FallbackOnConte
 		TopicCount:        1,
 	}, nil)
 
-	// BuildNewsletterContext fails — pipeline should fall back to generic context.
-	s.activities.On("BuildNewsletterContext", mock.Anything, mock.MatchedBy(func(in BuildNewsletterContextInput) bool {
-		return in.TenantID == "tenant-1"
-	})).Return(nil, temporal.NewApplicationError("context service unavailable", "ServiceUnavailable"))
+	// BuildStageContext fails — pipeline should fall back to generic context.
+	s.activities.On("BuildStageContext", mock.Anything, mock.MatchedBy(func(in BuildStageContextInput) bool {
+		return in.TenantID == "tenant-1" && in.Pipeline == "newsletter" && in.Stage == "newsletter_extract"
+	})).Return("", temporal.NewApplicationError("context service unavailable", "ServiceUnavailable"))
 
 	// StructuredExtract: assert BackgroundContext is the generic extraction context
 	// (the value returned by BuildExtractionContext, NOT the newsletter-specific context).
@@ -2435,10 +2423,10 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_NewsletterExtract_FallbackOnConte
 	s.Equal("completed", result.Status)
 
 	// KEY ASSERTION: StructuredExtract must have received the generic extraction context,
-	// NOT the newsletter-specific context. After BuildNewsletterContext failure, bgContext
+	// NOT the newsletter-specific context. After BuildStageContext failure, bgContext
 	// falls back to extractionContext from BuildExtractionContext.
 	s.Equal(genericContext, capturedBackgroundContext,
-		"StructuredExtract should receive the generic extraction context when BuildNewsletterContext fails")
+		"StructuredExtract should receive the generic extraction context when BuildStageContext fails")
 }
 
 func TestSLMPipelineTestSuite(t *testing.T) {

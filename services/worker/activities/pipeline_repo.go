@@ -44,3 +44,8 @@ func (a *pipelineRepositoryAdapter) CreateRun(ctx context.Context, input Pipelin
 func (a *pipelineRepositoryAdapter) RecordOverrides(ctx context.Context, runID int64, overrides map[string]string) error {
 	return a.repo.RecordOverrides(ctx, runID, overrides)
 }
+
+// GetContextProviders returns the context_providers list for a specific pipeline stage.
+func (a *pipelineRepositoryAdapter) GetContextProviders(ctx context.Context, tenantID, pipelineName, stage string) ([]string, error) {
+	return a.repo.GetContextProviders(ctx, tenantID, pipelineName, stage)
+}
