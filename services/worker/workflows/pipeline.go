@@ -363,6 +363,36 @@ type BuildContextOutput struct {
 	// (e.g. org→project reclassification). Temporal serialises activity I/O so
 	// in-place mutations to the input don't propagate back to the workflow.
 	CorrectedExtraction  *SLMPipelineExtractEntitiesOutput `json:"corrected_extraction,omitempty"`
+	// BackgroundContext is the assembled markdown context string for Stage 4 (deep_analyze).
+	// Populated by BuildContextPackage via BuildStageContext; replaces formatContextPackage(output).
+	BackgroundContext     string                            `json:"background_context,omitempty"`
+}
+
+// BuildStageContextInput is the input for the BuildStageContext activity.
+// Pipeline and Stage identify which row in pipeline_definitions to read context_providers from.
+type BuildStageContextInput struct {
+	TenantID       string `json:"tenant_id"`
+	Pipeline       string `json:"pipeline"`
+	Stage          string `json:"stage"`
+	// Provider fields — all optional; providers use what they need.
+	SourceID          int64                             `json:"source_id,omitempty"`
+	ContentID         string                            `json:"content_id,omitempty"`
+	JobID             string                            `json:"job_id,omitempty"`
+	ContentType       string                            `json:"content_type,omitempty"`
+	ContentSubtype    string                            `json:"content_subtype,omitempty"`
+	Content           string                            `json:"content,omitempty"`
+	Subject           string                            `json:"subject,omitempty"`
+	SenderEmail       string                            `json:"sender_email,omitempty"`
+	SenderName        string                            `json:"sender_name,omitempty"`
+	ThreadID          string                            `json:"thread_id,omitempty"`
+	ParticipantEmails []Participant                     `json:"participant_emails,omitempty"`
+	ConversationID    string                            `json:"conversation_id,omitempty"`
+	Extraction        *SLMPipelineExtractEntitiesOutput `json:"extraction,omitempty"`
+	ResolvedPeople    []ResolvedPerson                  `json:"resolved_people,omitempty"`
+	ResolvedProjects  []ResolvedProject                 `json:"resolved_projects,omitempty"`
+	// Optional Langfuse trace/phase IDs for observability.
+	LangfuseTraceID string `json:"langfuse_trace_id,omitempty"`
+	LangfusePhaseID string `json:"langfuse_phase_id,omitempty"`
 }
 
 // ResolvedPerson represents a person resolved from extraction.
@@ -495,15 +525,6 @@ func (cp *ContextPackage) FormatForPrompt() string {
 	}
 
 	return strings.Join(sections, "\n\n")
-}
-
-// formatContextPackage safely extracts and formats the context package from
-// BuildContextOutput, handling nil at both the output and package level.
-func formatContextPackage(output *BuildContextOutput) string {
-	if output == nil {
-		return ""
-	}
-	return output.ContextPackage.FormatForPrompt()
 }
 
 // selectConfirmedProjectID cross-references resolved projects with the deep
@@ -2510,31 +2531,30 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 				"persist_key", stage.PersistKey,
 			)
 
-			// For newsletter_extract stages, build an enriched context that includes
-			// user identity, glossary, active projects, and tracked products.
+			// For newsletter_extract stages, build an enriched context via BuildStageContext,
+			// which reads config-driven providers from pipeline_definitions.
 			// Fall back to the generic extractionContext on any error.
 			bgContext := extractionContext
 			if stage.Stage == "newsletter_extract" {
 				ctxNLCtx := workflow.WithActivityOptions(ctx, fastOpts)
-				var nlCtxOutput BuildNewsletterContextOutput
-				nlErr := workflow.ExecuteActivity(ctxNLCtx, pkgtemporal.ActivityBuildNewsletterContext, BuildNewsletterContextInput{
+				var nlBgContext string
+				nlErr := workflow.ExecuteActivity(ctxNLCtx, pkgtemporal.ActivityBuildStageContext, BuildStageContextInput{
 					TenantID: input.TenantID,
-					Subject:  input.Subject,
+					Pipeline: "newsletter",
+					Stage:    "newsletter_extract",
 					Content:  parsedContent,
-				}).Get(ctx, &nlCtxOutput)
+					Subject:  input.Subject,
+				}).Get(ctx, &nlBgContext)
 				if nlErr != nil {
 					logger.Warn("newsletter context build failed, falling back to generic context",
 						"source_id", input.SourceID,
 						"error", nlErr.Error(),
 					)
 				} else {
-					bgContext = nlCtxOutput.BackgroundContext
+					bgContext = nlBgContext
 					logger.Info("newsletter context built",
 						"source_id", input.SourceID,
-						"user_context_found", nlCtxOutput.UserContextFound,
-						"glossary_count", nlCtxOutput.GlossaryCount,
-						"project_count", nlCtxOutput.ProjectCount,
-						"product_count", nlCtxOutput.ProductCount,
+						"context_length", len(nlBgContext),
 					)
 				}
 			}
@@ -2685,7 +2705,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			TriageImportance:  triageOutput.Importance,
 			ExtractionResult:  analyzeExtraction,
 			ResolvedPeople:    analyzeResolvedPeople,
-			BackgroundContext: formatContextPackage(contextOutput),
+			BackgroundContext: contextOutput.BackgroundContext,
 			ModelOverride:     input.ModelOverride,
 			PromptOverride:    promptOverrideForStage(stageConfigMap, "analyze"),
 			LangfuseTraceID:   langfuseTraceID,

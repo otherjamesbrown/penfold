@@ -182,24 +182,3 @@ func TestSelectConfirmedProjectID_EmptyRelatedProject(t *testing.T) {
 	assert.Nil(t, result, "should ignore topic mappings with empty project name")
 }
 
-func TestFormatContextPackage_NilOutput(t *testing.T) {
-	assert.Equal(t, "", formatContextPackage(nil))
-}
-
-func TestFormatContextPackage_NilPackage(t *testing.T) {
-	output := &BuildContextOutput{}
-	assert.Equal(t, "", formatContextPackage(output))
-}
-
-func TestFormatContextPackage_WithPackage(t *testing.T) {
-	output := &BuildContextOutput{
-		ContextPackage: &ContextPackage{
-			GlossaryTerms: []ContextGlossaryTerm{
-				{Term: "API", Definition: "Application Programming Interface"},
-			},
-		},
-	}
-	result := formatContextPackage(output)
-	assert.Contains(t, result, "### Glossary")
-	assert.Contains(t, result, "**API**")
-}

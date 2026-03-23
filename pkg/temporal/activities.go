@@ -83,8 +83,8 @@ const (
 	// Generic structured extraction activity (replaces bespoke newsletter/notification extract)
 	ActivityStructuredExtract = "StructuredExtract"
 
-	// Newsletter context builder — enriches extraction context with user/project/product data.
-	ActivityBuildNewsletterContext = "BuildNewsletterContext"
+	// BuildStageContext — config-driven context assembly for any pipeline stage.
+	ActivityBuildStageContext = "BuildStageContext"
 
 	// Pre-classify — rule engine classification before triage (pf-b375ad shadow mode).
 	ActivityPreClassify = "PreClassify"
@@ -229,8 +229,8 @@ func AllMainQueueActivities() []string {
 		ActivityNotificationExtract,
 		// Generic structured extraction activity (replaces bespoke newsletter/notification extract)
 		ActivityStructuredExtract,
-		// Newsletter context builder (enriches extraction context for newsletter_extract stages)
-		ActivityBuildNewsletterContext,
+		// BuildStageContext — config-driven context assembly for any pipeline stage.
+		ActivityBuildStageContext,
 		// Graph API activities (Outlook + Teams sync + Transcript sync)
 		ActivityCheckGraphAuth,
 		ActivityFetchOutlookMessages,
