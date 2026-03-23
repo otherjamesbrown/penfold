@@ -30,11 +30,27 @@ func MatchTriage(t *testing.T, expected *TriageExpectation, actual *ActualTriage
 	}
 
 	if expected.Importance != nil {
-		matchOneOf(t, "triage.importance", actual.Importance, expected.Importance)
+		if len(expected.Importance.OneOf) > 0 {
+			matchOneOf(t, "triage.importance", actual.Importance, expected.Importance.OneOf)
+		}
+		for _, forbidden := range expected.Importance.MustNotBe {
+			if strings.EqualFold(actual.Importance, forbidden) {
+				t.Errorf("triage.importance: got %q, which is forbidden by must_not_be %v", actual.Importance, expected.Importance.MustNotBe)
+				break
+			}
+		}
 	}
 
 	if expected.Category != nil {
-		matchOneOf(t, "triage.category", actual.Category, expected.Category)
+		if len(expected.Category.OneOf) > 0 {
+			matchOneOf(t, "triage.category", actual.Category, expected.Category.OneOf)
+		}
+		for _, forbidden := range expected.Category.MustNotBe {
+			if strings.EqualFold(actual.Category, forbidden) {
+				t.Errorf("triage.category: got %q, which is forbidden by must_not_be %v", actual.Category, expected.Category.MustNotBe)
+				break
+			}
+		}
 	}
 }
 

@@ -1,49 +1,58 @@
-# Task: Eval Phase 2 — notification eval test runner with Langfuse recording
+# Task: Integration test: notification category eval framework end-to-end
 
-**Task ID:** pf-fd89f5
+**Task ID:** pf-9c7494
 **Agent:** agent-mycroft
 
 ## Task Content
 
 ## Scope
-Create the TestEval_Notification test function that discovers notification golden files, runs each through the pipeline, asserts against golden expectations, and records results to Langfuse.
+End-to-end validation that all Phase 2 notification eval components work together: types parse correctly, golden YAML files load, matchers execute against real pipeline output, Langfuse scores are recorded.
 
-### Test Runner Implementation
-Follows the same pattern as TestEval_Newsletter from Phase 1: discover golden files, ingest email, wait for pipeline completion, run L1 routing assertions, run L2 triage and notification-specific matchers, record results to Langfuse.
+### Test Plan
 
-### Langfuse Dataset
-Create Langfuse dataset "eval-notification" with items for each golden file. Reuse the existing recordEvalToLangfuse helper from Phase 1 (or extend it if needed).
+1. **Type compilation check**: Verify all notification types compile and golden YAML files deserialize correctly into the extended GoldenExpectation struct.
 
-### Helper Functions
-- discoverGoldenFiles(t, "notification") — already exists from Phase 1, just needs notification directory
-- assertTriageCalibration — wraps MatchTriage with EvalResults collection
-- assertNotificationExtract — wraps MatchNotificationExtract with EvalResults collection
-- fetchNotificationExtraction(t, env, sourceID) — queries content_enrichment for notification extraction JSON
+2. **Golden file coverage check**: Verify all 9 notification golden files exist and cover all 4 handling modes:
+   - triage_once: 3 files (Aha to-dos, Bitmovin, Internal A360)
+   - daily_summary: 4 files (Aha digest x2, Jira, Google)
+   - compliance_status: 1 file (Oracle Learning)
+   - immediate_escalate: 1 file (GlobalSecOps)
 
-### Run Commands
-go test -tags=quality ./tests/quality/... -run TestEval_Notification -v
+3. **Matcher unit test validation**: Run notification_matchers_test.go and verify all table-driven tests pass.
+
+4. **Full eval run**: Execute TestEval_Notification against real DB with all 9 golden files:
+   - All L1 routing assertions execute (content_subtype=NOTIFICATION, correct pipeline, correct stages)
+   - All L2 triage assertions execute (importance calibrated per source, MustNotBe enforced)
+   - All L2 notification extraction assertions execute (handling mode validated per source)
+   - EvalResults populated with MatchDetail records for each check
+
+5. **Langfuse recording validation**: Verify that after eval run:
+   - Dataset "eval-notification" exists in Langfuse
+   - Run items created for each golden file
+   - Scores recorded: routing_correct, triage_calibration, notification_extraction per item
+
+6. **Cross-category compatibility**: Run both TestEval_Newsletter and TestEval_Notification together to verify no interference:
+   go test -tags=quality ./tests/quality/... -run TestEval_ -v
 
 ### Acceptance Criteria
-- [ ] TestEval_Notification discovers and runs all golden files in notification/
-- [ ] L1 routing assertions pass for all 9 golden files
-- [ ] L2 triage calibration assertions run for all items
-- [ ] L2 notification extraction assertions run per handling mode
-- [ ] Results recorded to Langfuse eval-notification dataset
-- [ ] Test output shows per-item pass/fail with handling mode context
-- [ ] Can run independently or alongside newsletter evals
+- [ ] All 9 notification golden files parse without error
+- [ ] All handling modes covered by at least one golden file
+- [ ] Matcher unit tests pass
+- [ ] Full eval run completes for all 9 items
+- [ ] Langfuse scores recorded for all items
+- [ ] Newsletter and notification evals run together without conflict
+- [ ] MustNotBe enforcement works (non-escalation items must_not_be HIGH/CRITICAL)
 
 ### Code Locations
-- tests/quality/notification_eval_test.go — NEW file, TestEval_Notification
-- tests/quality/helpers.go — extend with fetchNotificationExtraction if needed
-- tests/quality/langfuse_eval.go — reuse/extend recordEvalToLangfuse
-
-### Approach
-Mirror TestEval_Newsletter structure from Phase 1. The key difference is notification evals need to validate 4 different handling modes, so the test runner dispatches based on the golden files handling mode. Langfuse recording uses the same CreateScore and CreateDatasetRunItem pattern.
+- tests/quality/notification_eval_test.go — TestEval_Notification
+- tests/quality/notification_matchers_test.go — unit tests
+- tests/quality/golden/notification/*.yaml — 9 golden files
 
 ### Dependencies
 - pf-20233c (types)
-- pf-2e00e9 (golden files and fixtures)
+- pf-2e00e9 (golden files)
 - pf-b8ed97 (matchers)
+- pf-fd89f5 (test runner)
 
 ## Design Context (from pf-4d2288)
 
@@ -632,7 +641,7 @@ Implement this task following the acceptance criteria above.
 
 1. Run tests: `cd penfold-go-pipeline && go test ./... && cd penfold-go-pipeline && go vet ./...`
 2. Build: `cd penfold-go-pipeline && go build ./...`
-3. **Run `cxp task complete pf-fd89f5`** — this commits remaining changes, pushes, creates the PR, appends evidence, and marks the task needs-review. Do this as your LAST action.
+3. **Run `cxp task complete pf-9c7494`** — this commits remaining changes, pushes, creates the PR, appends evidence, and marks the task needs-review. Do this as your LAST action.
 
 
 ---

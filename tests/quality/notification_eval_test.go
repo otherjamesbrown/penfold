@@ -49,15 +49,7 @@ func TestEval_Notification(t *testing.T) {
 			t.Logf("Email: %s", golden.Email)
 			t.Logf("Description: %s", golden.Description)
 
-			handlingMode := ""
-			if golden.NotificationExtract != nil {
-				handlingMode = golden.NotificationExtract.HandlingMode
-			}
-			if handlingMode != "" {
-				t.Logf("Handling mode: %s", handlingMode)
-			}
-
-			// 2. Resolve email path — notification golden files include "emails/notification/" prefix
+			// 2. Resolve email path
 			emailPath := env.FixturePath(golden.Email)
 			require.FileExists(t, emailPath, "fixture email must exist: %s", emailPath)
 
@@ -91,9 +83,9 @@ func TestEval_Notification(t *testing.T) {
 				results.L1Routing = MatchRouting(t, env, sourceID, golden.Routing)
 			}
 
-			// L2: Triage calibration
+			// L2: Triage
 			if golden.Triage != nil {
-				t.Log("Checking triage calibration...")
+				t.Log("Checking triage...")
 				triageResult, err := getTriageResult(env, sourceID)
 				if err != nil {
 					t.Errorf("triage: %v", err)
@@ -102,9 +94,9 @@ func TestEval_Notification(t *testing.T) {
 				}
 			}
 
-			// L2: Notification extraction (dispatches by handling mode)
+			// L2: Notification extraction
 			if golden.NotificationExtract != nil {
-				t.Logf("Checking notification extraction (handling_mode=%s)...", handlingMode)
+				t.Log("Checking notification extraction...")
 				results.L2Quality = MatchNotificationExtract(t, env, sourceID, golden.NotificationExtract)
 			}
 
