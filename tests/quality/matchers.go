@@ -30,11 +30,11 @@ func MatchTriage(t *testing.T, expected *TriageExpectation, actual *ActualTriage
 	}
 
 	if expected.Importance != nil {
-		matchOneOf(t, "triage.importance", actual.Importance, expected.Importance.OneOf)
+		matchOneOf(t, "triage.importance", actual.Importance, expected.Importance)
 	}
 
 	if expected.Category != nil {
-		matchOneOf(t, "triage.category", actual.Category, expected.Category.OneOf)
+		matchOneOf(t, "triage.category", actual.Category, expected.Category)
 	}
 }
 
@@ -250,18 +250,31 @@ func MatchPipelineStages(t *testing.T, env *QualityEnv, sourceID int64, expected
 
 // --- Utility functions ---
 
-// matchOneOf checks that a value is one of the expected options (case-insensitive).
-func matchOneOf(t *testing.T, field string, actual string, options []string) {
+// matchOneOf checks that a value satisfies the OneOfMatcher constraints (case-insensitive).
+// Enforces both one_of (must match) and must_not_be (must not match).
+func matchOneOf(t *testing.T, field string, actual string, matcher *OneOfMatcher) {
 	t.Helper()
 
-	for _, opt := range options {
-		if strings.EqualFold(actual, opt) {
-			t.Logf("  %s: %s (matched)", field, actual)
+	if matcher == nil {
+		return
+	}
+
+	for _, forbidden := range matcher.MustNotBe {
+		if strings.EqualFold(actual, forbidden) {
+			t.Errorf("%s: got %q which is in must_not_be %v", field, actual, matcher.MustNotBe)
 			return
 		}
 	}
 
-	t.Errorf("%s: got %q, expected one_of %v", field, actual, options)
+	if len(matcher.OneOf) > 0 {
+		for _, opt := range matcher.OneOf {
+			if strings.EqualFold(actual, opt) {
+				t.Logf("  %s: %s (matched)", field, actual)
+				return
+			}
+		}
+		t.Errorf("%s: got %q, expected one_of %v", field, actual, matcher.OneOf)
+	}
 }
 
 // containsCI performs case-insensitive substring match.
