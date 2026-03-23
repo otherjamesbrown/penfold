@@ -6,10 +6,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.temporal.io/sdk/temporal"
 	"google.golang.org/grpc"
 
 	pipelinev1 "github.com/otherjamesbrown/penfold/api/proto/pipeline/v1"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/pipeline"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
@@ -409,4 +411,95 @@ func TestRecordSkippedStage_NoStages(t *testing.T) {
 
 	require.NoError(t, err, "RecordSkippedStage must return nil for empty stage list")
 	require.Empty(t, repo.calledWith, "CreateRun must not be called when stages list is empty")
+}
+
+// ---
+// Tests for FetchPipelineDefinition error paths (pf-85e95e)
+// ---
+
+// mockDefinitionRepo implements pipelineDefinitionRepo for testing.
+type mockDefinitionRepo struct {
+	stages []pipeline.StageDefinition
+	err    error
+}
+
+func (r *mockDefinitionRepo) GetPipelineStages(_ context.Context, _, _ string) ([]pipeline.StageDefinition, error) {
+	return r.stages, r.err
+}
+
+// newTestFetchPipelineDefinition creates a PipelineActivities wired with the given
+// definition repo mock. Only definitionRepo and logger are populated.
+func newTestFetchPipelineDefinition(repo pipelineDefinitionRepo) *PipelineActivities {
+	logger := logging.NewNopLogger()
+	return &PipelineActivities{
+		logger:         logger.With(logging.F("component", "pipeline_activities")),
+		definitionRepo: repo,
+	}
+}
+
+// TestFetchPipelineDefinition_EmptyPipeline verifies that an empty pipeline name
+// returns a NonRetryableApplicationError of type "ConfigurationError".
+func TestFetchPipelineDefinition_EmptyPipeline(t *testing.T) {
+	a := newTestFetchPipelineDefinition(&mockDefinitionRepo{})
+
+	out, err := a.FetchPipelineDefinition(context.Background(), workflows.FetchPipelineDefinitionInput{
+		TenantID: "tenant-1",
+		Pipeline: "",
+	})
+
+	require.Nil(t, out)
+	require.Error(t, err)
+
+	var appErr *temporal.ApplicationError
+	require.ErrorAs(t, err, &appErr, "error must be a temporal.ApplicationError")
+	require.True(t, appErr.NonRetryable(), "empty pipeline name must produce a NonRetryableApplicationError")
+	require.Equal(t, "ConfigurationError", appErr.Type())
+	require.Contains(t, appErr.Message(), "pipeline definition not found")
+}
+
+// TestFetchPipelineDefinition_NoStages verifies that a successful DB query returning
+// zero rows produces a NonRetryableApplicationError of type "ConfigurationError".
+// This is a configuration error — the pipeline exists in code but has no DB definition.
+func TestFetchPipelineDefinition_NoStages(t *testing.T) {
+	a := newTestFetchPipelineDefinition(&mockDefinitionRepo{
+		stages: []pipeline.StageDefinition{}, // query succeeded, 0 rows
+		err:    nil,
+	})
+
+	out, err := a.FetchPipelineDefinition(context.Background(), workflows.FetchPipelineDefinitionInput{
+		TenantID: "tenant-1",
+		Pipeline: "standard",
+	})
+
+	require.Nil(t, out)
+	require.Error(t, err)
+
+	var appErr *temporal.ApplicationError
+	require.ErrorAs(t, err, &appErr, "error must be a temporal.ApplicationError")
+	require.True(t, appErr.NonRetryable(), "missing pipeline definition must produce a NonRetryableApplicationError")
+	require.Equal(t, "ConfigurationError", appErr.Type())
+	require.Contains(t, appErr.Message(), "pipeline definition not found")
+	require.Contains(t, appErr.Message(), "pipeline=standard")
+	require.Contains(t, appErr.Message(), "tenant=tenant-1")
+}
+
+// TestFetchPipelineDefinition_DBError verifies that a transient DB error produces a
+// retryable ApplicationError (type "RepositoryError"), NOT a NonRetryableApplicationError.
+// Temporal's retry policy will retry these automatically.
+func TestFetchPipelineDefinition_DBError(t *testing.T) {
+	dbErr := errors.New("pq: connection refused")
+	a := newTestFetchPipelineDefinition(&mockDefinitionRepo{err: dbErr})
+
+	out, err := a.FetchPipelineDefinition(context.Background(), workflows.FetchPipelineDefinitionInput{
+		TenantID: "tenant-1",
+		Pipeline: "standard",
+	})
+
+	require.Nil(t, out)
+	require.Error(t, err)
+
+	var appErr *temporal.ApplicationError
+	require.ErrorAs(t, err, &appErr, "error must be a temporal.ApplicationError")
+	require.False(t, appErr.NonRetryable(), "DB errors must remain retryable — they are transient failures, not configuration errors")
+	require.Equal(t, "RepositoryError", appErr.Type())
 }

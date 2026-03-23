@@ -76,6 +76,10 @@ func (s *NERActivityOptionsTestSuite) TestExtractNERUsesLLMActivityOptions() {
 		}
 	})
 
+	// Register FetchPipelineDefinition — return not-found so SLM fallback stages are used.
+	s.env.RegisterActivityWithOptions(s.activities.FetchPipelineDefinition, activity.RegisterOptions{Name: "FetchPipelineDefinition"})
+	s.activities.On("FetchPipelineDefinition", mock.Anything, mock.Anything).Return(&FetchPipelineDefinitionOutput{Found: false}, nil)
+
 	input := PipelineInput{
 		TenantID:    "tenant-1",
 		SourceID:    300,

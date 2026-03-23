@@ -14,11 +14,19 @@ import (
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
+// pipelineDefinitionRepo is the interface satisfied by *pipeline.Repository for
+// FetchPipelineDefinition lookups. Extracted so the activity can be unit-tested
+// without a live database.
+type pipelineDefinitionRepo interface {
+	GetPipelineStages(ctx context.Context, tenantID, pipeline string) ([]pipeline.StageDefinition, error)
+}
+
 // PipelineActivities holds dependencies for pipeline metadata activities.
 type PipelineActivities struct {
 	logger         logging.Logger
 	pipelineRepo   PipelineRepository
-	baseRepo       *pipeline.Repository // Direct access for lookups
+	baseRepo       *pipeline.Repository // Direct access for lookups (RecordOverrides, etc.)
+	definitionRepo pipelineDefinitionRepo // Injected for FetchPipelineDefinition; defaults to baseRepo.
 	pipelineClient pipelinev1.PipelineServiceClient
 }
 
@@ -38,9 +46,10 @@ func NewPipelineActivities(
 		panic("NewPipelineActivities: baseRepo is required")
 	}
 	return &PipelineActivities{
-		logger:       logger.With(logging.F("component", "pipeline_activities")),
-		pipelineRepo: pipelineRepo,
-		baseRepo:     baseRepo,
+		logger:         logger.With(logging.F("component", "pipeline_activities")),
+		pipelineRepo:   pipelineRepo,
+		baseRepo:       baseRepo,
+		definitionRepo: baseRepo,
 	}
 }
 
@@ -227,7 +236,9 @@ func (a *PipelineActivities) RecordSkippedStage(ctx context.Context, input workf
 }
 
 // FetchPipelineDefinition fetches the pipeline definition for a given pipeline name.
-// If the pipeline is not found in the database, it returns Found=false with an empty stage list.
+// Returns a NonRetryableApplicationError (type "ConfigurationError") when the pipeline
+// name is empty or no stages are found — these are configuration problems that will not
+// resolve on retry. Transient DB errors remain retryable via the existing RepositoryError path.
 func (a *PipelineActivities) FetchPipelineDefinition(ctx context.Context, input workflows.FetchPipelineDefinitionInput) (*workflows.FetchPipelineDefinitionOutput, error) {
 	logger := a.logger.WithContext(ctx).With(
 		logging.F("activity", "FetchPipelineDefinition"),
@@ -238,11 +249,15 @@ func (a *PipelineActivities) FetchPipelineDefinition(ctx context.Context, input 
 	recordHeartbeat(ctx, "fetching pipeline definition")
 
 	if input.Pipeline == "" {
-		logger.Warn("FetchPipelineDefinition: empty pipeline name, returning not found")
-		return &workflows.FetchPipelineDefinitionOutput{Found: false}, nil
+		logger.Error("FetchPipelineDefinition: empty pipeline name — configuration error")
+		return nil, temporal.NewNonRetryableApplicationError(
+			fmt.Sprintf("pipeline definition not found: pipeline=%s tenant=%s", input.Pipeline, input.TenantID),
+			"ConfigurationError",
+			nil,
+		)
 	}
 
-	stages, err := a.baseRepo.GetPipelineStages(ctx, input.TenantID, input.Pipeline)
+	stages, err := a.definitionRepo.GetPipelineStages(ctx, input.TenantID, input.Pipeline)
 	if err != nil {
 		logger.Error("Failed to fetch pipeline definition", logging.Err(err))
 		return nil, temporal.NewApplicationErrorWithCause(
@@ -253,8 +268,15 @@ func (a *PipelineActivities) FetchPipelineDefinition(ctx context.Context, input 
 	}
 
 	if len(stages) == 0 {
-		logger.Info("Pipeline definition not found, workflow will use fallback")
-		return &workflows.FetchPipelineDefinitionOutput{Found: false}, nil
+		logger.Error("Pipeline definition not found in DB — no stages configured",
+			logging.F("pipeline", input.Pipeline),
+			logging.F("tenant_id", input.TenantID),
+		)
+		return nil, temporal.NewNonRetryableApplicationError(
+			fmt.Sprintf("pipeline definition not found: pipeline=%s tenant=%s", input.Pipeline, input.TenantID),
+			"ConfigurationError",
+			nil,
+		)
 	}
 
 	out := &workflows.FetchPipelineDefinitionOutput{
