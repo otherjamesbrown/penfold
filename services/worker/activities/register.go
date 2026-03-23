@@ -45,6 +45,7 @@ type Registrar struct {
 	structuredExtractActivities       *StructuredExtractActivities
 	digestRollupActivities            *DigestRollupActivities
 	journalRollupActivities           *JournalRollupActivities
+	preClassifyActivities             *PreClassifyActivities
 }
 
 // NewRegistrar creates a new activity registrar.
@@ -93,6 +94,12 @@ func (r *Registrar) WithPersistActivities(pa *PersistActivities) *Registrar {
 // WithTriageActivities adds triage activities to the registrar.
 func (r *Registrar) WithTriageActivities(ta *TriageActivities) *Registrar {
 	r.triageActivities = ta
+	return r
+}
+
+// WithPreClassifyActivities adds pre-classification activities to the registrar (pf-b375ad).
+func (r *Registrar) WithPreClassifyActivities(pa *PreClassifyActivities) *Registrar {
+	r.preClassifyActivities = pa
 	return r
 }
 
@@ -358,6 +365,13 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 	if r.triageActivities != nil {
 		w.RegisterActivityWithOptions(r.triageActivities.Triage, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityTriage,
+		})
+	}
+
+	// Pre-classify activities (pf-b375ad: shadow mode rule engine before triage)
+	if r.preClassifyActivities != nil {
+		w.RegisterActivityWithOptions(r.preClassifyActivities.PreClassify, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityPreClassify,
 		})
 	}
 

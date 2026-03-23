@@ -709,6 +709,17 @@ func main() {
 		logger.Info("Analysis activities initialized with AI client (Stage 4)")
 	}
 
+	// Pre-classify activities (pf-b375ad: shadow-mode rule engine before triage).
+	// Does not require aiClient — only needs DB for classification rules and routing.
+	if dbPool != nil {
+		preClassifyRepo := classification.NewRepository(dbPool, logger)
+		preClassifyActivities := activities.NewPreClassifyActivities(logger, preClassifyRepo)
+		preClassifyRouting := routing.NewRepository(dbPool)
+		preClassifyActivities.WithRoutingRepo(preClassifyRouting)
+		activityRegistrar.WithPreClassifyActivities(preClassifyActivities)
+		logger.Info("Pre-classify activities initialized for shadow-mode rule engine (pf-b375ad)")
+	}
+
 	// Initialize context builder activities if database is available (Stage 3)
 	var entitiesRepo *entities.Repository
 	if dbPool != nil {
