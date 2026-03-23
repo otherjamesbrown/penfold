@@ -290,6 +290,10 @@ func (r *mockFailingPipelineRepo) RecordOverrides(_ context.Context, _ int64, _ 
 	return nil
 }
 
+func (r *mockFailingPipelineRepo) GetContextProviders(_ context.Context, _, _, _ string) ([]string, error) {
+	return nil, nil
+}
+
 // newTestPipelineActivitiesWithRepo creates a PipelineActivities with a real pipelineRepo,
 // enabling tests of activities that depend on the repo (e.g. RecordSkippedStage).
 func newTestPipelineActivitiesWithRepo(repo PipelineRepository) *PipelineActivities {

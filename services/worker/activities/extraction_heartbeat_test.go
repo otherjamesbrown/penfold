@@ -39,6 +39,10 @@ func (r *contextCapturingPipelineRepo) RecordOverrides(_ context.Context, _ int6
 	return nil
 }
 
+func (r *contextCapturingPipelineRepo) GetContextProviders(_ context.Context, _, _, _ string) ([]string, error) {
+	return nil, nil
+}
+
 // TestExtractEntities_FailedExtraction_WritesRunWithDetachedContext verifies Fix 2 (pf-04a2de):
 // When the AI call fails, the defer block must write failed pipeline_runs using a detached
 // context (context.Background), NOT the activity context which may be cancelled by Temporal.

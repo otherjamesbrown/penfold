@@ -10,6 +10,7 @@ import (
 	enrichmentconfig "github.com/otherjamesbrown/penfold/pkg/enrichment/config"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	perrors "github.com/otherjamesbrown/penfold/pkg/errors"
+	"github.com/otherjamesbrown/penfold/pkg/langfuse"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
@@ -56,6 +57,7 @@ type ContextBuilderActivities struct {
 	pipelineRepo          PipelineRepository
 	configResolver        *enrichmentconfig.ConfigResolver
 	newsletterContextRepo NewsletterContextRepository
+	langfuseIngestion     *langfuse.Ingestion // optional; nil disables Langfuse spans
 }
 
 // NewContextBuilderActivities creates a new ContextBuilderActivities instance.
@@ -105,6 +107,13 @@ func NewContextBuilderActivities(
 func (a *ContextBuilderActivities) WithNewsletterContextRepo(repo NewsletterContextRepository) *ContextBuilderActivities {
 	a.newsletterContextRepo = repo
 	RegisterContextProviders(a.logger, a.contextRepo, repo, a.topicRepo)
+	return a
+}
+
+// WithLangfuse injects an optional Langfuse ingestion client.
+// When set, BuildStageContext logs a span with assembly metadata for each call.
+func (a *ContextBuilderActivities) WithLangfuse(ingestion *langfuse.Ingestion) *ContextBuilderActivities {
+	a.langfuseIngestion = ingestion
 	return a
 }
 
@@ -1278,4 +1287,137 @@ func (a *ContextBuilderActivities) applyTokenBudget(cp *workflows.ContextPackage
 	}
 
 	return tokensUsed
+}
+
+// BuildStageContextInput is the input for the BuildStageContext activity.
+type BuildStageContextInput struct {
+	// TenantID, Pipeline, and Stage identify the row in pipeline_definitions to read context_providers from.
+	TenantID string
+	Pipeline string
+	Stage    string
+
+	// ProviderInput is passed through to each context provider.
+	ProviderInput ContextProviderInput
+
+	// Optional Langfuse trace/phase IDs for observability. When empty, no span is created.
+	LangfuseTraceID string
+	LangfusePhaseID string
+}
+
+// BuildStageContext assembles a BackgroundContext markdown string for a pipeline stage.
+//
+// It reads context_providers from pipeline_definitions for the given tenant/pipeline/stage,
+// iterates them in declared order, calls each provider via the registry, and concatenates
+// non-empty results. Provider failures are non-blocking: unknown or erroring providers are
+// logged as warnings and skipped. Returns an empty string when no providers are configured.
+//
+// When a Langfuse ingestion is configured via WithLangfuse and a LangfuseTraceID is provided,
+// a span is created with assembly metadata (providers requested/succeeded/failed, context
+// length, per-provider timing).
+func (a *ContextBuilderActivities) BuildStageContext(ctx context.Context, input BuildStageContextInput) (string, error) {
+	startTime := time.Now()
+	logger := a.logger.WithContext(ctx).With(
+		logging.F("activity", "BuildStageContext"),
+		logging.F("tenant_id", input.TenantID),
+		logging.F("pipeline", input.Pipeline),
+		logging.F("stage", input.Stage),
+	)
+
+	if a.pipelineRepo == nil {
+		return "", fmt.Errorf("BuildStageContext: pipelineRepo is required but not configured")
+	}
+
+	// Load context_providers from pipeline_definitions.
+	providerNames, err := a.pipelineRepo.GetContextProviders(ctx, input.TenantID, input.Pipeline, input.Stage)
+	if err != nil {
+		return "", fmt.Errorf("BuildStageContext: loading context providers: %w", err)
+	}
+
+	if len(providerNames) == 0 {
+		logger.Debug("BuildStageContext: no context providers configured for stage")
+		return "", nil
+	}
+
+	logger.Debug("BuildStageContext: assembling context",
+		logging.F("providers", strings.Join(providerNames, ",")),
+	)
+
+	// providerTiming tracks per-provider latency for Langfuse metadata.
+	type providerTiming struct {
+		name  string
+		durMS int
+	}
+
+	var (
+		sections  []string
+		succeeded []string
+		failed    []string
+		timings   []providerTiming
+	)
+
+	for _, name := range providerNames {
+		provider, ok := LookupProvider(name)
+		if !ok {
+			logger.Warn("BuildStageContext: unknown provider — skipping",
+				logging.F("provider", name),
+				logging.F("pipeline", input.Pipeline),
+				logging.F("stage", input.Stage),
+			)
+			failed = append(failed, name)
+			continue
+		}
+
+		t := time.Now()
+		section, buildErr := provider.Build(ctx, input.ProviderInput)
+		durMS := int(time.Since(t).Milliseconds())
+		timings = append(timings, providerTiming{name, durMS})
+
+		if buildErr != nil {
+			logger.Warn("BuildStageContext: provider failed — skipping",
+				logging.F("provider", name),
+				logging.F("error", buildErr.Error()),
+			)
+			failed = append(failed, name)
+			continue
+		}
+
+		succeeded = append(succeeded, name)
+		if section != "" {
+			sections = append(sections, section)
+		}
+	}
+
+	assembled := strings.Join(sections, "\n\n")
+
+	logger.Info("BuildStageContext: assembly complete",
+		logging.F("providers_requested", len(providerNames)),
+		logging.F("providers_succeeded", len(succeeded)),
+		logging.F("providers_failed", len(failed)),
+		logging.F("context_length", len(assembled)),
+	)
+
+	// Log Langfuse span when configured.
+	if a.langfuseIngestion != nil && input.LangfuseTraceID != "" {
+		timingMap := make(map[string]int, len(timings))
+		for _, t := range timings {
+			timingMap[t.name] = t.durMS
+		}
+		a.langfuseIngestion.CreateSpan(langfuse.SpanEvent{
+			ID:        newLangfuseID(),
+			TraceID:   input.LangfuseTraceID,
+			ParentID:  input.LangfusePhaseID,
+			Name:      "build_stage_context",
+			StartTime: startTime,
+			EndTime:   time.Now(),
+			Metadata: map[string]any{
+				"providers_requested": providerNames,
+				"providers_succeeded": succeeded,
+				"providers_failed":    failed,
+				"context_length":      len(assembled),
+				"provider_timings_ms": timingMap,
+			},
+		})
+	}
+
+	return assembled, nil
 }
