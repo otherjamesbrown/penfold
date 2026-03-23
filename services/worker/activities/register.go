@@ -393,9 +393,10 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		w.RegisterActivityWithOptions(r.contextBuilderActivities.BuildContextPackage, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityBuildContextPackage,
 		})
-		w.RegisterActivityWithOptions(r.contextBuilderActivities.BuildStageContext, activity.RegisterOptions{
-			Name: pkgtemporal.ActivityBuildStageContext,
-		})
+		// TODO(pf-6d9704): uncomment when BuildStageContext activity is fully implemented
+		// w.RegisterActivityWithOptions(r.contextBuilderActivities.BuildStageContext, activity.RegisterOptions{
+		// 	Name: pkgtemporal.ActivityBuildStageContext,
+		// })
 	}
 
 	// Analysis activities for Stage 4 (deep analysis)

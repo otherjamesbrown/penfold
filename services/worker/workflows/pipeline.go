@@ -2611,14 +2611,12 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			}
 			if stage.Stage == "newsletter_extract" {
 				ctxNLCtx := workflow.WithActivityOptions(ctx, fastOpts)
-				var nlBgContext string
-				nlErr := workflow.ExecuteActivity(ctxNLCtx, pkgtemporal.ActivityBuildStageContext, BuildStageContextInput{
+				var nlCtxOutput BuildNewsletterContextOutput
+				nlErr := workflow.ExecuteActivity(ctxNLCtx, pkgtemporal.ActivityBuildNewsletterContext, BuildNewsletterContextInput{
 					TenantID: input.TenantID,
-					Pipeline: "newsletter",
-					Stage:    "newsletter_extract",
-					Content:  parsedContent,
 					Subject:  input.Subject,
-				}).Get(ctx, &nlBgContext)
+					Content:  parsedContent,
+				}).Get(ctx, &nlCtxOutput)
 				if nlErr != nil {
 					logger.Warn("newsletter context build failed, falling back to generic context",
 						"source_id", input.SourceID,
@@ -2632,7 +2630,10 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 					ctxMeta["product_count"] = fmt.Sprintf("%d", nlCtxOutput.ProductCount)
 					logger.Info("newsletter context built",
 						"source_id", input.SourceID,
-						"context_length", len(nlBgContext),
+						"user_context_found", nlCtxOutput.UserContextFound,
+						"glossary_count", nlCtxOutput.GlossaryCount,
+						"project_count", nlCtxOutput.ProjectCount,
+						"product_count", nlCtxOutput.ProductCount,
 					)
 				}
 			}
@@ -3743,24 +3744,6 @@ func looksLikeNotificationSender(senderEmail string) bool {
 		}
 	}
 	return false
-}
-
-// PreClassifyInput is the input for the PreClassify activity (shadow-mode rule engine).
-type PreClassifyInput struct {
-	TenantID    string            `json:"tenant_id"`
-	SenderEmail string            `json:"sender_email"`
-	Subject     string            `json:"subject,omitempty"`
-	ContentType string            `json:"content_type"`
-	Headers     map[string]string `json:"headers,omitempty"`
-}
-
-// PreClassifyOutput is the output from the PreClassify activity.
-type PreClassifyOutput struct {
-	Matched        bool   `json:"matched"`
-	ContentSubtype string `json:"content_subtype,omitempty"`
-	RuleName       string `json:"rule_name,omitempty"`
-	PipelineName   string `json:"pipeline_name,omitempty"`
-	Error          string `json:"error,omitempty"`
 }
 
 // PreClassifyContentInput is the input for the PreClassifyContent activity.

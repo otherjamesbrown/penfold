@@ -228,7 +228,8 @@ func (s *SLMPipelineTestSuite) SetupTest() {
 	s.env.RegisterActivityWithOptions(s.activities.FetchPipelineDefinition, activity.RegisterOptions{Name: pkgtemporal.ActivityFetchPipelineDefinition})
 	s.env.RegisterActivityWithOptions(s.activities.StructuredExtract, activity.RegisterOptions{Name: pkgtemporal.ActivityStructuredExtract})
 	s.env.RegisterActivityWithOptions(s.activities.BuildExtractionContext, activity.RegisterOptions{Name: pkgtemporal.ActivityBuildExtractionContext})
-	s.env.RegisterActivityWithOptions(s.activities.BuildStageContext, activity.RegisterOptions{Name: pkgtemporal.ActivityBuildStageContext})
+	// TODO(pf-6d9704): uncomment when BuildStageContext is fully implemented
+	// s.env.RegisterActivityWithOptions(s.activities.BuildStageContext, activity.RegisterOptions{Name: pkgtemporal.ActivityBuildStageContext})
 	s.env.RegisterActivityWithOptions(s.activities.PersistExtractedData, activity.RegisterOptions{Name: pkgtemporal.ActivityPersistExtractedData})
 
 	// Default mock expectations for enrichment/threading activities (blocking since pf-67502c fix).
