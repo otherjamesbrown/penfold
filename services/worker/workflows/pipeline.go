@@ -3596,5 +3596,39 @@ func looksLikeNotificationSender(senderEmail string) bool {
 	return false
 }
 
+// PreClassifyInput is the input for the PreClassify activity (shadow-mode rule engine).
+type PreClassifyInput struct {
+	TenantID    string            `json:"tenant_id"`
+	SenderEmail string            `json:"sender_email"`
+	Subject     string            `json:"subject,omitempty"`
+	ContentType string            `json:"content_type"`
+	Headers     map[string]string `json:"headers,omitempty"`
+}
+
+// PreClassifyOutput is the output from the PreClassify activity.
+type PreClassifyOutput struct {
+	Matched        bool   `json:"matched"`
+	ContentSubtype string `json:"content_subtype,omitempty"`
+	RuleName       string `json:"rule_name,omitempty"`
+	PipelineName   string `json:"pipeline_name,omitempty"`
+	Error          string `json:"error,omitempty"`
+}
+
+// PreClassifyContentInput is the input for the PreClassifyContent activity.
+type PreClassifyContentInput struct {
+	TenantID    string            `json:"tenant_id"`
+	SenderEmail string            `json:"sender_email"`
+	Subject     string            `json:"subject,omitempty"`
+	ContentType string            `json:"content_type"`
+	Headers     map[string]string `json:"headers,omitempty"`
+}
+
+// PreClassifyContentOutput is the output from the PreClassifyContent activity.
+type PreClassifyContentOutput struct {
+	Pipeline       string `json:"pipeline,omitempty"`
+	ContentSubtype string `json:"content_subtype,omitempty"`
+	RuleName       string `json:"rule_name,omitempty"`
+}
+
 // Ensure temporal package is used to avoid import errors during development.
 var _ = temporal.RetryPolicy{}

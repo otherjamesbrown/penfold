@@ -83,7 +83,7 @@ func NewContextBuilderActivities(
 	// topicRepo is optional (topic resolution)
 	// pipelineRepo is optional (provenance recording)
 	// configResolver is optional (pattern detection)
-	return &ContextBuilderActivities{
+	a := &ContextBuilderActivities{
 		logger:         logger.With(logging.F("component", "context_builder_activities")),
 		entityResolver: entityResolver,
 		entityRepo:     entityRepo,
@@ -92,12 +92,19 @@ func NewContextBuilderActivities(
 		pipelineRepo:   pipelineRepo,
 		configResolver: configResolver,
 	}
+	// Register built-in context providers. newsletterRepo is nil until
+	// WithNewsletterContextRepo is called; user_context and active_projects
+	// providers will return "" until then.
+	RegisterContextProviders(a.logger, contextRepo, nil, topicRepo)
+	return a
 }
 
 // WithNewsletterContextRepo injects an optional NewsletterContextRepository.
 // When set, BuildNewsletterContext will use it to populate user, project, and product sections.
+// Also re-registers context providers so user_context and active_projects use the new repo.
 func (a *ContextBuilderActivities) WithNewsletterContextRepo(repo NewsletterContextRepository) *ContextBuilderActivities {
 	a.newsletterContextRepo = repo
+	RegisterContextProviders(a.logger, a.contextRepo, repo, a.topicRepo)
 	return a
 }
 
