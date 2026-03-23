@@ -1,0 +1,65 @@
+From: Zhou, Kay Kay <kzhou@akamai.com>
+To: dl-ctg-analysts@akamai.com
+Date: Mon, 12 Jan 2026 14:58:51 +0000
+Subject: [ACTION REQUESTED] Q1 2026 A360 Workbooks and Datasources Cleanup
+Message-ID: <IA3PR17MB779100C7E61134A16FB1FD20D881A@IA3PR17MB7791.namprd17.prod.outlook.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+
+[BCC CTG Explorers]
+
+Hello,
+
+One of the responsibilities of a CTG Explorer is to participate in a quarterly usage audit to keep our Shared spaces easy to navigate and to ensure that storage on the platform is maintained at a healthy level. 
+
+For this quarter's audit, please mark content in the A360 Cleanup dashboard that you own as either Retain or Delete by 1/30. The content appears in this dashboard because the workbook or data source has been unused for some time.
+
+We appreciate your help in this cleanup!
+
+Best,
+CTG Analytics Team
+
+
+From: Saravanan, Anetha <asaravan@akamai.com>
+Sent: Friday, January 9, 2026 4:03 PM
+To: dl-stg-analytics <dl-stg-analytics@akamai.com>; People Analytics <PeopleAnalytics@akamai.com>; dl-MarketingAnalyticsandDataScienceTeam <MarketingAnalyticsandDataScienceTeam@akamai.com>; dl-dx <dl-dx@akamai.com>; dl-sales-analytics <dl-sales-analytics@akamai.com>; dl-ctg-analysts <dl-ctg-analysts@akamai.com>; Coe <coe@akamai.com>; dl-AskITAnalytics <dl-AskITAnalytics@akamai.com>; dl-A360 <dl-A360@akamai.com>; dl-coe@akamai.com <dl-coe@akamai.com>
+Subject: Re: Q1 2026 A360 Workbooks and Datasources Cleanup 
+
+
+Hi All,
+
+Hope you all are doing good!! 😊
+
+We’d like to inform you that the A360 cleanup activity for this quarter has officially begun.
+
+Important Links:
+A360 Cleanup dashboard - View the list of objects identified for cleanup in this cycle and mark your choices here
+Redundant Objects Dashboard - Review the previous cleanup history of these objects
+Cleanup Guidelines // Redundant Object Guidelines
+ 
+
+Cleanup window: Open until 1/30
+
+We will send weekly reminder emails to help you track progress.
+
+ 
+
+Please note:
+
+ 
+In this iteration, 
+the objects labeled "Will be Archived" in the Redundant Objects Dashboard will be archived, unless a valid business justification is provided for retention
+Any object left unmarked will be automatically considered for archival
+Only mark objects as "Retain" if there is a strong business need—do not keep reports on the server just as backups or copies
+ 
+
+A360 SMEs, please work with your BUs and ensure this activity is completed on time.
+If you have any questions or need assistance, feel free to reach out to us.
+
+Thanks,
+A360 Team
+
+ 
+
+ 
+

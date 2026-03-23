@@ -1,0 +1,140 @@
+From: Global Security Operations <globalsecops@akamai.com>
+To: jabrown@akamai.com
+Date: Tue, 13 Jan 2026 23:09:03 +0000
+Subject: Re: Security alert: Malicious DNS request detected from your machine: lon-mp90d || GSO-39225
+Message-ID: <45FF0334-2553-48D2-9F12-C872D1343281@akamai.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+
+Hi James,
+
+Thank you so much for your response, please consider this case as closed,
+
+ 
+
+Best Regards,
+
+
+Anielka Alvarez A.
+
+Security Analyst
+
+Global Cyber Security Operations
+
+ 
+
+ 
+
+ 
+
+From: "Brown, James" <jabrown@akamai.com>
+Date: Tuesday, January 13, 2026 at 1:27 PM
+To: Global Security Operations <globalsecops@akamai.com>
+Cc: "Gangwar, Diksha" <dgangwar@akamai.com>, "Michels, Shawn" <smichels@akamai.com>
+Subject: Re: Security alert: Malicious DNS request detected from your machine: lon-mp90d || GSO-39225
+
+ 
+
+Sorry, just saw that.  I know what that might be.  
+
+ 
+
+We were doing some research on the top 100 Linode customer and their industry, company size etc.  One of those companies is called KittySexy… we were trying to work out what it was…. It is actually a VPN provider that services China and has been a Linode company for years.  I was using Claude code to do the research – I assume it happened during that.
+
+ 
+
+Thanks
+
+James
+
+ 
+
+From: Global Security Operations <globalsecops@akamai.com>
+Date: Tuesday, 13 January 2026 at 18:18
+To: "Brown, James" <jabrown@akamai.com>
+Cc: "Gangwar, Diksha" <dgangwar@akamai.com>, Global Security Operations <globalsecops@akamai.com>, "Michels, Shawn" <smichels@akamai.com>
+Subject: Re: Security alert: Malicious DNS request detected from your machine: lon-mp90d || GSO-39225
+
+ 
+
+Hello James,
+
+ 
+
+Hope you are doing well, this is the first reminder of this email, could you please help me answering this at your earliest convenience? I need your collaboration to detect malicious activity, can you please confirm if you are aware of this activity?
+
+Thanks in advance
+
+ 
+
+Best Regards,
+
+
+Anielka Alvarez A.
+
+Security Analyst
+
+Global Cyber Security Operations
+
+ 
+
+ 
+
+ 
+
+From: Global Security Operations <globalsecops@akamai.com>
+Date: Monday, January 12, 2026 at 5:21 PM
+To: "Brown, James" <jabrown@akamai.com>
+Cc: "Gangwar, Diksha" <dgangwar@akamai.com>, Global Security Operations <globalsecops@akamai.com>
+Subject: Security alert: Malicious DNS request detected from your machine: lon-mp90d || GSO-39225
+
+ 
+
+Hello James,
+
+ 
+
+You are receiving this email from Akamai Global Security Operations as we identified malicious DNS request from your machine. We observed that connection to external domain " Asians[.]group”
+
+Details
+
+Please find the details given below identified from your system.
+
+ 
+
+Detection Date & TimeUsernameMachineNameDNS requestOriginating process
+Jan 9 2026 14:44:07 UTCjabrownlon-mp90Asians[.]groupnode /Users/jabrown/.volta/tools/image/packages/@anthropic-ai/claude-code/bin/claude --dangerously-skip-permissions
+
+ 
+Risk associated with the detection:
+
+The detection was triggered by a connection to a malicious domain “Asians[.]group”. The reputation of the domain is malicious and connecting to malicious domains poses considerable security risks, such as Malware Infections, Data Breaches etc. 
+
+ 
+
+ 
+
+User action required. 
+
+Please take immediate action to respond on
+Are you aware of the DNS request Initiated? If yes, we would like to understand the requirement for visiting the websites.
+Please let us know what activity was being performed during the time of the alert.
+Should you have any queries/concerns, please do not hesitate to reach out to globalsecops@akamai.com
+
+ 
+
+ 
+
+Best Regards,
+
+
+Anielka Alvarez A.
+
+Security Analyst
+
+Global Cyber Security Operations
+
+ 
+
+ 
+

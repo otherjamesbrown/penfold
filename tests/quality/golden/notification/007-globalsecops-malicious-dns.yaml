@@ -1,0 +1,36 @@
+email: emails/notification/007-globalsecops-malicious-dns.eml
+description: "GlobalSecOps — malicious DNS request detected security alert (GSO-39225)"
+last_verified: "2026-03-23"
+category: notification
+
+routing:
+  content_subtype: NOTIFICATION
+  notification_source: globalsecops
+  must_complete:
+    - parse
+    - triage
+    - extract_ner
+    - extract_semantic
+    - embed
+
+triage:
+  importance:
+    one_of: [HIGH, CRITICAL]
+    must_not_be: [LOW]
+  category:
+    one_of: [notification, risk_issue, security]
+
+notification_extract:
+  handling_mode: immediate_escalate
+  notification_source: globalsecops
+  escalation:
+    threat_description:
+      must_mention: ["DNS"]
+      min_length: 20
+    urgency:
+      one_of: [HIGH, CRITICAL]
+    requires_response: true
+
+intent:
+  description: "GlobalSecOps security alert — escalate immediately to WhatsApp. Malicious DNS, security incidents require immediate attention and response."
+  value: high
