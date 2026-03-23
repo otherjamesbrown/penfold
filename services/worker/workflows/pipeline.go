@@ -1668,10 +1668,47 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			Pipeline: pipelineName,
 		}).Get(ctx, &defOut)
 		if defErr != nil {
-			return state.result, temporal.NewNonRetryableApplicationError(
-				fmt.Sprintf("pipeline definition not found: pipeline=%s tenant=%s", pipelineName, input.TenantID),
-				"configuration_error",
-				defErr,
+			logger.Error("Failed to fetch pipeline definition — failing workflow",
+				"pipeline", pipelineName,
+				"error", defErr,
+			)
+			state.result.Status = "failed"
+			state.result.Error = fmt.Sprintf("pipeline definition not found: %v", defErr)
+			state.status.ErrorMessage = state.result.Error
+			ctxFail := workflow.WithActivityOptions(ctx, fastOpts)
+			if err := workflow.ExecuteActivity(ctxFail, pkgtemporal.ActivityUpdateContentStatus, UpdateContentStatusInput{
+				TenantID: input.TenantID, SourceID: input.SourceID,
+				Status: "failed", FailureCategory: "configuration_error", FailureReason: defErr.Error(),
+			}).Get(ctx, nil); err != nil {
+				logger.Error("Failed to update content status after pipeline definition error",
+					"source_id", input.SourceID,
+					"error", err,
+				)
+			}
+			if langfuseTraceID != "" {
+				_ = workflow.ExecuteActivity(
+					workflow.WithActivityOptions(ctx, fastOpts),
+					pkgtemporal.ActivityUpdateLangfuseTraceMetadata,
+					UpdateLangfuseTraceMetadataInput{
+						TraceID: langfuseTraceID,
+						Metadata: map[string]any{
+							"error":            defErr.Error(),
+							"failure_category": "configuration_error",
+							"pipeline":         pipelineName,
+						},
+					},
+				).Get(ctx, nil)
+			}
+			return state.result, nil
+		} else if defOut.Found {
+			pipelineDef = &defOut
+			logger.Info("Pipeline definition loaded from DB",
+				"pipeline", pipelineName,
+				"stage_count", len(defOut.Stages),
+			)
+		} else {
+			logger.Info("No pipeline definition found in DB, using SLMPipelineStages fallback",
+				"pipeline", pipelineName,
 			)
 		}
 		if !defOut.Found {

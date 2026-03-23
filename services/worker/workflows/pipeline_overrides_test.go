@@ -43,7 +43,7 @@ func (s *PipelineOverridesTestSuite) SetupTest() {
 	s.activities.On("CreateEnrichmentRecord", mock.Anything, mock.Anything).Maybe().Return(&CreateEnrichmentRecordOutput{EnrichmentID: 1}, nil)
 	s.activities.On("GroupEmailThread", mock.Anything, mock.Anything).Maybe().Return(&GroupEmailThreadOutput{}, nil)
 	s.activities.On("GenerateContentSummary", mock.Anything, mock.Anything).Maybe().Return(int64(0), nil)
-	s.activities.On("FetchPipelineDefinition", mock.Anything, mock.Anything).Maybe().Return(standardTestPipelineDef(), nil)
+	s.activities.On("FetchPipelineDefinition", mock.Anything, mock.Anything).Maybe().Return(&FetchPipelineDefinitionOutput{Found: false}, nil)
 }
 
 func (s *PipelineOverridesTestSuite) AfterTest(suiteName, testName string) {
