@@ -146,7 +146,7 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_Newsletter_LOW_RunsExtract() {
 				Enabled:     true,
 				SkipWhenLow: false, // always runs — even on LOW contribution
 			},
-			{Stage: "embed", StageOrder: 3, Enabled: true, SkipWhenLow: false},
+			{Stage: "embed", StageKind: "embedding", StageOrder: 3, Enabled: true, SkipWhenLow: false},
 		},
 	}
 	s.activities.On("FetchPipelineDefinition", mock.Anything, mock.Anything).Return(newsletterDef, nil)
@@ -241,7 +241,7 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_PerStageGating_SkipWhenLowFalse_N
 			{Stage: "triage", StageOrder: 1, Enabled: true},
 			{Stage: "extract_ner", StageOrder: 2, Enabled: true, SkipWhenLow: false}, // never skip
 			{Stage: "persist", StageOrder: 3, Enabled: true, SkipWhenLow: false},
-			{Stage: "embed", StageOrder: 4, Enabled: true},
+			{Stage: "embed", StageKind: "embedding", StageOrder: 4, Enabled: true},
 		},
 	}
 	s.activities.On("FetchPipelineDefinition", mock.Anything, mock.Anything).Return(customDef, nil)
@@ -348,7 +348,7 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_PerStageGating_RuntimeConfigChang
 				{Stage: "triage", StageOrder: 1, Enabled: true},
 				{Stage: "extract_ner", StageOrder: 2, Enabled: true, SkipWhenLow: true}, // DB config: gate on LOW
 				{Stage: "persist", StageOrder: 3, Enabled: true, SkipWhenLow: true},
-				{Stage: "embed", StageOrder: 4, Enabled: true},
+				{Stage: "embed", StageKind: "embedding", StageOrder: 4, Enabled: true},
 			},
 		}
 		s.activities.On("FetchPipelineDefinition", mock.Anything, mock.Anything).Unset()
@@ -383,7 +383,7 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_PerStageGating_RuntimeConfigChang
 				{Stage: "triage", StageOrder: 1, Enabled: true},
 				{Stage: "extract_ner", StageOrder: 2, Enabled: true, SkipWhenLow: false}, // DB config changed: always run
 				{Stage: "persist", StageOrder: 3, Enabled: true, SkipWhenLow: false},
-				{Stage: "embed", StageOrder: 4, Enabled: true},
+				{Stage: "embed", StageKind: "embedding", StageOrder: 4, Enabled: true},
 			},
 		}
 		s.activities.On("FetchPipelineDefinition", mock.Anything, mock.Anything).Unset()

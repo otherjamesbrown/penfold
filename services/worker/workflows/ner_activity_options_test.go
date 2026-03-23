@@ -171,7 +171,7 @@ func (s *NERActivityOptionsTestSuite) TestExtractNER_StageConfigMapOverridesInpu
 			{Stage: "extract_ner", StageOrder: 1, Enabled: true, SkipWhenLow: false, TimeoutSeconds: 600},
 			{Stage: "extract_semantic", StageOrder: 2, Enabled: true, SkipWhenLow: false, TimeoutSeconds: 600},
 			{Stage: "analyze", StageOrder: 3, Enabled: true, TimeoutSeconds: 600},
-			{Stage: "embed", StageOrder: 4, Enabled: true, TimeoutSeconds: 120},
+			{Stage: "embed", StageKind: "embedding", StageOrder: 4, Enabled: true, TimeoutSeconds: 120},
 		},
 	}, nil)
 
