@@ -23,11 +23,11 @@ triage:
 notification_extract:
   handling_mode: immediate_escalate
   notification_source: globalsecops
-  escalation:
+  immediate_escalate:
     threat_description:
       must_mention: ["DNS"]
       min_length: 20
-    urgency:
+    urgency_level:
       one_of: [HIGH, CRITICAL]
     requires_response: true
 
