@@ -1,80 +1,49 @@
-# Task: Eval Phase 2 — notification golden YAML files and .eml fixtures
+# Task: Eval Phase 2 — notification eval test runner with Langfuse recording
 
-**Task ID:** pf-2e00e9
+**Task ID:** pf-fd89f5
 **Agent:** agent-mycroft
 
 ## Task Content
 
 ## Scope
-Create golden YAML eval files for 9 notification test items across 7 sources, covering all 4 handling modes. Retrieve real .eml content from the DB for test fixtures.
+Create the TestEval_Notification test function that discovers notification golden files, runs each through the pipeline, asserts against golden expectations, and records results to Langfuse.
 
-### Golden YAML Files to Create
+### Test Runner Implementation
+Follows the same pattern as TestEval_Newsletter from Phase 1: discover golden files, ingest email, wait for pipeline completion, run L1 routing assertions, run L2 triage and notification-specific matchers, record results to Langfuse.
 
-Directory: tests/quality/golden/notification/
+### Langfuse Dataset
+Create Langfuse dataset "eval-notification" with items for each golden file. Reuse the existing recordEvalToLangfuse helper from Phase 1 (or extend it if needed).
 
-| File | Source ID | Source | Handling | Key Assertions |
-|------|-----------|--------|----------|----------------|
-| 001-aha-daily-todos.yaml | 3413 | Aha! to-dos | triage_once | routing=NOTIFICATION, importance one_of [LOW,MEDIUM], must_not_be [HIGH,CRITICAL] |
-| 002-aha-digest-compute.yaml | 3410 | Aha! digest | daily_summary | routing=NOTIFICATION, source=aha, importance=LOW |
-| 003-aha-digest-compute-2.yaml | 3412 | Aha! digest | daily_summary | routing=NOTIFICATION, source=aha |
-| 004-jira-track-updates.yaml | 3808 | Jira | daily_summary | routing=NOTIFICATION, source=jira |
-| 005-oracle-antibribery.yaml | 3810 | Oracle Learning | compliance_status | routing=NOTIFICATION, source=oracle, due_date_present=true |
-| 006-google-signin-alert.yaml | 3409 | Google | daily_summary | routing=NOTIFICATION, source=google |
-| 007-globalsecops-malicious-dns.yaml | 3812 | GlobalSecOps | immediate_escalate | routing=NOTIFICATION, importance=CRITICAL or HIGH, threat description present |
-| 008-bitmovin-action-required.yaml | 3811 | Bitmovin | triage_once | routing=NOTIFICATION, importance one_of [LOW,MEDIUM] |
-| 009-internal-a360-cleanup.yaml | 3809 | Internal | triage_once | routing=NOTIFICATION, importance one_of [LOW,MEDIUM] |
+### Helper Functions
+- discoverGoldenFiles(t, "notification") — already exists from Phase 1, just needs notification directory
+- assertTriageCalibration — wraps MatchTriage with EvalResults collection
+- assertNotificationExtract — wraps MatchNotificationExtract with EvalResults collection
+- fetchNotificationExtraction(t, env, sourceID) — queries content_enrichment for notification extraction JSON
 
-### Golden YAML Structure (per notification intent spec)
-
-```yaml
-email: emails/notification-<source>-<brief>.eml
-description: "<source> — <brief description>"
-last_verified: "2026-03-23"
-category: notification
-
-routing:
-  content_subtype: NOTIFICATION
-  notification_source: <source>
-  pipeline: notification
-  must_complete: [parse, triage, summarize, extract_ner, extract_semantic, embed]
-
-triage:
-  importance:
-    one_of: [LOW, MEDIUM]     # varies per source
-    must_not_be: [HIGH, CRITICAL]  # for non-escalation items
-  category:
-    one_of: [notification, system_update]
-
-notification_extract:
-  handling_mode: <daily_summary|triage_once|compliance_status|immediate_escalate>
-  notification_source: <source>
-  # ... source-specific fields per handling mode
-
-intent:
-  description: "<James's stated intent from the notification intent spec>"
-  value: <low|medium|high>
-```
-
-### .eml Fixtures
-Retrieve real email content from DB for each source_id. Store in tests/fixtures/acme-corp/emails/ (or equivalent fixture path used by Phase 1).
+### Run Commands
+go test -tags=quality ./tests/quality/... -run TestEval_Notification -v
 
 ### Acceptance Criteria
-- [ ] 9 golden YAML files created in tests/quality/golden/notification/
-- [ ] Each golden file covers L1 routing assertions and L2 triage calibration
-- [ ] All 4 handling modes represented (triage_once x3, daily_summary x4, compliance_status x1, immediate_escalate x1)
-- [ ] .eml fixtures available for all 9 items
-- [ ] Golden YAML files parse correctly with existing types
-- [ ] Each file includes intent section matching notification intent spec
+- [ ] TestEval_Notification discovers and runs all golden files in notification/
+- [ ] L1 routing assertions pass for all 9 golden files
+- [ ] L2 triage calibration assertions run for all items
+- [ ] L2 notification extraction assertions run per handling mode
+- [ ] Results recorded to Langfuse eval-notification dataset
+- [ ] Test output shows per-item pass/fail with handling mode context
+- [ ] Can run independently or alongside newsletter evals
 
 ### Code Locations
-- tests/quality/golden/notification/*.yaml — 9 new golden files
-- tests/fixtures/acme-corp/emails/notification-*.eml — 9 .eml fixtures
+- tests/quality/notification_eval_test.go — NEW file, TestEval_Notification
+- tests/quality/helpers.go — extend with fetchNotificationExtraction if needed
+- tests/quality/langfuse_eval.go — reuse/extend recordEvalToLangfuse
 
 ### Approach
-Query DB for each source_id to get actual email content and current pipeline output. Use pipeline output to set realistic expected values. Cross-reference with the notification intent spec (sender-to-handling map) in the parent design.
+Mirror TestEval_Newsletter structure from Phase 1. The key difference is notification evals need to validate 4 different handling modes, so the test runner dispatches based on the golden files handling mode. Langfuse recording uses the same CreateScore and CreateDatasetRunItem pattern.
 
 ### Dependencies
-- pf-20233c (types must be defined before golden files can use notification_extract fields)
+- pf-20233c (types)
+- pf-2e00e9 (golden files and fixtures)
+- pf-b8ed97 (matchers)
 
 ## Design Context (from pf-4d2288)
 
@@ -663,7 +632,7 @@ Implement this task following the acceptance criteria above.
 
 1. Run tests: `cd penfold-go-pipeline && go test ./... && cd penfold-go-pipeline && go vet ./...`
 2. Build: `cd penfold-go-pipeline && go build ./...`
-3. **Run `cxp task complete pf-2e00e9`** — this commits remaining changes, pushes, creates the PR, appends evidence, and marks the task needs-review. Do this as your LAST action.
+3. **Run `cxp task complete pf-fd89f5`** — this commits remaining changes, pushes, creates the PR, appends evidence, and marks the task needs-review. Do this as your LAST action.
 
 
 ---

@@ -22,10 +22,9 @@ triage:
 notification_extract:
   handling_mode: compliance_status
   notification_source: oracle
-  compliance:
+  compliance_status:
     course_name:
       must_mention: ["Anti-Bribery"]
-    due_date_present: true
     overdue: true
 
 intent:
