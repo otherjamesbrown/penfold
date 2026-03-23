@@ -45,6 +45,7 @@ type Registrar struct {
 	structuredExtractActivities       *StructuredExtractActivities
 	digestRollupActivities            *DigestRollupActivities
 	journalRollupActivities           *JournalRollupActivities
+	preClassifyActivities             *PreClassifyActivities
 }
 
 // NewRegistrar creates a new activity registrar.
@@ -93,6 +94,12 @@ func (r *Registrar) WithPersistActivities(pa *PersistActivities) *Registrar {
 // WithTriageActivities adds triage activities to the registrar.
 func (r *Registrar) WithTriageActivities(ta *TriageActivities) *Registrar {
 	r.triageActivities = ta
+	return r
+}
+
+// WithPreClassifyActivities adds pre-classification activities to the registrar (pf-b375ad).
+func (r *Registrar) WithPreClassifyActivities(pa *PreClassifyActivities) *Registrar {
+	r.preClassifyActivities = pa
 	return r
 }
 
@@ -354,10 +361,20 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		})
 	}
 
-	// Triage activities for Stage 1 (triage)
+	// Triage activities for Stage 1 (triage + pre-classification)
 	if r.triageActivities != nil {
 		w.RegisterActivityWithOptions(r.triageActivities.Triage, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityTriage,
+		})
+		w.RegisterActivityWithOptions(r.triageActivities.PreClassifyContent, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityPreClassifyContent,
+		})
+	}
+
+	// Pre-classify activities (pf-b375ad: shadow mode rule engine before triage)
+	if r.preClassifyActivities != nil {
+		w.RegisterActivityWithOptions(r.preClassifyActivities.PreClassify, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityPreClassify,
 		})
 	}
 
@@ -369,8 +386,8 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		w.RegisterActivityWithOptions(r.contextBuilderActivities.BuildContextPackage, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityBuildContextPackage,
 		})
-		w.RegisterActivityWithOptions(r.contextBuilderActivities.BuildNewsletterContext, activity.RegisterOptions{
-			Name: pkgtemporal.ActivityBuildNewsletterContext,
+		w.RegisterActivityWithOptions(r.contextBuilderActivities.BuildStageContext, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityBuildStageContext,
 		})
 	}
 
@@ -786,11 +803,11 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		if r.persistActivities != nil {
 			count += 1
 		}
-		// Triage
+		// Triage, PreClassifyContent
 		if r.triageActivities != nil {
-			count += 1
+			count += 2
 		}
-		// BuildExtractionContext, BuildContextPackage, BuildNewsletterContext
+		// BuildExtractionContext, BuildContextPackage, BuildStageContext
 		if r.contextBuilderActivities != nil {
 			count += 3
 		}

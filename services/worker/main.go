@@ -429,6 +429,17 @@ func main() {
 		logger.Warn("DATABASE_URL not configured - activities requiring database will fail")
 	}
 
+	// Validate pipeline definitions — fail fast if any are broken or missing.
+	// Prevents the worker from running in a state where every workflow would fail immediately.
+	if dbPool != nil {
+		baseRepo := pipeline.NewRepository(dbPool)
+		if err := pipeline.ValidateAllDefinitions(context.Background(), baseRepo, pkgconfig.DefaultTenantID().String()); err != nil {
+			logger.Error("Pipeline definition validation failed — exiting", logging.Err(err))
+			os.Exit(1)
+		}
+		logger.Info("Pipeline definitions validated")
+	}
+
 	// Initialize timeout configuration
 	ctx := context.Background()
 	// Guard against nil-pointer-in-interface: a nil *pgxpool.Pool passed as
@@ -707,6 +718,17 @@ func main() {
 		analysisActivities := activities.NewAnalysisActivities(logger, aiClient, pipelineRepo)
 		activityRegistrar.WithAnalysisActivities(analysisActivities)
 		logger.Info("Analysis activities initialized with AI client (Stage 4)")
+	}
+
+	// Pre-classify activities (pf-b375ad: shadow-mode rule engine before triage).
+	// Does not require aiClient — only needs DB for classification rules and routing.
+	if dbPool != nil {
+		preClassifyRepo := classification.NewRepository(dbPool, logger)
+		preClassifyActivities := activities.NewPreClassifyActivities(logger, preClassifyRepo)
+		preClassifyRouting := routing.NewRepository(dbPool)
+		preClassifyActivities.WithRoutingRepo(preClassifyRouting)
+		activityRegistrar.WithPreClassifyActivities(preClassifyActivities)
+		logger.Info("Pre-classify activities initialized for shadow-mode rule engine (pf-b375ad)")
 	}
 
 	// Initialize context builder activities if database is available (Stage 3)

@@ -91,6 +91,14 @@ func (m *ReprocessMockActivities) KickNextPending(ctx context.Context, input Kic
 	return args.Get(0).(*KickNextPendingOutput), args.Error(1)
 }
 
+func (m *ReprocessMockActivities) FetchPipelineDefinition(ctx context.Context, input FetchPipelineDefinitionInput) (*FetchPipelineDefinitionOutput, error) {
+	args := m.Called(ctx, input)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*FetchPipelineDefinitionOutput), args.Error(1)
+}
+
 // TestReprocessThreadingEmailPath verifies that ThreadGrouper (GroupEmailThread activity)
 // is called during reprocessing for email content.
 //
@@ -119,6 +127,11 @@ func TestReprocessThreadingEmailPath(t *testing.T) {
 	env.RegisterActivityWithOptions(activities.UpdateContentStatus, activity.RegisterOptions{Name: pkgtemporal.ActivityUpdateContentStatus})
 	env.RegisterActivityWithOptions(activities.CreateEnrichmentRecord, activity.RegisterOptions{Name: pkgtemporal.ActivityCreateEnrichmentRecord})
 	env.RegisterActivityWithOptions(activities.KickNextPending, activity.RegisterOptions{Name: pkgtemporal.ActivityKickNextPending})
+	env.RegisterActivityWithOptions(activities.FetchPipelineDefinition, activity.RegisterOptions{Name: pkgtemporal.ActivityFetchPipelineDefinition})
+
+	// FetchPipelineDefinition: return not-found to use SLM fallback stages.
+	activities.On("FetchPipelineDefinition", mock.Anything, mock.Anything).
+		Return(&FetchPipelineDefinitionOutput{Found: false}, nil)
 
 	// Stage -1: FetchContent (minimal input path — simulates reprocess)
 	activities.On("FetchSource", mock.Anything, mock.Anything).
@@ -237,6 +250,8 @@ func TestReprocessThreadingMeetingPath(t *testing.T) {
 	env.RegisterActivityWithOptions(activities.UpdateContentStatus, activity.RegisterOptions{Name: pkgtemporal.ActivityUpdateContentStatus})
 	env.RegisterActivityWithOptions(activities.CreateEnrichmentRecord, activity.RegisterOptions{Name: pkgtemporal.ActivityCreateEnrichmentRecord})
 	env.RegisterActivityWithOptions(activities.KickNextPending, activity.RegisterOptions{Name: pkgtemporal.ActivityKickNextPending})
+	env.RegisterActivityWithOptions(activities.FetchPipelineDefinition, activity.RegisterOptions{Name: pkgtemporal.ActivityFetchPipelineDefinition})
+	activities.On("FetchPipelineDefinition", mock.Anything, mock.Anything).Maybe().Return(standardTestPipelineDef(), nil)
 
 	// Stage -1: FetchContent returns meeting content
 	activities.On("FetchSource", mock.Anything, mock.Anything).
@@ -321,6 +336,11 @@ func TestReprocessThreadingContentID_BUG_pf_3418d4(t *testing.T) {
 	env.RegisterActivityWithOptions(activities.UpdateContentStatus, activity.RegisterOptions{Name: pkgtemporal.ActivityUpdateContentStatus})
 	env.RegisterActivityWithOptions(activities.CreateEnrichmentRecord, activity.RegisterOptions{Name: pkgtemporal.ActivityCreateEnrichmentRecord})
 	env.RegisterActivityWithOptions(activities.KickNextPending, activity.RegisterOptions{Name: pkgtemporal.ActivityKickNextPending})
+	env.RegisterActivityWithOptions(activities.FetchPipelineDefinition, activity.RegisterOptions{Name: pkgtemporal.ActivityFetchPipelineDefinition})
+
+	// FetchPipelineDefinition: return not-found to use SLM fallback stages.
+	activities.On("FetchPipelineDefinition", mock.Anything, mock.Anything).
+		Return(&FetchPipelineDefinitionOutput{Found: false}, nil)
 
 	// FetchContent returns ContentID from DB
 	activities.On("FetchSource", mock.Anything, mock.Anything).
