@@ -608,11 +608,10 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_Stage4Timeout() {
 
 // TestSLMPipeline_QueryStatus tests the status query handler.
 //
-// TODO(pf-adabbc): Asserts TotalSteps=3 (SkipDeep reduced step count) which was set by
-// the global gating block. After per-stage skip_when_low is wired in pf-adabbc, this test
-// should be updated to reflect the new step count logic.
+// Per-stage skip_when_low gating (pf-5f1a20): TotalSteps reflects only the stages that
+// actually run. With SkipDeep=true, stages with skip_when_low=true are gated.
+// standardTestPipelineDef has parse/triage/embed with skip_when_low=false → 3 steps.
 func (s *SLMPipelineTestSuite) TestSLMPipeline_QueryStatus() {
-	s.T().Skip("TODO(pf-adabbc): global gating removed; TotalSteps for SkipDeep path not yet wired")
 	input := PipelineInput{
 		TenantID:    "tenant-1",
 		SourceID:    700,
@@ -1979,10 +1978,9 @@ func (s *SLMPipelineTestSuite) TestSLMPipeline_TeamsClassification() {
 // assertions (when the item had MEDIUM contribution) are cleaned up when the item is
 // reprocessed and reclassified as contribution=NONE.
 //
-// TODO(pf-adabbc): Global contribution gating removed. Per-stage skip_when_low wiring
-// will restore the DeleteAssertions call when extraction is skipped for low-value content.
+// Per-stage skip_when_low gating (pf-5f1a20): DeleteAssertions is called when extraction
+// is skipped (all extract stages gated by skip_when_low=true and contribution=NONE/LOW).
 func (s *SLMPipelineTestSuite) TestSLMPipeline_DeleteAssertions_CalledOnSkipExtract_pf91b00d() {
-	s.T().Skip("TODO(pf-adabbc): global gating removed; per-stage skip_when_low not yet wired")
 	input := PipelineInput{
 		TenantID:    "tenant-fix",
 		SourceID:    9100,
