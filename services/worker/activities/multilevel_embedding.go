@@ -97,12 +97,13 @@ func (a *MultiLevelEmbeddingActivities) GenerateMultiLevelEmbeddings(
 		return nil, ctx.Err()
 	}
 
-	// Validate input
+	// Skip embedding when content is empty (e.g. calendar cancellations with no body text)
 	if input.Content == "" {
-		return nil, temporal.NewApplicationError(
-			"content is empty",
-			"ValidationError",
-		)
+		logger.Info("Skipping multi-level embedding — content is empty")
+		return &MultiLevelEmbeddingOutput{
+			SourceEmbeddingIDs:    []int64{},
+			AssertionEmbeddingIDs: []int64{},
+		}, nil
 	}
 
 	if input.Analysis == nil {

@@ -109,6 +109,26 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 		logging.F("content_length", len(input.Content)),
 	)
 
+	// Skip embedding when content is empty (e.g. calendar cancellations with no body text)
+	if input.Content == "" {
+		logger.Info("Skipping embedding — content is empty")
+		if a.pipelineRepo != nil {
+			inputJSON, _ := json.Marshal(map[string]interface{}{
+				"content_length": 0,
+				"tenant_id":      input.TenantID,
+			})
+			_ = a.pipelineRepo.CreateRun(ctx, PipelineRunInput{
+				SourceID:        input.SourceID,
+				Stage:           "embed",
+				Status:          "skipped",
+				SkipReason:      "content_empty",
+				InputData:       inputJSON,
+				LangfuseTraceID: input.LangfuseTraceID,
+			})
+		}
+		return 0, nil
+	}
+
 	// Record initial heartbeat
 	activity.RecordHeartbeat(ctx, "starting embedding generation")
 
@@ -117,14 +137,6 @@ func (a *EmbeddingActivities) GenerateEmbedding(ctx context.Context, input workf
 	// Check for cancellation before expensive operations
 	if ctx.Err() != nil {
 		return 0, ctx.Err()
-	}
-
-	// Validate input
-	if input.Content == "" {
-		return 0, temporal.NewApplicationError(
-			"content is empty",
-			"ValidationError",
-		)
 	}
 
 	// Check if AI client is available
