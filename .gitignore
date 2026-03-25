@@ -116,3 +116,4 @@ services/gateway/gateway
 services/gateway/main
 services/worker/worker
 services/mcp/penfold-mcp
+.cobuild/last-prompt.md
