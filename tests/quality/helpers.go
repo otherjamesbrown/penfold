@@ -299,6 +299,161 @@ func (env *QualityEnv) CleanupTestTenant() error {
 	return nil
 }
 
+// SeedClassificationRules seeds newsletter classification rules, pipeline routing,
+// and pipeline definitions for the quality test tenant. Safe to call multiple times.
+func (env *QualityEnv) SeedClassificationRules(ctx context.Context) error {
+	type classRule struct {
+		name      string
+		priority  int
+		subtype   string
+		field     string
+		matchType string
+		value     string
+	}
+
+	rules := []classRule{
+		// From migration 092: specific newsletter senders
+		{"newsletter_ctg", 8, "NEWSLETTER", "from_address", "exact", "ctgcomms@akamai.com"},
+		{"newsletter_akamai_wave", 8, "NEWSLETTER", "from_address", "exact", "AkamaiWave@akamai.com"},
+		{"newsletter_emea", 8, "NEWSLETTER", "from_address", "exact", "EMEA_newsletter@akamai.com"},
+		{"newsletter_englearn", 8, "NEWSLETTER", "from_address", "exact", "EngLearn@akamai.com"},
+		{"newsletter_akamai_spark", 8, "NEWSLETTER", "from_address", "exact", "AkamaiSpark@akamai.com"},
+		// From migration 135: broad sender patterns
+		{"newsletter_comms_pattern", 85, "NEWSLETTER", "from_address", "glob", "*comms@*"},
+		{"newsletter_wave_pattern", 85, "NEWSLETTER", "from_address", "glob", "*wave@*"},
+		{"newsletter_addr_pattern", 85, "NEWSLETTER", "from_address", "glob", "*newsletter@*"},
+		// From migration 146: internal corporate newsletter (subject match)
+		{"newsletter_internal_corporate", 80, "NEWSLETTER_INTERNAL", "subject", "contains", "Post-Its"},
+		// From migration 148: dynamic signal digest
+		{"newsletter_dynamic_signal", 7, "NEWSLETTER_DIGEST", "from_address", "contains", "dynamicsignal"},
+	}
+
+	for _, r := range rules {
+		// Insert rule if not exists, then get its ID either way.
+		var ruleID int
+		err := env.DB.QueryRow(ctx, `
+			WITH ins AS (
+				INSERT INTO classification_rules (tenant_id, name, priority, content_type_scope, content_type, content_subtype, active)
+				SELECT $1, $2, $3, 'EMAIL', 'EMAIL', $4, true
+				WHERE NOT EXISTS (
+					SELECT 1 FROM classification_rules WHERE tenant_id = $1 AND name = $2
+				)
+				RETURNING id
+			)
+			SELECT id FROM ins
+			UNION ALL
+			SELECT id FROM classification_rules WHERE tenant_id = $1 AND name = $2
+			LIMIT 1
+		`, env.TenantID, r.name, r.priority, r.subtype).Scan(&ruleID)
+		if err != nil {
+			return fmt.Errorf("upsert classification rule %s: %w", r.name, err)
+		}
+
+		// Insert match condition only if the rule has none yet.
+		var condCount int
+		if err := env.DB.QueryRow(ctx, `
+			SELECT COUNT(*) FROM classification_match_conditions WHERE rule_id = $1
+		`, ruleID).Scan(&condCount); err != nil {
+			return fmt.Errorf("count conditions for rule %s: %w", r.name, err)
+		}
+		if condCount == 0 {
+			if _, err := env.DB.Exec(ctx, `
+				INSERT INTO classification_match_conditions (rule_id, field, match_type, value, case_sensitive)
+				VALUES ($1, $2, $3, $4, false)
+			`, ruleID, r.field, r.matchType, r.value); err != nil {
+				return fmt.Errorf("insert match condition for rule %s: %w", r.name, err)
+			}
+		}
+	}
+
+	// Seed pipeline routing for all three newsletter variants.
+	type routing struct {
+		subtype  string
+		pipeline string
+	}
+	for _, rt := range []routing{
+		{"NEWSLETTER", "newsletter"},
+		{"NEWSLETTER_INTERNAL", "newsletter_internal"},
+		{"NEWSLETTER_DIGEST", "newsletter_digest"},
+	} {
+		if _, err := env.DB.Exec(ctx, `
+			INSERT INTO pipeline_routing (tenant_id, content_type, content_subtype, pipeline, active)
+			SELECT $1, 'EMAIL', $2, $3, true
+			WHERE NOT EXISTS (
+				SELECT 1 FROM pipeline_routing
+				WHERE tenant_id = $1 AND content_type = 'EMAIL' AND content_subtype = $2
+			)
+		`, env.TenantID, rt.subtype, rt.pipeline); err != nil {
+			return fmt.Errorf("insert pipeline routing for %s: %w", rt.pipeline, err)
+		}
+	}
+
+	// Detect whether pipeline_definitions has the stage_kind column (added in migration 144).
+	var hasStageKind bool
+	if err := env.DB.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.columns
+			WHERE table_name = 'pipeline_definitions' AND column_name = 'stage_kind'
+		)
+	`).Scan(&hasStageKind); err != nil {
+		return fmt.Errorf("check stage_kind column: %w", err)
+	}
+
+	type pipelineDef struct {
+		pipeline       string
+		stage          string
+		stageOrder     int
+		timeoutSec     int
+		promptOverride *int
+		stageKind      string
+		persistKey     *string
+	}
+
+	newsletterKey := "newsletter"
+	promptV3 := 3
+	promptV4 := 4
+
+	defs := []pipelineDef{
+		// Base newsletter pipeline
+		{"newsletter", "parse", 0, 60, nil, "code_only", nil},
+		{"newsletter", "triage", 1, 120, nil, "llm", nil},
+		{"newsletter", "newsletter_extract", 2, 120, nil, "structured_extract", &newsletterKey},
+		{"newsletter", "embed", 3, 60, nil, "embedding", nil},
+		// newsletter_internal pipeline (prompt_override = 3 for v3 prompt)
+		{"newsletter_internal", "parse", 0, 60, nil, "code_only", nil},
+		{"newsletter_internal", "triage", 1, 120, nil, "llm", nil},
+		{"newsletter_internal", "newsletter_extract", 2, 120, &promptV3, "structured_extract", &newsletterKey},
+		{"newsletter_internal", "embed", 3, 60, nil, "embedding", nil},
+		// newsletter_digest pipeline (prompt_override = 4 for v4 prompt)
+		{"newsletter_digest", "parse", 0, 60, nil, "code_only", nil},
+		{"newsletter_digest", "triage", 1, 120, nil, "llm", nil},
+		{"newsletter_digest", "newsletter_extract", 2, 120, &promptV4, "structured_extract", &newsletterKey},
+		{"newsletter_digest", "embed", 3, 60, nil, "embedding", nil},
+	}
+
+	for _, d := range defs {
+		var err error
+		if hasStageKind {
+			_, err = env.DB.Exec(ctx, `
+				INSERT INTO pipeline_definitions (tenant_id, pipeline, stage, stage_order, enabled, skip_when_low, optional, timeout_seconds, model_override, prompt_override, stage_kind, persist_key)
+				VALUES ($1, $2, $3, $4, true, false, false, $5, NULL, $6, $7, $8)
+				ON CONFLICT (tenant_id, pipeline, stage) DO NOTHING
+			`, env.TenantID, d.pipeline, d.stage, d.stageOrder, d.timeoutSec, d.promptOverride, d.stageKind, d.persistKey)
+		} else {
+			_, err = env.DB.Exec(ctx, `
+				INSERT INTO pipeline_definitions (tenant_id, pipeline, stage, stage_order, enabled, skip_when_low, optional, timeout_seconds, model_override, prompt_override)
+				VALUES ($1, $2, $3, $4, true, false, false, $5, NULL, $6)
+				ON CONFLICT (tenant_id, pipeline, stage) DO NOTHING
+			`, env.TenantID, d.pipeline, d.stage, d.stageOrder, d.timeoutSec, d.promptOverride)
+		}
+		if err != nil {
+			return fmt.Errorf("insert pipeline definition %s/%s: %w", d.pipeline, d.stage, err)
+		}
+	}
+
+	return nil
+}
+
 // FixturePath returns the full path to a fixture file.
 func (env *QualityEnv) FixturePath(relativePath string) string {
 	return filepath.Join(env.FixtureDir, relativePath)
