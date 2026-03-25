@@ -209,6 +209,19 @@ func main() {
 	compositeBackend := backend.NewCompositeBackend(mlxBackend, mlxBackend, geminiBackend, anthropicBackend)
 	defer func() { _ = compositeBackend.Close() }()
 
+	// Wire per-provider concurrency semaphores from pipeline_operational_config.
+	// Fails at startup if model.concurrency.default is not seeded in the DB.
+	if dbPool != nil {
+		loader := backend.NewConcurrencyConfigLoader(dbPool, pkgconfig.DefaultTenantID().String())
+		if err := compositeBackend.WithConfigLoader(loader.Loader()); err != nil {
+			logger.Error("Failed to initialize backend semaphores — check model.concurrency.* config rows", logging.Err(err))
+			os.Exit(1)
+		}
+		logger.Info("Backend concurrency semaphores initialized from DB config")
+	} else {
+		logger.Info("No DB configured — backend semaphores disabled (no per-provider concurrency limits)")
+	}
+
 	// Register MLX embeddings health check (non-critical)
 	healthChecker.RegisterCheck("mlx_embeddings", func(ctx context.Context) error {
 		return mlxBackend.CheckEmbeddingsHealth(ctx)
