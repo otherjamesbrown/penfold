@@ -362,6 +362,14 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 	if s.langfuse != nil {
 		lfTraceID, lfPhaseID := extractLangfuseMetadata(ctx)
 		if lfTraceID != "" {
+			var nerMeta map[string]any
+			if nerResult.BackendMax > 0 {
+				nerMeta = map[string]any{
+					"semaphore_wait_ms":  nerResult.SemaphoreWaitMs,
+					"backend_concurrent": nerResult.BackendConcurrent,
+					"backend_max":        nerResult.BackendMax,
+				}
+			}
 			s.langfuse.CreateGeneration(langfuse.GenerationEvent{
 				ID:               uuid.New().String(),
 				TraceID:          lfTraceID,
@@ -370,6 +378,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 				Model:            nerResult.Model,
 				Input:            nerMessages,
 				Output:           nerResult.Content,
+				Metadata:         nerMeta,
 				PromptTokens:     nerResult.InputTokens,
 				CompletionTokens: nerResult.OutputTokens,
 				StartTime:        startTime,
@@ -456,6 +465,14 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 		if s.langfuse != nil {
 			lfTraceID, lfPhaseID := extractLangfuseMetadata(ctx)
 			if lfTraceID != "" {
+				var semMeta map[string]any
+				if semResult.BackendMax > 0 {
+					semMeta = map[string]any{
+						"semaphore_wait_ms":  semResult.SemaphoreWaitMs,
+						"backend_concurrent": semResult.BackendConcurrent,
+						"backend_max":        semResult.BackendMax,
+					}
+				}
 				s.langfuse.CreateGeneration(langfuse.GenerationEvent{
 					ID:               uuid.New().String(),
 					TraceID:          lfTraceID,
@@ -464,6 +481,7 @@ func (s *AIServer) ExtractEntities(ctx context.Context, req *aiv1.ExtractEntitie
 					Model:            semResult.Model,
 					Input:            semMessages,
 					Output:           semResult.Content,
+					Metadata:         semMeta,
 					PromptTokens:     semResult.InputTokens,
 					CompletionTokens: semResult.OutputTokens,
 					StartTime:        startTime,

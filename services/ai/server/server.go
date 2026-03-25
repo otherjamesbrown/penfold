@@ -543,6 +543,15 @@ func (s *AIServer) GenerateSummary(ctx context.Context, req *aiv1.SummaryRequest
 		return nil, s.convertError(err)
 	}
 
+	// Log semaphore wait when throttling occurred.
+	if result.BackendMax > 0 {
+		s.logger.Debug("GenerateSummary semaphore",
+			logging.F("semaphore_wait_ms", result.SemaphoreWaitMs),
+			logging.F("backend_concurrent", result.BackendConcurrent),
+			logging.F("backend_max", result.BackendMax),
+		)
+	}
+
 	// Report generation to Langfuse if configured and trace metadata is present.
 	if s.langfuse != nil {
 		if lfMeta.TraceID != "" {
@@ -554,6 +563,11 @@ func (s *AIServer) GenerateSummary(ctx context.Context, req *aiv1.SummaryRequest
 			}
 			for k, v := range lfMeta.Extra {
 				genMeta[k] = v
+			}
+			if result.BackendMax > 0 {
+				genMeta["semaphore_wait_ms"] = result.SemaphoreWaitMs
+				genMeta["backend_concurrent"] = result.BackendConcurrent
+				genMeta["backend_max"] = result.BackendMax
 			}
 
 			s.langfuse.CreateGeneration(langfuse.GenerationEvent{
@@ -689,6 +703,14 @@ func (s *AIServer) ExtractAssertions(ctx context.Context, req *aiv1.AssertionReq
 	if s.langfuse != nil {
 		lfTraceID, lfPhaseID := extractLangfuseMetadata(ctx)
 		if lfTraceID != "" {
+			var assertMeta map[string]any
+			if result.BackendMax > 0 {
+				assertMeta = map[string]any{
+					"semaphore_wait_ms":  result.SemaphoreWaitMs,
+					"backend_concurrent": result.BackendConcurrent,
+					"backend_max":        result.BackendMax,
+				}
+			}
 			s.langfuse.CreateGeneration(langfuse.GenerationEvent{
 				ID:               uuid.New().String(),
 				TraceID:          lfTraceID,
@@ -697,6 +719,7 @@ func (s *AIServer) ExtractAssertions(ctx context.Context, req *aiv1.AssertionReq
 				Model:            result.Model,
 				Input:            messages,
 				Output:           result.Content,
+				Metadata:         assertMeta,
 				PromptTokens:     result.InputTokens,
 				CompletionTokens: result.OutputTokens,
 				StartTime:        startTime,
@@ -1012,10 +1035,27 @@ func (s *AIServer) TriageContent(ctx context.Context, req *aiv1.TriageContentReq
 		}
 	}
 
+	// Log semaphore wait when throttling occurred.
+	if result.BackendMax > 0 {
+		s.logger.Debug("TriageContent semaphore",
+			logging.F("semaphore_wait_ms", result.SemaphoreWaitMs),
+			logging.F("backend_concurrent", result.BackendConcurrent),
+			logging.F("backend_max", result.BackendMax),
+		)
+	}
+
 	// Report generation to Langfuse if configured and trace metadata is present.
 	if s.langfuse != nil {
 		lfTraceID, lfPhaseID := extractLangfuseMetadata(ctx)
 		if lfTraceID != "" {
+			var triageMeta map[string]any
+			if result.BackendMax > 0 {
+				triageMeta = map[string]any{
+					"semaphore_wait_ms":  result.SemaphoreWaitMs,
+					"backend_concurrent": result.BackendConcurrent,
+					"backend_max":        result.BackendMax,
+				}
+			}
 			s.langfuse.CreateGeneration(langfuse.GenerationEvent{
 				ID:               uuid.New().String(),
 				TraceID:          lfTraceID,
@@ -1024,6 +1064,7 @@ func (s *AIServer) TriageContent(ctx context.Context, req *aiv1.TriageContentReq
 				Model:            result.Model,
 				Input:            messages,
 				Output:           result.Content,
+				Metadata:         triageMeta,
 				PromptTokens:     result.InputTokens,
 				CompletionTokens: result.OutputTokens,
 				StartTime:        startTime,

@@ -94,6 +94,21 @@ type CompletionResult struct {
 	// FinishReason indicates why the model stopped generating.
 	// "stop" = natural end, "length" = hit max_tokens limit.
 	FinishReason string
+
+	// SemaphoreWaitMs is the time in milliseconds spent waiting for a concurrency
+	// semaphore slot before the LLM call was executed. Zero means no semaphore
+	// throttling occurred (either no semaphore is configured, or the slot was
+	// available immediately).
+	SemaphoreWaitMs int64
+
+	// BackendConcurrent is the number of concurrent requests to this provider's
+	// semaphore at the moment this request acquired its slot (including this request).
+	// Zero if no semaphore is configured for this provider.
+	BackendConcurrent int
+
+	// BackendMax is the configured maximum concurrent requests for this provider.
+	// Zero if no semaphore is configured.
+	BackendMax int
 }
 
 // extractProvider returns the provider portion of a "provider/model-name" string.

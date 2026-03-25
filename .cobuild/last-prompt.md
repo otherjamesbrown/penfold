@@ -1,191 +1,93 @@
-# Task: Set stage timeouts and Temporal worker env vars
+# Task: Wire semaphore acquire/release into AI coordinator RPC handlers
 
-**Task ID:** pf-bc6fa5
+**Task ID:** pf-5984d0
 **Agent:** 
 
 ## Task Content
 
-## Phase 1: DB + env config changes (no code)
+## Phase 3b: Model-aware semaphores — wire into RPC handlers
 
 ### Description
-Set `timeout_seconds` in `pipeline_definitions` for all stages and update Temporal worker env vars. This is a config/migration task with no application code changes.
+Wire the semaphore acquire/release (built in Phase 3a) into the ChatCompletion path in composite.go. Every LLM call through the AI coordinator must acquire a semaphore slot for its backend before executing and release it after.
 
 ### Changes
 
-**1. Goose migration 150 — set timeout_seconds in pipeline_definitions**
+**1. Wire into CompositeBackend.ChatCompletion()**
 
-Create `services/gateway/db/migrations/00150_set_stage_timeouts.sql`:
+File: `services/ai/backend/composite.go`
 
-```sql
--- +goose Up
-UPDATE pipeline_definitions SET timeout_seconds = 60
-WHERE stage IN ('triage', 'extract_ner', 'extract_semantic', 'extract_assertions');
+In the `ChatCompletion` method, after `extractProvider(opts.Model)` resolves the provider string:
 
-UPDATE pipeline_definitions SET timeout_seconds = 120
-WHERE stage = 'newsletter_extract';
-
-UPDATE pipeline_definitions SET timeout_seconds = 180
-WHERE stage = 'analyze';
-
--- +goose Down
-UPDATE pipeline_definitions SET timeout_seconds = NULL
-WHERE stage IN ('triage', 'extract_ner', 'extract_semantic', 'extract_assertions', 'newsletter_extract', 'analyze');
+```go
+func (c *CompositeBackend) ChatCompletion(ctx context.Context, opts ChatOptions) (*ChatResponse, error) {
+    provider := extractProvider(opts.Model)
+    
+    // Acquire semaphore for this provider
+    acquireStart := time.Now()
+    if err := c.acquireSemaphore(ctx, provider); err != nil {
+        return nil, fmt.Errorf("semaphore acquire for %s: %w", provider, err)
+    }
+    defer c.releaseSemaphore(provider)
+    
+    semaphoreWaitMs := time.Since(acquireStart).Milliseconds()
+    // Log semaphore wait time for observability
+    
+    // ...existing routing switch...
+}
 ```
 
-**2. Update worker.env on dev01**
+**2. Langfuse observability metadata**
 
-Set in `/etc/penfold/worker.env`:
-```
-WORKER_MAX_CONCURRENT_ACTIVITIES=50
-WORKER_MAX_CONCURRENT_WORKFLOWS=30
-```
+Add semaphore wait time and concurrency state to the request metadata:
+- `semaphore_wait_ms` — time spent waiting for a semaphore slot
+- `backend_concurrent` — current occupancy of the semaphore at acquire time
+- `backend_max` — configured max for this backend
 
-These are Temporal SDK construction-time parameters — require worker restart, no code change.
+These should be logged via the existing structured logging (zerolog), and if Langfuse metadata is available on the context, set there too.
+
+**3. Graceful shutdown**
+
+When the AI coordinator shuts down, in-flight semaphore holders should be allowed to complete (context cancellation handles this naturally via the select in acquireSemaphore). No special shutdown logic needed beyond existing graceful shutdown.
 
 ### Acceptance Criteria
-- [ ] Migration 150 exists and applies cleanly (`goose up`)
-- [ ] All pipeline stages have appropriate timeout_seconds values
-- [ ] worker.env has WORKER_MAX_CONCURRENT_ACTIVITIES=50 and WORKER_MAX_CONCURRENT_WORKFLOWS=30
-- [ ] Worker restarts successfully with new env vars
+- [ ] Every ChatCompletion call acquires/releases semaphore for its resolved provider
+- [ ] Semaphore wait time is logged per request
+- [ ] With ollama concurrency=3, a 4th concurrent ollama request blocks until one completes
+- [ ] Gemini requests are not blocked by ollama semaphore (independent semaphores)
+- [ ] Context cancellation (e.g. Temporal activity timeout) causes blocked acquire to return error
+- [ ] Integration test: concurrent requests to same provider are limited
 
-### Files Changed (max 2)
-1. `services/gateway/db/migrations/00150_set_stage_timeouts.sql` (new)
-2. `/etc/penfold/worker.env` (edit)
+### Files Changed (max 3)
+1. `services/ai/backend/composite.go` (edit — wire acquire/release into ChatCompletion)
+2. `services/ai/backend/composite_test.go` (edit — integration/concurrency tests)
+
+### Dependencies
+- Task pf-88e86e (Phase 3a — semaphore infrastructure must exist first)
 
 ### Target
-penfold repo — migration lives in gateway DB migrations
+penfold repo
 
 ---
-*Appended by agent-penfold at 2026-03-25 12:59 UTC*
+*Appended by agent-penfold at 2026-03-25 15:35 UTC*
 
-## Auto-completion evidence
+## Scope Update (post Phase 3a review)
 
-Commit: 31be4d4 [pf-bc6fa5] Auto-commit remaining changes
-PR: https://github.com/otherjamesbrown/penf-cli/pull/2
+Phase 3a (pf-88e86e) already delivered:
+- ✅ Semaphore acquire/release wired into ChatCompletion
+- ✅ Context cancellation support (select on ctx.Done)
+- ✅ Graceful shutdown (Close stops reload goroutine)
 
-### Files changed
-```
-.cobuild/session.log | 2 ++
- 1 file changed, 2 insertions(+)
-```
+**Remaining work for this task is Langfuse observability only:**
 
----
-*Appended by agent-mycroft at 2026-03-25 13:21 UTC*
+1. Record `semaphore_wait_ms` — time between acquire attempt and slot granted
+2. Record `backend_concurrent` — current semaphore occupancy at acquire time
+3. Record `backend_max` — configured max for this provider
+4. Log via structured logging (zerolog) per request
+5. If Langfuse metadata is on context, set as generation metadata
 
-## Auto-completion evidence
-
-Commit: daa79b6 Restore CLAUDE.md overwritten by dispatch agent (pf-9c7494)
-PR: 
-
-### Files changed
-```
-
-```
-
----
-*Appended by agent-mycroft at 2026-03-25 13:33 UTC*
-
-## Auto-completion evidence
-
-Commit: daa79b6 Restore CLAUDE.md overwritten by dispatch agent (pf-9c7494)
-PR: 
-
-### Files changed
-```
-
-```
-
----
-*Appended by agent-mycroft at 2026-03-25 13:37 UTC*
-
-## Auto-completion evidence
-
-Commit: daa79b6 Restore CLAUDE.md overwritten by dispatch agent (pf-9c7494)
-PR: 
-
-### Files changed
-```
-
-```
-
----
-*Appended by agent-mycroft at 2026-03-25 13:41 UTC*
-
-## Auto-completion evidence
-
-Commit: daa79b6 Restore CLAUDE.md overwritten by dispatch agent (pf-9c7494)
-PR: 
-
-### Files changed
-```
-
-```
-
----
-*Appended by agent-mycroft at 2026-03-25 13:59 UTC*
-
-## Auto-completion evidence
-
-Commit: daa79b6 Restore CLAUDE.md overwritten by dispatch agent (pf-9c7494)
-PR: 
-
-### Files changed
-```
-
-```
-
----
-*Appended by agent-mycroft at 2026-03-25 14:04 UTC*
-
-## Auto-completion evidence
-
-Commit: daa79b6 Restore CLAUDE.md overwritten by dispatch agent (pf-9c7494)
-PR: 
-
-### Files changed
-```
-
-```
-
----
-*Appended by agent-mycroft at 2026-03-25 14:11 UTC*
-
-## Auto-completion evidence
-
-Commit: ac35f03 [pf-bc6fa5] Auto-commit remaining changes
-PR: https://github.com/otherjamesbrown/penfold/pull/62
-
-### Files changed
-```
-.cobuild/last-prompt.md | 420 ++++++++++++++++++++++++++++++++++++++++++++++++
- 1 file changed, 420 insertions(+)
-```
-
----
-*Appended by agent-mycroft at 2026-03-25 15:06 UTC*
-
-## Auto-completion evidence
-
-Commit: 2a75dff [pf-bc6fa5] Auto-commit remaining changes
-PR: https://github.com/otherjamesbrown/penfold/pull/62
-
-### Files changed
-```
-.cobuild/last-prompt.md | 434 ++++++++++++++++++++++++++++++++++++++++++++++++
- 1 file changed, 434 insertions(+)
-```
-
----
-*Appended by agent-penfold at 2026-03-25 15:17 UTC*
-
-## Review: SEND BACK — no implementation produced
-
-Previous dispatch produced only .cobuild/last-prompt.md with no actual code changes. The task requires:
-
-1. A goose migration to populate timeout_seconds in pipeline_definitions for all stages (Gemini stages: 60s, Ollama stages: 120s, Analyze: 180s)
-2. Update worker.env to set WORKER_MAX_CONCURRENT_ACTIVITIES=50 and WORKER_MAX_CONCURRENT_WORKFLOWS=30
-
-Note: migration 150 is now taken by pf-5feb30. Use migration 151.
+### Updated files (max 2)
+1. `services/ai/backend/composite.go` — add timing around acquireSemaphore, expose semaphore len/cap
+2. `services/ai/backend/composite_test.go` — verify metadata is populated
 
 ## Design Context (from pf-6e38e9)
 
@@ -451,10 +353,24 @@ INSERT INTO pipeline_operational_config (tenant_id, key, value) VALUES
 The semaphore map key is the return value of `extractProvider(opts.Model)`. If no `model.concurrency.<provider>` key exists, it falls back to `model.concurrency.default`. If that's also missing, a startup validation error is raised (not a silent fallback to a hardcoded value).
 
 
+---
+*Appended by agent-mycroft at 2026-03-25 15:32 UTC*
+
+## Retrospective Note — Hardcoded Config Values
+
+The Phase 4 implementation (pf-aa6fcb) shipped with hardcoded backpressure thresholds (50, 100) instead of reading from pipeline_operational_config. The design review flagged this as LOW but it should have been HIGH — it violates pf-eeb256 ("all config in database").
+
+**Root cause:** The design-review skill's severity classification for "hardcoded values that should be configurable" was too lenient. The penfold architectural principles treat this as a hard constraint, not a suggestion.
+
+**Action:** 
+1. Bug filed: pf-3f7157 (dispatched to fix)
+2. Design review skill should classify hardcoded config as HIGH when the project has a "config in DB" principle
+3. The gate-readiness-review skill should cross-reference project-specific constraints at the correct severity level
+
 ## Instructions
 
 Implement this task following the acceptance criteria above.
 
 ### On completion
 
-1. **Run `cobuild complete pf-bc6fa5`** -- this commits remaining changes, pushes, creates the PR, appends evidence, and marks the task needs-review. Do this as your LAST action.
+1. **Run `cobuild complete pf-5984d0`** -- this commits remaining changes, pushes, creates the PR, appends evidence, and marks the task needs-review. Do this as your LAST action.
