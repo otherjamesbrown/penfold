@@ -2611,29 +2611,31 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			}
 			if stage.Stage == "newsletter_extract" {
 				ctxNLCtx := workflow.WithActivityOptions(ctx, fastOpts)
-				var nlCtxOutput BuildNewsletterContextOutput
-				nlErr := workflow.ExecuteActivity(ctxNLCtx, pkgtemporal.ActivityBuildNewsletterContext, BuildNewsletterContextInput{
-					TenantID: input.TenantID,
-					Subject:  input.Subject,
-					Content:  parsedContent,
-				}).Get(ctx, &nlCtxOutput)
+				var stageCtx string
+				nlErr := workflow.ExecuteActivity(ctxNLCtx, pkgtemporal.ActivityBuildStageContext, BuildStageContextInput{
+					TenantID:    input.TenantID,
+					Pipeline:    pipelineName,
+					Stage:       stage.Stage,
+					SourceID:    input.SourceID,
+					ContentID:   input.ContentID,
+					Subject:     input.Subject,
+					Content:     parsedContent,
+					SenderEmail: input.SenderEmail,
+					SenderName:  input.SenderName,
+				}).Get(ctx, &stageCtx)
 				if nlErr != nil {
 					logger.Warn("newsletter context build failed, falling back to generic context",
 						"source_id", input.SourceID,
 						"error", nlErr.Error(),
 					)
 				} else {
-					bgContext = nlCtxOutput.BackgroundContext
-					ctxMeta["user_context_found"] = fmt.Sprintf("%v", nlCtxOutput.UserContextFound)
-					ctxMeta["glossary_count"] = fmt.Sprintf("%d", nlCtxOutput.GlossaryCount)
-					ctxMeta["project_count"] = fmt.Sprintf("%d", nlCtxOutput.ProjectCount)
-					ctxMeta["product_count"] = fmt.Sprintf("%d", nlCtxOutput.ProductCount)
-					logger.Info("newsletter context built",
+					bgContext = stageCtx
+					ctxMeta["context_length"] = fmt.Sprintf("%d", len(stageCtx))
+					logger.Info("stage context built via BuildStageContext",
 						"source_id", input.SourceID,
-						"user_context_found", nlCtxOutput.UserContextFound,
-						"glossary_count", nlCtxOutput.GlossaryCount,
-						"project_count", nlCtxOutput.ProjectCount,
-						"product_count", nlCtxOutput.ProductCount,
+						"pipeline", pipelineName,
+						"stage", stage.Stage,
+						"context_length", len(stageCtx),
 					)
 				}
 			}

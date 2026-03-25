@@ -7,8 +7,8 @@ import (
 func TestAllMainQueueActivities(t *testing.T) {
 	activities := AllMainQueueActivities()
 
-	// Count updated to reflect all activities including graph, digest (daily/weekly/journal), rollup, newsletter, structured extract, etc.
-	expectedCount := 81
+	// Count updated to reflect all activities including graph, digest (daily/weekly/journal), rollup, newsletter, structured extract, BuildStageContext, etc.
+	expectedCount := 82
 	if len(activities) != expectedCount {
 		t.Errorf("Expected %d main queue activities, got %d", expectedCount, len(activities))
 	}
@@ -70,6 +70,8 @@ func TestAllMainQueueActivities(t *testing.T) {
 		"StructuredExtract",
 		// Newsletter context builder (enriches extraction context for newsletter_extract stages)
 		"BuildNewsletterContext",
+		// BuildStageContext — config-driven context assembly for any pipeline stage
+		"BuildStageContext",
 	}
 
 	activityMap := make(map[string]bool)
