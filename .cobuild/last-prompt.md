@@ -1,96 +1,67 @@
-# Task: Seed config and read KickNextPending limit from DB
+# Task: Set stage timeouts and Temporal worker env vars
 
-**Task ID:** pf-5feb30
+**Task ID:** pf-bc6fa5
 **Agent:** 
 
 ## Task Content
 
-## Phase 2: KickNextPending — DB-driven limit
+## Phase 1: DB + env config changes (no code)
 
 ### Description
-Change the hardcoded `Limit: 1` in three KickNextPending call sites to read from `pipeline_operational_config` key `pipeline.kick_next_limit`. Also seed the config row and the model concurrency config rows (needed by Phase 3).
+Set `timeout_seconds` in `pipeline_definitions` for all stages and update Temporal worker env vars. This is a config/migration task with no application code changes.
 
 ### Changes
 
-**1. Goose migration 151 — seed operational config rows**
+**1. Goose migration 150 — set timeout_seconds in pipeline_definitions**
 
-Create `services/gateway/db/migrations/00151_seed_concurrency_config.sql`:
+Create `services/gateway/db/migrations/00150_set_stage_timeouts.sql`:
 
 ```sql
 -- +goose Up
--- KickNextPending limit: 0 = fill all available slots
-INSERT INTO pipeline_operational_config (tenant_id, key, value)
-SELECT tenant_id, 'pipeline.kick_next_limit', '0'
-FROM tenants
-ON CONFLICT DO NOTHING;
+UPDATE pipeline_definitions SET timeout_seconds = 60
+WHERE stage IN ('triage', 'extract_ner', 'extract_semantic', 'extract_assertions');
 
--- Model concurrency limits (used by Phase 3 semaphores)
-INSERT INTO pipeline_operational_config (tenant_id, key, value)
-SELECT tenant_id, 'model.concurrency.ollama', '3' FROM tenants
-ON CONFLICT DO NOTHING;
-INSERT INTO pipeline_operational_config (tenant_id, key, value)
-SELECT tenant_id, 'model.concurrency.gemini', '50' FROM tenants
-ON CONFLICT DO NOTHING;
-INSERT INTO pipeline_operational_config (tenant_id, key, value)
-SELECT tenant_id, 'model.concurrency.anthropic', '20' FROM tenants
-ON CONFLICT DO NOTHING;
-INSERT INTO pipeline_operational_config (tenant_id, key, value)
-SELECT tenant_id, 'model.concurrency.mlx', '3' FROM tenants
-ON CONFLICT DO NOTHING;
-INSERT INTO pipeline_operational_config (tenant_id, key, value)
-SELECT tenant_id, 'model.concurrency.default', '10' FROM tenants
-ON CONFLICT DO NOTHING;
+UPDATE pipeline_definitions SET timeout_seconds = 120
+WHERE stage = 'newsletter_extract';
+
+UPDATE pipeline_definitions SET timeout_seconds = 180
+WHERE stage = 'analyze';
 
 -- +goose Down
-DELETE FROM pipeline_operational_config WHERE key IN (
-  'pipeline.kick_next_limit',
-  'model.concurrency.ollama',
-  'model.concurrency.gemini',
-  'model.concurrency.anthropic',
-  'model.concurrency.mlx',
-  'model.concurrency.default'
-);
+UPDATE pipeline_definitions SET timeout_seconds = NULL
+WHERE stage IN ('triage', 'extract_ner', 'extract_semantic', 'extract_assertions', 'newsletter_extract', 'analyze');
 ```
 
-**2. Read limit from config in pipeline.go**
+**2. Update worker.env on dev01**
 
-File: `services/worker/workflows/pipeline.go` — lines 1002, 1564, 3316
-
-At each `KickNextPending` call site, replace the hardcoded `Limit: 1` with a value read from `GetOperationalConfig` (already available in workflow context) using key `pipeline.kick_next_limit`. Parse as int, default to 0 if missing or unparseable.
-
-A helper function to read and parse is appropriate:
-
-```go
-func getKickNextLimit(ctx workflow.Context) int32 {
-    // Read pipeline.kick_next_limit from operational config
-    // Return parsed int32, default 0
-}
+Set in `/etc/penfold/worker.env`:
 ```
+WORKER_MAX_CONCURRENT_ACTIVITIES=50
+WORKER_MAX_CONCURRENT_WORKFLOWS=30
+```
+
+These are Temporal SDK construction-time parameters — require worker restart, no code change.
 
 ### Acceptance Criteria
-- [ ] Migration 151 seeds `pipeline.kick_next_limit` and all `model.concurrency.*` keys
-- [ ] All 3 KickNextPending call sites read limit from config instead of hardcoded 1
-- [ ] Setting `pipeline.kick_next_limit=5` in DB causes KickNextPending to use Limit=5
-- [ ] Setting to 0 fills all available slots (existing gateway behaviour)
-- [ ] Unit test covers the config read + fallback
+- [ ] Migration 150 exists and applies cleanly (`goose up`)
+- [ ] All pipeline stages have appropriate timeout_seconds values
+- [ ] worker.env has WORKER_MAX_CONCURRENT_ACTIVITIES=50 and WORKER_MAX_CONCURRENT_WORKFLOWS=30
+- [ ] Worker restarts successfully with new env vars
 
-### Files Changed (max 4)
-1. `services/gateway/db/migrations/00151_seed_concurrency_config.sql` (new)
-2. `services/worker/workflows/pipeline.go` (edit — 3 call sites + helper)
-
-### Dependencies
-- None (Phase 1 is independent, can be done in parallel)
+### Files Changed (max 2)
+1. `services/gateway/db/migrations/00150_set_stage_timeouts.sql` (new)
+2. `/etc/penfold/worker.env` (edit)
 
 ### Target
-penfold repo
+penfold repo — migration lives in gateway DB migrations
 
 ---
 *Appended by agent-penfold at 2026-03-25 12:59 UTC*
 
 ## Auto-completion evidence
 
-Commit: 54b9d4d [pf-5feb30] Auto-commit remaining changes
-PR: https://github.com/otherjamesbrown/penf-cli/pull/3
+Commit: 31be4d4 [pf-bc6fa5] Auto-commit remaining changes
+PR: https://github.com/otherjamesbrown/penf-cli/pull/2
 
 ### Files changed
 ```
@@ -99,7 +70,7 @@ PR: https://github.com/otherjamesbrown/penf-cli/pull/3
 ```
 
 ---
-*Appended by agent-mycroft at 2026-03-25 13:29 UTC*
+*Appended by agent-mycroft at 2026-03-25 13:21 UTC*
 
 ## Auto-completion evidence
 
@@ -112,7 +83,7 @@ PR:
 ```
 
 ---
-*Appended by agent-mycroft at 2026-03-25 13:47 UTC*
+*Appended by agent-mycroft at 2026-03-25 13:33 UTC*
 
 ## Auto-completion evidence
 
@@ -123,6 +94,98 @@ PR:
 ```
 
 ```
+
+---
+*Appended by agent-mycroft at 2026-03-25 13:37 UTC*
+
+## Auto-completion evidence
+
+Commit: daa79b6 Restore CLAUDE.md overwritten by dispatch agent (pf-9c7494)
+PR: 
+
+### Files changed
+```
+
+```
+
+---
+*Appended by agent-mycroft at 2026-03-25 13:41 UTC*
+
+## Auto-completion evidence
+
+Commit: daa79b6 Restore CLAUDE.md overwritten by dispatch agent (pf-9c7494)
+PR: 
+
+### Files changed
+```
+
+```
+
+---
+*Appended by agent-mycroft at 2026-03-25 13:59 UTC*
+
+## Auto-completion evidence
+
+Commit: daa79b6 Restore CLAUDE.md overwritten by dispatch agent (pf-9c7494)
+PR: 
+
+### Files changed
+```
+
+```
+
+---
+*Appended by agent-mycroft at 2026-03-25 14:04 UTC*
+
+## Auto-completion evidence
+
+Commit: daa79b6 Restore CLAUDE.md overwritten by dispatch agent (pf-9c7494)
+PR: 
+
+### Files changed
+```
+
+```
+
+---
+*Appended by agent-mycroft at 2026-03-25 14:11 UTC*
+
+## Auto-completion evidence
+
+Commit: ac35f03 [pf-bc6fa5] Auto-commit remaining changes
+PR: https://github.com/otherjamesbrown/penfold/pull/62
+
+### Files changed
+```
+.cobuild/last-prompt.md | 420 ++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 420 insertions(+)
+```
+
+---
+*Appended by agent-mycroft at 2026-03-25 15:06 UTC*
+
+## Auto-completion evidence
+
+Commit: 2a75dff [pf-bc6fa5] Auto-commit remaining changes
+PR: https://github.com/otherjamesbrown/penfold/pull/62
+
+### Files changed
+```
+.cobuild/last-prompt.md | 434 ++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 434 insertions(+)
+```
+
+---
+*Appended by agent-penfold at 2026-03-25 15:17 UTC*
+
+## Review: SEND BACK — no implementation produced
+
+Previous dispatch produced only .cobuild/last-prompt.md with no actual code changes. The task requires:
+
+1. A goose migration to populate timeout_seconds in pipeline_definitions for all stages (Gemini stages: 60s, Ollama stages: 120s, Analyze: 180s)
+2. Update worker.env to set WORKER_MAX_CONCURRENT_ACTIVITIES=50 and WORKER_MAX_CONCURRENT_WORKFLOWS=30
+
+Note: migration 150 is now taken by pf-5feb30. Use migration 151.
 
 ## Design Context (from pf-6e38e9)
 
@@ -394,4 +457,4 @@ Implement this task following the acceptance criteria above.
 
 ### On completion
 
-1. **Run `cobuild complete pf-5feb30`** -- this commits remaining changes, pushes, creates the PR, appends evidence, and marks the task needs-review. Do this as your LAST action.
+1. **Run `cobuild complete pf-bc6fa5`** -- this commits remaining changes, pushes, creates the PR, appends evidence, and marks the task needs-review. Do this as your LAST action.
