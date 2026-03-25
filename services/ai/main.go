@@ -213,10 +213,12 @@ func main() {
 	// Fails at startup if model.concurrency.default is not seeded in the DB.
 	if dbPool != nil {
 		loader := backend.NewConcurrencyConfigLoader(dbPool, pkgconfig.DefaultTenantID().String())
-		if err := compositeBackend.WithConfigLoader(loader.Loader()); err != nil {
-			logger.Error("Failed to initialize backend semaphores — check model.concurrency.* config rows", logging.Err(err))
+		cfg, err := loader.Load()
+		if err != nil {
+			logger.Error("Failed to load backend semaphore config — check model.concurrency.* config rows", logging.Err(err))
 			os.Exit(1)
 		}
+		compositeBackend.SetSemaphores(cfg)
 		logger.Info("Backend concurrency semaphores initialized from DB config")
 	} else {
 		logger.Info("No DB configured — backend semaphores disabled (no per-provider concurrency limits)")
