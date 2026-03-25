@@ -31,7 +31,7 @@ func MatchTriage(t *testing.T, expected *TriageExpectation, actual *ActualTriage
 
 	if expected.Importance != nil {
 		if len(expected.Importance.OneOf) > 0 {
-			matchOneOf(t, "triage.importance", actual.Importance, expected.Importance.OneOf)
+			matchOneOf(t, "triage.importance", actual.Importance, expected.Importance)
 		}
 		for _, forbidden := range expected.Importance.MustNotBe {
 			if strings.EqualFold(actual.Importance, forbidden) {
@@ -43,7 +43,7 @@ func MatchTriage(t *testing.T, expected *TriageExpectation, actual *ActualTriage
 
 	if expected.Category != nil {
 		if len(expected.Category.OneOf) > 0 {
-			matchOneOf(t, "triage.category", actual.Category, expected.Category.OneOf)
+			matchOneOf(t, "triage.category", actual.Category, expected.Category)
 		}
 		for _, forbidden := range expected.Category.MustNotBe {
 			if strings.EqualFold(actual.Category, forbidden) {

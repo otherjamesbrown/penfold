@@ -228,8 +228,7 @@ func (s *SLMPipelineTestSuite) SetupTest() {
 	s.env.RegisterActivityWithOptions(s.activities.FetchPipelineDefinition, activity.RegisterOptions{Name: pkgtemporal.ActivityFetchPipelineDefinition})
 	s.env.RegisterActivityWithOptions(s.activities.StructuredExtract, activity.RegisterOptions{Name: pkgtemporal.ActivityStructuredExtract})
 	s.env.RegisterActivityWithOptions(s.activities.BuildExtractionContext, activity.RegisterOptions{Name: pkgtemporal.ActivityBuildExtractionContext})
-	// TODO(pf-6d9704): uncomment when BuildStageContext is fully implemented
-	// s.env.RegisterActivityWithOptions(s.activities.BuildStageContext, activity.RegisterOptions{Name: pkgtemporal.ActivityBuildStageContext})
+	s.env.RegisterActivityWithOptions(s.activities.BuildStageContext, activity.RegisterOptions{Name: pkgtemporal.ActivityBuildStageContext})
 	s.env.RegisterActivityWithOptions(s.activities.PersistExtractedData, activity.RegisterOptions{Name: pkgtemporal.ActivityPersistExtractedData})
 
 	// Default mock expectations for enrichment/threading activities (blocking since pf-67502c fix).
@@ -243,6 +242,11 @@ func (s *SLMPipelineTestSuite) SetupTest() {
 	// FetchPipelineDefinition: default to standard pipeline definition.
 	// Tests that need a specific pipeline definition must override this.
 	s.activities.On("FetchPipelineDefinition", mock.Anything, mock.Anything).Maybe().Return(standardTestPipelineDef(), nil)
+	// UpdateContentStatus with only AssertionCount set (no Status) — records assertion count after PersistFindings.
+	// Added as default Maybe so tests that don't explicitly mock it don't panic.
+	s.activities.On("UpdateContentStatus", mock.Anything, mock.MatchedBy(func(in UpdateContentStatusInput) bool {
+		return in.Status == "" && in.AssertionCount != nil
+	})).Maybe().Return(nil)
 }
 
 func (s *SLMPipelineTestSuite) AfterTest(suiteName, testName string) {

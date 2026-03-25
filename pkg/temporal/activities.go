@@ -86,6 +86,10 @@ const (
 	// Newsletter context builder — enriches extraction context with user/project/product data.
 	ActivityBuildNewsletterContext = "BuildNewsletterContext"
 
+	// BuildStageContext — config-driven context assembly for any pipeline stage (pf-6d9704).
+	// Reads context_providers from pipeline_definitions; replaces bespoke newsletter context builder.
+	ActivityBuildStageContext = "BuildStageContext"
+
 	// Pre-classify — rule engine classification before triage (pf-b375ad shadow mode).
 	ActivityPreClassify = "PreClassify"
 )
@@ -229,9 +233,10 @@ func AllMainQueueActivities() []string {
 		ActivityNotificationExtract,
 		// Generic structured extraction activity (replaces bespoke newsletter/notification extract)
 		ActivityStructuredExtract,
+		// Newsletter context builder (enriches extraction context for newsletter_extract stages).
+		ActivityBuildNewsletterContext,
 		// BuildStageContext — config-driven context assembly for any pipeline stage.
-		// TODO(pf-6d9704): uncomment when BuildStageContext activity is implemented
-		// ActivityBuildStageContext,
+		ActivityBuildStageContext,
 		// Graph API activities (Outlook + Teams sync + Transcript sync)
 		ActivityCheckGraphAuth,
 		ActivityFetchOutlookMessages,
