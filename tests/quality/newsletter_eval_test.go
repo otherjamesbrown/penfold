@@ -19,6 +19,11 @@ func TestEval_Newsletter(t *testing.T) {
 	env := SetupQualityEnvironment(t)
 	ctx := context.Background()
 
+	// Ensure quality tenant exists, clean stale data, then seed classification rules.
+	require.NoError(t, env.EnsureTenantExists(), "ensure quality tenant exists")
+	require.NoError(t, env.CleanupTestTenant(), "clean up stale test data")
+	require.NoError(t, env.SeedClassificationRules(ctx), "seed newsletter classification rules")
+
 	lfEval := NewLangfuseEval("newsletter")
 	if err := lfEval.EnsureDataset(ctx); err != nil {
 		t.Logf("warning: could not ensure Langfuse dataset: %v", err)
