@@ -185,6 +185,15 @@ func (s *Service) KickProcessing(ctx context.Context, req *pipelinev1.KickProces
 		return nil, status.Errorf(codes.Internal, "failed to get pending sources: %v", err)
 	}
 
+	// Compute dynamic ScheduleToClose timeout based on queue depth and log if extended.
+	timeout := scheduleToCloseTimeout(int(pendingCount))
+	if timeout > 1*time.Hour {
+		s.logger.Info("pipeline.schedule_to_close_extended",
+			logging.F("pending_count", pendingCount),
+			logging.F("timeout", timeout.String()),
+		)
+	}
+
 	// Start a workflow for each pending source
 	var startedCount int
 	for _, src := range sources {
@@ -198,8 +207,9 @@ func (s *Service) KickProcessing(ctx context.Context, req *pipelinev1.KickProces
 			JobID:           workflowID, // Use workflow ID as job ID for tracing
 		}
 		opts := client.StartWorkflowOptions{
-			ID:        workflowID,
-			TaskQueue: "penfold-main",
+			ID:                       workflowID,
+			TaskQueue:                "penfold-main",
+			WorkflowExecutionTimeout: timeout,
 		}
 		_, err := s.temporalClient.ExecuteWorkflow(ctx, opts, "SLMPipelineWorkflow", input)
 		if err != nil {
@@ -2681,4 +2691,22 @@ func (s *Service) TestPipelineRoute(ctx context.Context, req *pipelinev1.TestPip
 		ContentSubtype: contentSubtype,
 		MatchedRoutes:  matchedRoutes,
 	}, nil
+}
+
+// scheduleToCloseTimeout returns a WorkflowExecutionTimeout based on queue depth.
+// When the pending queue is deep, workflows may wait a long time before a slot
+// opens, so we extend the timeout to prevent them from expiring while queued.
+//
+//   - <50 pending:  1h (default)
+//   - 50–100 pending: 2h
+//   - >100 pending:  4h
+func scheduleToCloseTimeout(pendingCount int) time.Duration {
+	switch {
+	case pendingCount > 100:
+		return 4 * time.Hour
+	case pendingCount > 50:
+		return 2 * time.Hour
+	default:
+		return 1 * time.Hour
+	}
 }

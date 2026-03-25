@@ -3,6 +3,7 @@ package pipelineservice
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -300,4 +301,26 @@ func TestUpdateTimeoutConfig_Validation(t *testing.T) {
 			"Expected Unavailable (nil db), but got %v with message: %q.",
 			st.Code(), st.Message())
 	})
+}
+
+func TestScheduleToCloseTimeout(t *testing.T) {
+	tests := []struct {
+		name         string
+		pendingCount int
+		want         time.Duration
+	}{
+		{"zero pending", 0, 1 * time.Hour},
+		{"49 pending", 49, 1 * time.Hour},
+		{"50 pending", 50, 1 * time.Hour},
+		{"51 pending", 51, 2 * time.Hour},
+		{"100 pending", 100, 2 * time.Hour},
+		{"101 pending", 101, 4 * time.Hour},
+		{"200 pending", 200, 4 * time.Hour},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := scheduleToCloseTimeout(tc.pendingCount)
+			assert.Equal(t, tc.want, got)
+		})
+	}
 }
