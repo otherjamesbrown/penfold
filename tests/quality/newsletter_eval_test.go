@@ -19,6 +19,11 @@ func TestEval_Newsletter(t *testing.T) {
 	env := SetupQualityEnvironment(t)
 	ctx := context.Background()
 
+	// Clean up stale sources so message_id dedup doesn't return old source IDs.
+	// Static Message-ID headers in .eml fixtures cause CheckDuplicate() to match
+	// on repeated runs — cleanup removes the old records before ingesting fresh.
+	require.NoError(t, env.CleanupTestTenant(), "cleanup test tenant before newsletter eval")
+
 	lfEval := NewLangfuseEval("newsletter")
 	if err := lfEval.EnsureDataset(ctx); err != nil {
 		t.Logf("warning: could not ensure Langfuse dataset: %v", err)
