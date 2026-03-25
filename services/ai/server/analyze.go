@@ -585,6 +585,15 @@ func (s *AIServer) DeepAnalyze(ctx context.Context, req *aiv1.DeepAnalyzeRequest
 	if s.langfuse != nil {
 		lfTraceID, lfPhaseID := extractLangfuseMetadata(ctx)
 		if lfTraceID != "" {
+			analyzeMeta := map[string]any{
+				"prompt_version": promptVersion,
+				"routing_rule":   routing.RuleName,
+			}
+			if result.BackendMax > 0 {
+				analyzeMeta["semaphore_wait_ms"] = result.SemaphoreWaitMs
+				analyzeMeta["backend_concurrent"] = result.BackendConcurrent
+				analyzeMeta["backend_max"] = result.BackendMax
+			}
 			s.langfuse.CreateGeneration(langfuse.GenerationEvent{
 				ID:               uuid.New().String(),
 				TraceID:          lfTraceID,
@@ -597,7 +606,7 @@ func (s *AIServer) DeepAnalyze(ctx context.Context, req *aiv1.DeepAnalyzeRequest
 				CompletionTokens: result.OutputTokens,
 				StartTime:        startTime,
 				EndTime:          time.Now(),
-				Metadata:         map[string]any{"prompt_version": promptVersion, "routing_rule": routing.RuleName},
+				Metadata:         analyzeMeta,
 			})
 			if err := s.langfuse.Flush(ctx); err != nil {
 				s.logger.Warn("Langfuse generation flush failed", logging.Err(err))
