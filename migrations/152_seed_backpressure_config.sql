@@ -1,4 +1,6 @@
--- Migration 150: Seed queue backpressure configuration defaults
+-- +goose Up
+
+-- Migration 152: Seed queue backpressure configuration defaults
 -- Adds queue.backpressure.* keys to pipeline_operational_config for all tenants.
 -- These control the dynamic ScheduleToClose timeout in KickProcessing.
 
@@ -31,3 +33,13 @@ SELECT id, 'queue.backpressure.default_timeout_hours', '1',
     'Default workflow execution timeout in hours when pending queue is below tier1 threshold'
 FROM tenants
 ON CONFLICT DO NOTHING;
+
+-- +goose Down
+
+DELETE FROM pipeline_operational_config WHERE key IN (
+  'queue.backpressure.tier1_threshold',
+  'queue.backpressure.tier1_timeout_hours',
+  'queue.backpressure.tier2_threshold',
+  'queue.backpressure.tier2_timeout_hours',
+  'queue.backpressure.default_timeout_hours'
+);
