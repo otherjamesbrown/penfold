@@ -197,16 +197,23 @@ func (s *Service) KickProcessing(ctx context.Context, req *pipelinev1.KickProces
 			ContentHash:     src.ContentHash,
 			JobID:           workflowID, // Use workflow ID as job ID for tracing
 		}
-		opts := client.StartWorkflowOptions{
-			ID:        workflowID,
-			TaskQueue: "penfold-main",
-		}
-		_, err := s.temporalClient.ExecuteWorkflow(ctx, opts, "SLMPipelineWorkflow", input)
+		scheduleToClose, err := s.scheduleToCloseTimeout(ctx, int(pendingCount))
 		if err != nil {
+			s.logger.Error("Error reading backpressure config", logging.Err(err))
+			return nil, status.Errorf(codes.Internal, "failed to read backpressure config: %v", err)
+		}
+		opts := client.StartWorkflowOptions{
+			ID:                       workflowID,
+			TaskQueue:                "penfold-main",
+			WorkflowExecutionTimeout: scheduleToClose,
+		}
+		var wfErr error
+		_, wfErr = s.temporalClient.ExecuteWorkflow(ctx, opts, "SLMPipelineWorkflow", input)
+		if wfErr != nil {
 			s.logger.Warn("Failed to start workflow for source",
 				logging.F("source_id", src.ID),
 				logging.F("workflow_id", workflowID),
-				logging.Err(err),
+				logging.Err(wfErr),
 			)
 			// Continue with other sources
 			continue
@@ -1790,6 +1797,73 @@ func (s *Service) getMaxConcurrent(ctx context.Context) (int, error) {
 	}
 
 	return value, nil
+}
+
+// scheduleToCloseTimeout returns the WorkflowExecutionTimeout for a new workflow
+// based on the current pending queue depth. Values are read from pipeline_operational_config:
+//   - queue.backpressure.tier2_threshold (default: 100) — above this, use tier2 timeout
+//   - queue.backpressure.tier1_threshold (default: 50)  — above this, use tier1 timeout
+//   - queue.backpressure.tier2_timeout_hours (default: 4)
+//   - queue.backpressure.tier1_timeout_hours (default: 2)
+//   - queue.backpressure.default_timeout_hours (default: 1)
+func (s *Service) scheduleToCloseTimeout(ctx context.Context, pendingCount int) (time.Duration, error) {
+	if s.db == nil {
+		return 0, fmt.Errorf("database not available")
+	}
+
+	tenantID := s.defaultTenantID(ctx)
+
+	keys := []string{
+		"queue.backpressure.tier1_threshold",
+		"queue.backpressure.tier1_timeout_hours",
+		"queue.backpressure.tier2_threshold",
+		"queue.backpressure.tier2_timeout_hours",
+		"queue.backpressure.default_timeout_hours",
+	}
+	defaults := map[string]int{
+		"queue.backpressure.tier1_threshold":     50,
+		"queue.backpressure.tier1_timeout_hours": 2,
+		"queue.backpressure.tier2_threshold":     100,
+		"queue.backpressure.tier2_timeout_hours": 4,
+		"queue.backpressure.default_timeout_hours": 1,
+	}
+
+	cfg := make(map[string]int, len(keys))
+	for _, key := range keys {
+		var valueStr string
+		err := s.db.QueryRowContext(ctx, `
+			SELECT value
+			FROM pipeline_operational_config
+			WHERE tenant_id = $1 AND key = $2
+		`, tenantID, key).Scan(&valueStr)
+
+		if err == sql.ErrNoRows {
+			def, ok := defaults[key]
+			if !ok {
+				return 0, fmt.Errorf("no default for config key %q", key)
+			}
+			cfg[key] = def
+			continue
+		}
+		if err != nil {
+			return 0, fmt.Errorf("failed to query config key %q: %w", key, err)
+		}
+
+		v, err := strconv.Atoi(valueStr)
+		if err != nil {
+			return 0, fmt.Errorf("failed to parse config key %q as integer: %w", key, err)
+		}
+		cfg[key] = v
+	}
+
+	switch {
+	case pendingCount > cfg["queue.backpressure.tier2_threshold"]:
+		return time.Duration(cfg["queue.backpressure.tier2_timeout_hours"]) * time.Hour, nil
+	case pendingCount > cfg["queue.backpressure.tier1_threshold"]:
+		return time.Duration(cfg["queue.backpressure.tier1_timeout_hours"]) * time.Hour, nil
+	default:
+		return time.Duration(cfg["queue.backpressure.default_timeout_hours"]) * time.Hour, nil
+	}
 }
 
 // setMaxConcurrent updates the max_concurrent value in pipeline_operational_config.
