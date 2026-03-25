@@ -6,13 +6,13 @@ import (
 	"testing"
 )
 
-func TestMatchEscalation_UrgencyOneOf(t *testing.T) {
+func TestMatchImmediateEscalate_UrgencyOneOf(t *testing.T) {
 	t.Run("urgency_pass", func(t *testing.T) {
-		actual := &ActualNotificationExtraction{Urgency: "HIGH"}
-		expected := &EscalationExpectation{
-			Urgency: &OneOfMatcher{OneOf: []string{"HIGH", "CRITICAL"}},
+		actual := &ActualNotificationExtraction{UrgencyLevel: "HIGH"}
+		expected := &ImmediateEscalateExpectation{
+			UrgencyLevel: &OneOfMatcher{OneOf: []string{"HIGH", "CRITICAL"}},
 		}
-		details := matchEscalation(t, actual, expected)
+		details := matchImmediateEscalate(t, actual, expected)
 		for _, d := range details {
 			if !d.Pass {
 				t.Errorf("expected pass for urgency HIGH in [HIGH, CRITICAL]: %s", d.Check)
@@ -22,25 +22,25 @@ func TestMatchEscalation_UrgencyOneOf(t *testing.T) {
 
 	t.Run("urgency_fail", func(t *testing.T) {
 		// Verify that LOW urgency fails against HIGH/CRITICAL expectation
-		actual := &ActualNotificationExtraction{Urgency: "LOW"}
-		expected := &EscalationExpectation{
-			Urgency: &OneOfMatcher{OneOf: []string{"HIGH", "CRITICAL"}},
+		actual := &ActualNotificationExtraction{UrgencyLevel: "LOW"}
+		expected := &ImmediateEscalateExpectation{
+			UrgencyLevel: &OneOfMatcher{OneOf: []string{"HIGH", "CRITICAL"}},
 		}
 		// Use inner T to capture failure without failing this test
 		inner := &testing.T{}
-		details := matchEscalation(inner, actual, expected)
+		details := matchImmediateEscalate(inner, actual, expected)
 		if len(details) == 0 || details[0].Pass {
 			t.Error("expected fail for urgency LOW against [HIGH, CRITICAL]")
 		}
 	})
 }
 
-func TestMatchEscalation_RequiresResponse(t *testing.T) {
+func TestMatchImmediateEscalate_RequiresResponse(t *testing.T) {
 	t.Run("requires_response_pass", func(t *testing.T) {
 		req := true
-		actual := &ActualNotificationExtraction{ActionRequired: true}
-		expected := &EscalationExpectation{RequiresResponse: &req}
-		details := matchEscalation(t, actual, expected)
+		actual := &ActualNotificationExtraction{RequiresResponse: true}
+		expected := &ImmediateEscalateExpectation{RequiresResponse: &req}
+		details := matchImmediateEscalate(t, actual, expected)
 		for _, d := range details {
 			if !d.Pass {
 				t.Errorf("expected pass: %s", d.Check)
@@ -49,17 +49,17 @@ func TestMatchEscalation_RequiresResponse(t *testing.T) {
 	})
 }
 
-func TestMatchCompliance_CourseName(t *testing.T) {
+func TestMatchComplianceStatus_CourseName(t *testing.T) {
 	t.Run("course_name_mention_pass", func(t *testing.T) {
 		actual := &ActualNotificationExtraction{
-			Summary: "Annual Anti-Bribery & Anti-Corruption Training is overdue",
+			CourseName: "Annual Anti-Bribery & Anti-Corruption Training is overdue",
 		}
-		expected := &ComplianceExpectation{
+		expected := &ComplianceStatusExpectation{
 			CourseName: &StringFieldExpectation{
 				MustMention: []string{"Anti-Bribery"},
 			},
 		}
-		details := matchCompliance(t, actual, expected)
+		details := matchComplianceStatus(t, actual, expected)
 		for _, d := range details {
 			if !d.Pass {
 				t.Errorf("expected pass for course name mention: %s", d.Check)
@@ -68,14 +68,12 @@ func TestMatchCompliance_CourseName(t *testing.T) {
 	})
 }
 
-func TestMatchCompliance_Overdue(t *testing.T) {
-	t.Run("overdue_detected_in_summary", func(t *testing.T) {
+func TestMatchComplianceStatus_Overdue(t *testing.T) {
+	t.Run("overdue_true", func(t *testing.T) {
 		overdue := true
-		actual := &ActualNotificationExtraction{
-			Summary: "Your compliance training is overdue — complete by Dec 31",
-		}
-		expected := &ComplianceExpectation{Overdue: &overdue}
-		details := matchCompliance(t, actual, expected)
+		actual := &ActualNotificationExtraction{Overdue: true}
+		expected := &ComplianceStatusExpectation{Overdue: &overdue}
+		details := matchComplianceStatus(t, actual, expected)
 		for _, d := range details {
 			if !d.Pass {
 				t.Errorf("expected overdue detection pass: %s", d.Check)
@@ -83,13 +81,11 @@ func TestMatchCompliance_Overdue(t *testing.T) {
 		}
 	})
 
-	t.Run("not_overdue_when_summary_clean", func(t *testing.T) {
+	t.Run("not_overdue", func(t *testing.T) {
 		overdue := false
-		actual := &ActualNotificationExtraction{
-			Summary: "Please complete your training by Dec 31",
-		}
-		expected := &ComplianceExpectation{Overdue: &overdue}
-		details := matchCompliance(t, actual, expected)
+		actual := &ActualNotificationExtraction{Overdue: false}
+		expected := &ComplianceStatusExpectation{Overdue: &overdue}
+		details := matchComplianceStatus(t, actual, expected)
 		for _, d := range details {
 			if !d.Pass {
 				t.Errorf("expected not-overdue pass: %s", d.Check)
