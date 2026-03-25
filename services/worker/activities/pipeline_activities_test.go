@@ -3,6 +3,7 @@ package activities
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -193,12 +194,13 @@ func TestKickNextPending_NilClient(t *testing.T) {
 }
 
 // TestKickNextPending_Success verifies that KickNextPending calls KickProcessing
-// with correct parameters and maps the response fields to the output type.
+// and maps the response fields to the output type. With no configReader set, the
+// effective limit defaults to 0 (fill all available slots).
 func TestKickNextPending_Success(t *testing.T) {
 	mockClient := &mockPipelineClient{
 		kickFunc: func(ctx context.Context, req *pipelinev1.KickProcessingRequest, opts ...grpc.CallOption) (*pipelinev1.KickProcessingResponse, error) {
 			require.Equal(t, "tenant-abc", req.TenantId)
-			require.Equal(t, int32(5), req.Limit)
+			require.Equal(t, int32(0), req.Limit) // no configReader → default 0
 			return &pipelinev1.KickProcessingResponse{
 				QueuedCount: 3,
 				Message:     "queued 3 items",
@@ -210,7 +212,7 @@ func TestKickNextPending_Success(t *testing.T) {
 
 	out, err := a.KickNextPending(context.Background(), workflows.KickNextPendingInput{
 		TenantID: "tenant-abc",
-		Limit:    5,
+		Limit:    0,
 	})
 
 	require.NoError(t, err)
@@ -266,6 +268,116 @@ func TestKickNextPending_ZeroLimit(t *testing.T) {
 	require.NotNil(t, out)
 	require.Equal(t, int32(0), capturedLimit)
 	require.Equal(t, int64(0), out.QueuedCount)
+}
+
+// ---
+// Tests for kickNextLimitFromConfig (pf-5feb30)
+// Covers: config read, fallback to 0 on missing key, fallback to 0 on parse error.
+// ---
+
+// mockKickConfigReader implements OperationalConfigReader for KickNextPending tests.
+type mockKickConfigReader struct {
+	values map[string]string
+	err    error
+}
+
+func (r *mockKickConfigReader) GetString(_ context.Context, _, key string) (string, error) {
+	if r.err != nil {
+		return "", r.err
+	}
+	v, ok := r.values[key]
+	if !ok {
+		return "", fmt.Errorf("config key %q not found", key)
+	}
+	return v, nil
+}
+
+// TestKickNextLimitFromConfig_ReadsFromConfig verifies that a valid DB value is used as limit.
+func TestKickNextLimitFromConfig_ReadsFromConfig(t *testing.T) {
+	var capturedLimit int32
+	mockClient := &mockPipelineClient{
+		kickFunc: func(ctx context.Context, req *pipelinev1.KickProcessingRequest, opts ...grpc.CallOption) (*pipelinev1.KickProcessingResponse, error) {
+			capturedLimit = req.Limit
+			return &pipelinev1.KickProcessingResponse{QueuedCount: 2}, nil
+		},
+	}
+
+	a := newTestPipelineActivities(mockClient)
+	a.configReader = &mockKickConfigReader{values: map[string]string{"pipeline.kick_next_limit": "5"}}
+
+	_, err := a.KickNextPending(context.Background(), workflows.KickNextPendingInput{
+		TenantID: "tenant-1",
+		Limit:    0,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, int32(5), capturedLimit, "limit should be read from config (5), not from input (0)")
+}
+
+// TestKickNextLimitFromConfig_FallbackOnMissingKey verifies that a missing config key defaults to 0.
+func TestKickNextLimitFromConfig_FallbackOnMissingKey(t *testing.T) {
+	var capturedLimit int32
+	mockClient := &mockPipelineClient{
+		kickFunc: func(ctx context.Context, req *pipelinev1.KickProcessingRequest, opts ...grpc.CallOption) (*pipelinev1.KickProcessingResponse, error) {
+			capturedLimit = req.Limit
+			return &pipelinev1.KickProcessingResponse{}, nil
+		},
+	}
+
+	a := newTestPipelineActivities(mockClient)
+	a.configReader = &mockKickConfigReader{values: map[string]string{}} // key absent
+
+	_, err := a.KickNextPending(context.Background(), workflows.KickNextPendingInput{
+		TenantID: "tenant-1",
+		Limit:    0,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, int32(0), capturedLimit, "missing config key should default limit to 0")
+}
+
+// TestKickNextLimitFromConfig_FallbackOnBadValue verifies that an unparseable config value defaults to 0.
+func TestKickNextLimitFromConfig_FallbackOnBadValue(t *testing.T) {
+	var capturedLimit int32
+	mockClient := &mockPipelineClient{
+		kickFunc: func(ctx context.Context, req *pipelinev1.KickProcessingRequest, opts ...grpc.CallOption) (*pipelinev1.KickProcessingResponse, error) {
+			capturedLimit = req.Limit
+			return &pipelinev1.KickProcessingResponse{}, nil
+		},
+	}
+
+	a := newTestPipelineActivities(mockClient)
+	a.configReader = &mockKickConfigReader{values: map[string]string{"pipeline.kick_next_limit": "not-a-number"}}
+
+	_, err := a.KickNextPending(context.Background(), workflows.KickNextPendingInput{
+		TenantID: "tenant-1",
+		Limit:    0,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, int32(0), capturedLimit, "unparseable config value should default limit to 0")
+}
+
+// TestKickNextLimitFromConfig_NilReader verifies that a nil configReader defaults limit to 0.
+func TestKickNextLimitFromConfig_NilReader(t *testing.T) {
+	var capturedLimit int32
+	mockClient := &mockPipelineClient{
+		kickFunc: func(ctx context.Context, req *pipelinev1.KickProcessingRequest, opts ...grpc.CallOption) (*pipelinev1.KickProcessingResponse, error) {
+			capturedLimit = req.Limit
+			return &pipelinev1.KickProcessingResponse{}, nil
+		},
+	}
+
+	a := newTestPipelineActivities(mockClient)
+	// configReader is nil (not set)
+
+	_, err := a.KickNextPending(context.Background(), workflows.KickNextPendingInput{
+		TenantID: "tenant-1",
+		Limit:    0,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, int32(0), capturedLimit, "nil configReader should default limit to 0")
 }
 
 // ---

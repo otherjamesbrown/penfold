@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strconv"
 
 	"go.temporal.io/sdk/temporal"
 
@@ -29,6 +30,7 @@ type PipelineActivities struct {
 	baseRepo       *pipeline.Repository // Direct access for lookups (RecordOverrides, etc.)
 	definitionRepo pipelineDefinitionRepo // Injected for FetchPipelineDefinition; defaults to baseRepo.
 	pipelineClient pipelinev1.PipelineServiceClient
+	configReader   OperationalConfigReader
 }
 
 // NewPipelineActivities creates a new PipelineActivities instance.
@@ -61,6 +63,14 @@ func (a *PipelineActivities) WithPipelineClient(client pipelinev1.PipelineServic
 	return a
 }
 
+// WithConfigReader sets the operational config reader for KickNextPending limit lookup.
+// If set, KickNextPending reads pipeline.kick_next_limit from pipeline_operational_config
+// instead of using the limit from the input struct.
+func (a *PipelineActivities) WithConfigReader(reader OperationalConfigReader) *PipelineActivities {
+	a.configReader = reader
+	return a
+}
+
 // KickNextPending triggers the gateway's KickProcessing RPC to auto-drain the pending queue.
 // This is a best-effort activity: if the client is nil or the RPC fails, a warning is logged
 // but the calling workflow is not failed.
@@ -79,11 +89,14 @@ func (a *PipelineActivities) KickNextPending(ctx context.Context, input workflow
 		return &workflows.KickNextPendingOutput{}, nil
 	}
 
-	logger.Info("Kicking next pending pipeline item")
+	// Read limit from operational config; fall back to 0 (fill all available slots).
+	limit := kickNextLimitFromConfig(ctx, a.configReader, input.TenantID, logger)
+
+	logger.Info("Kicking next pending pipeline item", logging.F("effective_limit", limit))
 
 	resp, err := a.pipelineClient.KickProcessing(ctx, &pipelinev1.KickProcessingRequest{
 		TenantId: input.TenantID,
-		Limit:    input.Limit,
+		Limit:    limit,
 	})
 	if err != nil {
 		logger.Error("KickProcessing RPC failed", logging.Err(err))
@@ -106,6 +119,28 @@ func (a *PipelineActivities) KickNextPending(ctx context.Context, input workflow
 		QueuedCount: resp.QueuedCount,
 		Message:     resp.Message,
 	}, nil
+}
+
+// kickNextLimitFromConfig reads pipeline.kick_next_limit from operational config.
+// Returns the parsed int32 value, or 0 (fill all available slots) if the key is missing or unparseable.
+func kickNextLimitFromConfig(ctx context.Context, reader OperationalConfigReader, tenantID string, logger logging.Logger) int32 {
+	if reader == nil {
+		return 0
+	}
+	val, err := reader.GetString(ctx, tenantID, "pipeline.kick_next_limit")
+	if err != nil {
+		// Key not found or DB error — default to 0 (fill all slots)
+		return 0
+	}
+	parsed, parseErr := strconv.ParseInt(val, 10, 32)
+	if parseErr != nil {
+		logger.Warn("pipeline.kick_next_limit is not a valid integer, defaulting to 0",
+			logging.F("value", val),
+			logging.F("error", parseErr),
+		)
+		return 0
+	}
+	return int32(parsed)
 }
 
 // RecordOverrides records override parameters in the latest pipeline run for a source.

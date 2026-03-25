@@ -619,6 +619,9 @@ func main() {
 		if pipelineClient != nil {
 			pipelineActivities.WithPipelineClient(pipelineClient)
 		}
+		if dbPool != nil {
+			pipelineActivities.WithConfigReader(activities.NewPostgresOperationalConfigReader(dbPool))
+		}
 		activityRegistrar.WithPipelineActivities(pipelineActivities)
 		logger.Info("Pipeline activities initialized (RecordOverrides, KickNextPending)")
 	}

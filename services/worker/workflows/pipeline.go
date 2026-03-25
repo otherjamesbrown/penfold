@@ -999,7 +999,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			var kickOutput KickNextPendingOutput
 			kickErr := workflow.ExecuteActivity(cleanupCtx, pkgtemporal.ActivityKickNextPending, KickNextPendingInput{
 				TenantID: input.TenantID,
-				Limit:    1,
+				Limit:    0, // limit read from pipeline.kick_next_limit config by the activity
 			}).Get(cleanupCtx, &kickOutput)
 			if kickErr != nil {
 				logger.Warn("Auto-drain kick failed during cleanup (non-blocking)",
@@ -1561,7 +1561,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		var kickOutput KickNextPendingOutput
 		kickErr := workflow.ExecuteActivity(kickCtx, pkgtemporal.ActivityKickNextPending, KickNextPendingInput{
 			TenantID: input.TenantID,
-			Limit:    1,
+			Limit:    0, // limit read from pipeline.kick_next_limit config by the activity
 		}).Get(kickCtx, &kickOutput)
 		if kickErr != nil {
 			logger.Warn("Auto-drain kick failed after triage rejection (non-blocking)",
@@ -3313,7 +3313,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	var kickOutput KickNextPendingOutput
 	kickErr := workflow.ExecuteActivity(kickCtx, pkgtemporal.ActivityKickNextPending, KickNextPendingInput{
 		TenantID: input.TenantID,
-		Limit:    1, // Kick one item at a time
+		Limit:    0, // limit read from pipeline.kick_next_limit config by the activity
 	}).Get(kickCtx, &kickOutput)
 	if kickErr != nil {
 		logger.Warn("Auto-drain kick failed (non-blocking)",
