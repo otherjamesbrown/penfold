@@ -1,64 +1,65 @@
-# Task: Fix: add AkamaiWellness classification rule for Spark newsletter
+# Task: Fix: add triage prompt_override for newsletter_digest pipeline
 
-**Task ID:** pf-03fc5c
+**Task ID:** pf-51303e
 **Agent:** 
 
 ## Task Content
 
 ## Parent Bug
-pf-66100d — Spark wellness newsletter misclassified as HUMAN
+pf-8f8510 — Dynamic Signal digest triaged MEDIUM instead of LOW
 
 ## What to Change
 
-### `tests/quality/helpers.go` — SeedClassificationRules
+### `tests/quality/helpers.go` — SeedClassificationRules pipeline definitions
 
-Add a classification rule for the AkamaiWellness sender:
+The newsletter_digest pipeline triage stage has no prompt_override, so it uses the default triage prompt which doesn't know digest newsletters should typically be LOW importance.
+
+Add prompt_override to the triage stage for newsletter_digest pipeline:
 
 ```go
-{"newsletter_akamai_wellness", 8, "NEWSLETTER", nil, "from_address", "exact", "AkamaiWellness@akamai.com"},
+// newsletter_digest pipeline — triage with digest-aware prompt
+{"newsletter_digest", "triage", 10, 120, &promptV2, "llm", nil},
 ```
 
-Add it alongside the existing `newsletter_akamai_spark` rule in the newsletter rules section.
+### Investigation Needed
+1. Check what triage prompt version 2 does — is it appropriate for digest calibration?
+2. Check if a new prompt version is needed specifically for digest triage
+3. Query production to see if newsletter_digest has a triage prompt_override there:
+   ```sql
+   SELECT stage, prompt_override FROM pipeline_definitions 
+   WHERE pipeline = 'newsletter_digest' AND stage = 'triage';
+   ```
 
 ### Acceptance Criteria
-- [ ] `006-spark-wellness.eml` classified as NEWSLETTER
-- [ ] Newsletter pipeline stages run (parse, triage, newsletter_extract, embed)
-- [ ] `go test -tags=quality ./tests/quality/... -run TestEval_Newsletter/006-spark-wellness` passes routing checks
+- [ ] Dynamic Signal digest newsletters triaged as LOW importance
+- [ ] `go test -tags=quality ./tests/quality/... -run TestEval_Newsletter/004-dynamic-signal` triage check passes
 
-## Design Context (from pf-66100d)
+## Design Context (from pf-8f8510)
 
-**Pipeline/Classification — Spark wellness newsletter misclassified as HUMAN**
+**Pipeline/Triage — Dynamic Signal digest triaged MEDIUM instead of LOW**
 
 ## Problem
 
-Spark/Wellness newsletter (006-spark-wellness.eml) from `AkamaiSpark@akamai.com` is classified as HUMAN instead of NEWSLETTER. The eval framework golden file expects `content_subtype: NEWSLETTER`.
+Dynamic Signal digest newsletter (004-dynamic-signal.eml) is triaged as MEDIUM importance but the golden file expects LOW. Dynamic Signal digests are automated social feed compilations with typically low value.
 
 ## Evidence
 
 From `TestEval_Newsletter` run on 2026-03-26:
 
 ```
-routing.content_subtype: expected "NEWSLETTER", got "HUMAN"
-routing.completed_stages: [triage parse]
-routing.must_complete: stage "newsletter_extract" not completed
-routing.must_complete: stage "embed" not completed
+triage.importance: got "MEDIUM", expected one_of [LOW]
 ```
 
-No newsletter extraction ran — the item was treated as a regular human email.
+The newsletter intent specification (pf-4d2288) defines Dynamic Signal as `handling: conditional` with `value: low` — "Weekly automated social feed. Usually low-value noise."
 
 ## Root Cause
 
-Classification rule `newsletter_akamai_spark` uses exact match on `AkamaiSpark@akamai.com` but the actual From header may have a different case or format. The rule is seeded in `tests/quality/helpers.go` SeedClassificationRules. Need to verify:
-
-1. Does the From address in `006-spark-wellness.eml` exactly match `AkamaiSpark@akamai.com`?
-2. Is the classification rule engine case-sensitive on exact matches?
-3. Check the production classification_rules table for the pattern used there.
+Triage calibration for NEWSLETTER_DIGEST subtype. The triage stage may not have sufficient context about newsletter digest subtypes to rate them as LOW importance. The `prompt_override=4` for the newsletter_digest pipeline variant may need adjustment, or the triage prompt itself needs calibration for digest-type newsletters.
 
 ## Acceptance Criteria
 
-- [ ] 006-spark-wellness.eml classified as NEWSLETTER (content_subtype)
-- [ ] Newsletter pipeline stages run (parse, triage, newsletter_extract, embed)
-- [ ] `TestEval_Newsletter/006-spark-wellness` routing checks pass
+- [ ] Dynamic Signal digest newsletters triaged as LOW importance
+- [ ] `TestEval_Newsletter/004-dynamic-signal` triage check passes
 
 
 ## Instructions
@@ -69,4 +70,4 @@ Implement this task following the acceptance criteria above.
 
 1. Run tests: `make test && make vet`
 2. Build: `make build`
-3. **Run `cobuild complete pf-03fc5c`** -- this commits remaining changes, pushes, creates the PR, appends evidence, and marks the task needs-review. Do this as your LAST action.
+3. **Run `cobuild complete pf-51303e`** -- this commits remaining changes, pushes, creates the PR, appends evidence, and marks the task needs-review. Do this as your LAST action.
