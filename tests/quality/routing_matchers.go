@@ -19,23 +19,54 @@ func getContentSubtype(env *QualityEnv, sourceID int64) (string, error) {
 }
 
 // getCompletedStages returns all stages with status='completed' for a source.
+// Checks both pipeline_runs (most stages) and content_enrichment (structured extracts
+// that persist directly to extracted_data without recording in pipeline_runs).
 func getCompletedStages(env *QualityEnv, sourceID int64) ([]string, error) {
-	rows, err := env.DB.Query(context.Background(),
+	ctx := context.Background()
+	rows, err := env.DB.Query(ctx,
 		`SELECT stage FROM pipeline_runs WHERE source_id = $1 AND status = 'completed'`,
 		sourceID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var stages []string
+	stageSet := make(map[string]bool)
 	for rows.Next() {
 		var s string
 		if err := rows.Scan(&s); err != nil {
 			return nil, err
 		}
+		stageSet[s] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Check for structured extract stages that write to content_enrichment.extracted_data
+	// but don't record in pipeline_runs. Match via pipeline_definitions.persist_key.
+	extractRows, err := env.DB.Query(ctx, `
+		SELECT pd.stage FROM pipeline_definitions pd
+		JOIN content_enrichment ce ON ce.tenant_id = pd.tenant_id::text
+		WHERE ce.source_id = $1 AND ce.tenant_id = $2
+		  AND pd.persist_key IS NOT NULL
+		  AND ce.extracted_data IS NOT NULL
+		  AND pd.tenant_id = $2::uuid
+	`, sourceID, env.TenantID)
+	if err == nil {
+		defer extractRows.Close()
+		for extractRows.Next() {
+			var s string
+			if err := extractRows.Scan(&s); err == nil {
+				stageSet[s] = true
+			}
+		}
+	}
+
+	var stages []string
+	for s := range stageSet {
 		stages = append(stages, s)
 	}
-	return stages, rows.Err()
+	return stages, nil
 }
 
 // MatchRouting validates L1 routing expectations and returns structured results.
