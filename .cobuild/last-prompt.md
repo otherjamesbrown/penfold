@@ -1,71 +1,67 @@
-# Task: Fix: add digest-specific triage calibration for LOW importance
+# Task: Pipeline/Triage — prompt_override not applied for eval tenant newsletter triage
 
-**Task ID:** pf-2193d8
+**Task ID:** pf-a9a2ee
 **Agent:** 
 
 ## Task Content
 
-## Parent Bug
-pf-175ad3 — Dynamic Signal digest still triaged MEDIUM after prompt_override fix
-
-## What to Change
-
-### `tests/quality/helpers.go` — SeedClassificationRules pipeline definitions
-
-The previous fix (pf-8f8510) applied prompt_override=3 to newsletter_digest triage, but v3 is an extraction prompt not a triage prompt.
-
-This is related to pf-5fabbc (newsletter triage calibration). The newsletter_digest pipeline needs a triage prompt_override that:
-1. Identifies the content as an automated digest
-2. Defaults to LOW unless project-relevant content found
-
-If pf-1d4347 (parent bug fix task) applies a newsletter triage prompt_override, verify it also handles the digest variant correctly. If the common newsletter prompt caps at MEDIUM, the digest variant may need a lower cap (LOW).
-
-### Acceptance Criteria
-- [ ] Dynamic Signal digest triaged as LOW
-- [ ] `TestEval_Newsletter/004-dynamic-signal` triage check passes
-- [ ] Other newsletter triage results not regressed
-
-## Design Context (from pf-175ad3)
-
-**Pipeline/Triage — Dynamic Signal digest still triaged MEDIUM after prompt_override fix**
-
 ## Problem
 
-Dynamic Signal digest newsletter (004-dynamic-signal) is still triaged as MEDIUM importance despite the newsletter_digest pipeline now having triage prompt_override=3. The golden file expects LOW.
+Newsletter triage prompt_override values (v2 for newsletter/newsletter_internal, v4 for newsletter_digest) are seeded in pipeline_definitions for the eval tenant but not applied during triage execution. Newsletters are still triaged as HIGH when they should be MEDIUM or LOW.
 
 ## Evidence
 
-From `TestEval_Newsletter` run on 2026-03-26 (after pf-8f8510 fix merged):
+From `TestEval_Newsletter` run on 2026-03-26 (after all seeding fixes merged):
 
+- 001-ctg-post-its (NEWSLETTER_INTERNAL): triage=HIGH, expected MEDIUM or lower
+- 002-akamai-wave (NEWSLETTER): triage=HIGH, expected MEDIUM or lower  
+- 004-dynamic-signal (NEWSLETTER_DIGEST): triage=HIGH, expected LOW
+
+003-emea-newsletter correctly returns MEDIUM, 006-spark-wellness correctly returns LOW — suggesting the LLM sometimes gets it right but the prompt_override is not being used.
+
+Pipeline definitions confirm prompt_override is seeded:
+```sql
+SELECT pipeline, stage, prompt_override FROM pipeline_definitions 
+WHERE tenant_id = '00000000-0000-0000-0000-000000000003' AND stage = 'triage';
+-- newsletter: 2, newsletter_internal: 2, newsletter_digest: 4
 ```
-triage.importance: got "MEDIUM", expected one_of [LOW]
-```
 
-## Root Cause
+## Root Cause Hypotheses
 
-The prompt_override=3 was added to the newsletter_digest pipeline triage stage (pf-8f8510 fix), but:
-1. The v3 prompt may not have explicit calibration for digest newsletters
-2. The Dynamic Signal content may contain enough project references that even a calibrated prompt rates it MEDIUM
-3. Need to verify what prompt version 3 actually instructs for triage
+1. **Worker doesn't read prompt_override from pipeline_definitions during triage** — the triage activity may use a hardcoded prompt version or read from a different config source
+2. **prompt_override lookup uses wrong tenant** — the worker may resolve the prompt using the default tenant instead of the eval tenant
+3. **prompt_templates table missing the required version** — triage v2 or v4 may not exist in the prompt_templates table for the eval tenant
+4. **Triage activity ignores prompt_override entirely** — the override may only be wired for extract stages, not triage
 
 ## Investigation Steps
 
-1. Check what triage prompt v3 contains — does it have digest-specific calibration?
-2. Check the actual Dynamic Signal email content — is there legitimately MEDIUM-worthy content?
-3. If v3 doesn't have digest calibration, either update v3 or create a v5 specifically for digest triage
-4. Check if the golden file expectation of LOW is correct, or if MEDIUM is actually reasonable
+1. Check `prompt_templates` table: `SELECT stage, version, is_active FROM prompt_templates WHERE stage = 'triage'`
+2. Check worker triage activity code: how does it resolve which prompt to use? Does it read `prompt_override` from pipeline_definitions?
+3. Check worker logs during eval run: does it log which prompt version is being used for triage?
+4. Compare with notification pipeline: notification triage also has prompt_override=2 — does notification triage correctly use v2?
 
 ## Acceptance Criteria
 
-- [ ] Dynamic Signal digest newsletters triaged as LOW (or golden file updated if MEDIUM is correct)
-- [ ] `TestEval_Newsletter/004-dynamic-signal` triage check passes
+- [ ] Triage activity reads and applies prompt_override from pipeline_definitions
+- [ ] Newsletter triage uses the overridden prompt (v2 or v4 depending on pipeline variant)
+- [ ] 001-ctg-post-its triaged MEDIUM or lower
+- [ ] 002-akamai-wave triaged MEDIUM or lower
+- [ ] 004-dynamic-signal triaged LOW
+- [ ] No regression on existing triage behaviour for standard/notification pipelines
 
 ## Instructions
 
-Implement this task following the acceptance criteria above.
+**This is a READ-ONLY investigation. Do NOT modify source code.**
 
-### On completion
-
-1. Run tests: `make test && make vet`
-2. Build: `make build`
-3. **Run `cobuild complete pf-2193d8`** -- this commits remaining changes, pushes, creates the PR, appends evidence, and marks the task needs-review. Do this as your LAST action.
+Follow the bug-investigation skill:
+1. Understand the bug report above
+2. Reproduce and verify the bug
+3. Trace the root cause — check code, git blame, database state
+4. Map all affected files and related patterns
+5. Assess fragility — why did this area break?
+6. Write an investigation report and append to the bug:
+   `cobuild wi append pf-a9a2ee --body "## Investigation Report\n..."`
+7. Record the investigation gate:
+   `cobuild investigate pf-a9a2ee --verdict pass --body "<summary>"`
+8. Create a fix task with the exact changes needed:
+   `cobuild wi create --type task --title "Fix: ..." --body "..." --parent pf-a9a2ee`
