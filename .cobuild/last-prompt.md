@@ -1,71 +1,64 @@
-# Task: Fix: add triage prompt_override for newsletter pipelines to cap at MEDIUM
+# Task: Fix: add digest-specific triage calibration for LOW importance
 
-**Task ID:** pf-1d4347
+**Task ID:** pf-2193d8
 **Agent:** 
 
 ## Task Content
 
 ## Parent Bug
-pf-5fabbc — newsletters triaged as HIGH instead of MEDIUM/LOW
+pf-175ad3 — Dynamic Signal digest still triaged MEDIUM after prompt_override fix
 
 ## What to Change
 
 ### `tests/quality/helpers.go` — SeedClassificationRules pipeline definitions
 
-Add prompt_override to the triage stage for all three newsletter pipeline variants. Use a prompt version that instructs triage to cap newsletter importance at MEDIUM.
+The previous fix (pf-8f8510) applied prompt_override=3 to newsletter_digest triage, but v3 is an extraction prompt not a triage prompt.
 
-Currently the newsletter triage has no prompt_override:
-```go
-{"newsletter", "triage", 10, 120, nil, "llm", nil},
-```
+This is related to pf-5fabbc (newsletter triage calibration). The newsletter_digest pipeline needs a triage prompt_override that:
+1. Identifies the content as an automated digest
+2. Defaults to LOW unless project-relevant content found
 
-Need to determine the correct prompt version. Check existing prompt versions:
-```sql
-SELECT DISTINCT prompt_override FROM pipeline_definitions WHERE stage = 'triage' AND prompt_override IS NOT NULL;
-```
-
-If no existing version handles newsletter calibration, may need to coordinate with the prompt management system.
-
-Interim fix: Use prompt_override=2 (notification triage prompt) which is already calibrated for non-human content, then verify results.
+If pf-1d4347 (parent bug fix task) applies a newsletter triage prompt_override, verify it also handles the digest variant correctly. If the common newsletter prompt caps at MEDIUM, the digest variant may need a lower cap (LOW).
 
 ### Acceptance Criteria
-- [ ] Newsletter triage importance is MEDIUM or lower for 001-ctg-post-its and 002-akamai-wave
-- [ ] `go build -tags=quality ./tests/quality/...` compiles
-- [ ] No regression on other newsletter triage results (003-emea should stay MEDIUM)
+- [ ] Dynamic Signal digest triaged as LOW
+- [ ] `TestEval_Newsletter/004-dynamic-signal` triage check passes
+- [ ] Other newsletter triage results not regressed
 
-## Design Context (from pf-5fabbc)
+## Design Context (from pf-175ad3)
 
-**Pipeline/Triage — newsletters triaged as HIGH instead of MEDIUM/LOW**
+**Pipeline/Triage — Dynamic Signal digest still triaged MEDIUM after prompt_override fix**
 
 ## Problem
 
-Multiple newsletters are triaged as HIGH importance when they should be MEDIUM or LOW. Newsletters are informational content that rarely require immediate action.
+Dynamic Signal digest newsletter (004-dynamic-signal) is still triaged as MEDIUM importance despite the newsletter_digest pipeline now having triage prompt_override=3. The golden file expects LOW.
 
 ## Evidence
 
-From `TestEval_Newsletter` run on 2026-03-26:
+From `TestEval_Newsletter` run on 2026-03-26 (after pf-8f8510 fix merged):
 
-**001-ctg-post-its**: `triage.importance: got "HIGH"` — internal corporate newsletter, expected MEDIUM at most
-**002-akamai-wave**: `triage.importance: got "HIGH"` — external digest newsletter, expected MEDIUM
-
-Only 003-emea-newsletter correctly triaged as MEDIUM.
+```
+triage.importance: got "MEDIUM", expected one_of [LOW]
+```
 
 ## Root Cause
 
-The triage prompt doesn't have sufficient calibration for newsletter content subtypes. Newsletters should generally be triaged MEDIUM (informational) or LOW (automated digests), not HIGH. The triage stage doesn't receive context about the content_subtype being NEWSLETTER, so it judges importance based on content alone — which can trigger HIGH for newsletters that mention projects or deadlines.
+The prompt_override=3 was added to the newsletter_digest pipeline triage stage (pf-8f8510 fix), but:
+1. The v3 prompt may not have explicit calibration for digest newsletters
+2. The Dynamic Signal content may contain enough project references that even a calibrated prompt rates it MEDIUM
+3. Need to verify what prompt version 3 actually instructs for triage
 
-## Fix Approach
+## Investigation Steps
 
-Either:
-1. Add a triage prompt_override for the newsletter pipeline that calibrates importance downward for informational content
-2. Pass content_subtype as context to the triage stage so the prompt can adjust calibration
-3. Post-triage calibration rule: cap newsletter importance at MEDIUM unless content contains genuine escalation keywords
+1. Check what triage prompt v3 contains — does it have digest-specific calibration?
+2. Check the actual Dynamic Signal email content — is there legitimately MEDIUM-worthy content?
+3. If v3 doesn't have digest calibration, either update v3 or create a v5 specifically for digest triage
+4. Check if the golden file expectation of LOW is correct, or if MEDIUM is actually reasonable
 
 ## Acceptance Criteria
 
-- [ ] Newsletter triage importance is MEDIUM or lower for standard newsletters
-- [ ] Only newsletters with genuine escalation content (security alerts, P0 incidents forwarded via newsletter) should be HIGH
-- [ ] `TestEval_Newsletter` triage checks pass for 002-akamai-wave and 001-ctg-post-its
+- [ ] Dynamic Signal digest newsletters triaged as LOW (or golden file updated if MEDIUM is correct)
+- [ ] `TestEval_Newsletter/004-dynamic-signal` triage check passes
 
 ## Instructions
 
@@ -75,4 +68,4 @@ Implement this task following the acceptance criteria above.
 
 1. Run tests: `make test && make vet`
 2. Build: `make build`
-3. **Run `cobuild complete pf-1d4347`** -- this commits remaining changes, pushes, creates the PR, appends evidence, and marks the task needs-review. Do this as your LAST action.
+3. **Run `cobuild complete pf-2193d8`** -- this commits remaining changes, pushes, creates the PR, appends evidence, and marks the task needs-review. Do this as your LAST action.
