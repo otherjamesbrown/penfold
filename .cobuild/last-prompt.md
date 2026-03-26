@@ -1,155 +1,170 @@
-# Task: Fix: Seed classification rules for quality test tenant in TestEval_Newsletter
+# Task: Fix: NULL timeout_seconds crash in pipeline_definitions scan
 
-**Task ID:** pf-11850f
+**Task ID:** pf-af6c7c
 **Agent:** 
 
 ## Task Content
 
 ## Context
 
-Bug pf-362e49: Newsletter eval test emails all classify as HUMAN because the quality test tenant (00000000-0000-0000-0000-000000000003) has no classification rules.
+Parent bug: pf-57bf1d
+Worker crash-loops on startup because pipeline_definitions rows with NULL timeout_seconds cannot be scanned into Go int field. 7,172 of 21,488 rows have NULL.
 
-## Root Cause
+## Fix Specification
 
-Classification rule seed migrations (092, 135, 146, 148) iterate `SELECT id FROM tenants` at migration time. The quality tenant is created later by test setup, so it never receives rules. `TestEval_Newsletter` also never calls `LoadFixtures()` or `CleanupTestTenant()`.
+### Part 1: Code — COALESCE in SQL queries (preferred approach)
 
-## Required Changes
+In `pkg/pipeline/definitions.go`, change all 4 SELECT queries to use `COALESCE(timeout_seconds, 120)` instead of bare `timeout_seconds`:
 
-In `penfold/tests/quality/helpers.go` or a new helper:
+1. **ListPipelines** (line 78): `COALESCE(timeout_seconds, 120)` in SELECT
+2. **GetPipelineStages** (line 130): same
+3. **UpdateStageConfig** RETURNING clause (line 230): same
+4. **getStageDefinition** (line 329): same
 
-1. Add a `SeedClassificationRules(tenantID)` function that inserts the classification rules needed for newsletter tests. This should insert the same rules that migrations 092, 135, 146, and 148 create — specifically:
-   - newsletter_ctg (from_address exact ctgcomms@akamai.com) → NEWSLETTER
-   - newsletter_akamai_wave (from_address exact AkamaiWave@akamai.com) → NEWSLETTER
-   - newsletter_emea (from_address exact EMEA_newsletter@akamai.com) → NEWSLETTER
-   - newsletter_englearn (from_address exact EngLearn@akamai.com) → NEWSLETTER
-   - newsletter_akamai_spark (from_address exact AkamaiSpark@akamai.com) → NEWSLETTER
-   - newsletter_dynamic_signal (from_address contains dynamicsignal) → NEWSLETTER_DIGEST
-   - newsletter_internal_corporate (subject contains Post-Its) → NEWSLETTER_INTERNAL
-   - Also seed pipeline_routing and pipeline_definitions for NEWSLETTER, NEWSLETTER_INTERNAL, and NEWSLETTER_DIGEST pipelines
+The struct field `TimeoutSeconds int` stays as-is. No downstream changes needed.
 
-2. Also seed the newsletter_comms_pattern, newsletter_wave_pattern, newsletter_addr_pattern broad rules from migration 135.
+### Part 2: Migration — backfill NULLs + NOT NULL constraint
 
-3. In `TestEval_Newsletter`: add calls to `EnsureTenantExists()`, `CleanupTestTenant()`, and the new rule seeding function at setup.
+Create migration (next available number):
 
-Alternative: Call `register_newsletter_variant()` SQL function (migration 147) from Go test setup to register each variant.
+```sql
+-- +goose Up
+UPDATE pipeline_definitions SET timeout_seconds = 120 WHERE timeout_seconds IS NULL;
+ALTER TABLE pipeline_definitions ALTER COLUMN timeout_seconds SET NOT NULL;
 
-## Acceptance Criteria
+-- +goose Down
+ALTER TABLE pipeline_definitions ALTER COLUMN timeout_seconds DROP NOT NULL;
+```
 
-- [ ] Quality test tenant has all newsletter classification rules after test setup
-- [ ] All 6 newsletter emails classify correctly (NEWSLETTER, NEWSLETTER_INTERNAL, or NEWSLETTER_DIGEST)
-- [ ] newsletter_extract stage runs for all classified newsletters
-- [ ] Rules are idempotent (safe to re-run)
+Default timeout of 120s matches the original column DEFAULT from migration 074.
 
-## Files to Modify
+### Verification
 
-- `penfold/tests/quality/helpers.go` — add SeedClassificationRules()
-- `penfold/tests/quality/newsletter_eval_test.go` — add setup calls
+After applying:
+1. `go build ./...` — compiles
+2. `go test ./pkg/pipeline/... ./services/worker/...` — tests pass
+3. Worker starts without crash-looping
+4. `SELECT COUNT(*) FROM pipeline_definitions WHERE timeout_seconds IS NULL` returns 0
 
-## Design Context (from pf-362e49)
+### Test to add
 
-**Pipeline/Classification - eval test newsletters misclassified as HUMAN instead of NEWSLETTER**
+In `pkg/pipeline/definitions_test.go` or similar, add a test that scans a row where timeout_seconds would be NULL to verify COALESCE works correctly. This prevents regression if someone removes the COALESCE.
+
+## Design Context (from pf-57bf1d)
+
+**Worker crash: pipeline_definitions.timeout_seconds NULL scan fails startup validation**
 
 ## Problem
 
-All 6 newsletter eval test emails are classified as `content_subtype: HUMAN` instead of their expected newsletter subtypes. This means they route through the standard pipeline (`[parse, triage, embed]`) and never reach the `newsletter_extract` stage.
+Worker crash-loops on startup with:
 
-## Evidence
-
-From `TestEval_Newsletter` run on 2026-03-25:
-
-| Email | Expected Subtype | Got | Stages Run |
-|-------|-----------------|-----|------------|
-| 001-ctg-post-its | NEWSLETTER_INTERNAL | HUMAN | parse, triage, embed |
-| 002-akamai-wave | NEWSLETTER | HUMAN | parse, triage, embed |
-| 003-emea-newsletter | NEWSLETTER | HUMAN | parse, triage, embed |
-| 004-dynamic-signal | NEWSLETTER | HUMAN | parse, triage, embed |
-| 005-eng-learning | NEWSLETTER | HUMAN | parse, triage, embed |
-| 006-spark-wellness | NEWSLETTER | HUMAN | parse, triage, embed |
-
-All emails use source ID 3818 (reuse, not new ingestion) — suggesting the test fixture loading may also have an issue with deduplication.
+```
+Pipeline definition validation failed — exiting
+loading pipeline definitions for tenant c3170310-78bd-409c-b186-126f40bfa6ad: scanning pipeline definition: can't scan into dest[13] (col: timeout_seconds): cannot scan NULL into *int
+```
 
 ## Root Cause
 
-The eval test tenant (`00000000-0000-0000-0000-000000000003`) likely does not have classification rules configured for these newsletter senders. The config-driven pre-triage classification (pf-5ee8e3) replaced hardcoded sender detection with DB rules, but the eval tenant was never seeded with matching rules.
+Migration 151 (pf-bc6fa5) set `timeout_seconds` for 6 specific stages (triage, extract_ner, extract_semantic, extract_assertions, newsletter_extract, analyze) but left all other pipeline_definitions rows with NULL. The Go struct scans `timeout_seconds` into `*int` which can't accept NULL.
+
+## Impact
+
+Worker is down. No pipeline processing.
 
 ## Fix Needed
 
-1. Add classification rules for the eval test tenant that match the newsletter senders in `tests/fixtures/acme-corp/emails/newsletter/`
-2. Verify rules match by sender domain/pattern (e.g. `@dynamicsignal.com`, `@akamai.com` newsletter addresses)
-3. Alternatively, seed rules as part of the quality test setup in `SetupQualityEnvironment()`
+Two-part fix:
 
-## Secondary Issue
-
-All newsletter tests return source ID 3818 regardless of which email is ingested. This suggests the ingest is deduplicating against an existing source rather than creating new ones per test run. The test harness may need unique source tags or dedup bypass.
+1. **DB:** Set a default timeout_seconds for all rows where it's currently NULL (e.g. 300s as a safe default)
+2. **Code:** Change the scan target from `*int` to `*sql.NullInt64` or `**int` so NULL is handled gracefully — a missing timeout should mean "use activity default", not crash
 
 ## Acceptance Criteria
 
-- [ ] All 6 newsletter eval emails classify as NEWSLETTER or NEWSLETTER_INTERNAL
-- [ ] newsletter_extract stage runs for all classified newsletters
-- [ ] Each test email gets a unique source ID (no dedup collision)
+- [ ] Worker starts successfully with NULL timeout_seconds rows in pipeline_definitions
+- [ ] Existing non-NULL timeout_seconds values are still respected
+- [ ] Migration seeds a default for all NULL rows
 
 ---
-*Appended by agent-penfold at 2026-03-25 18:44 UTC*
+*Appended by agent-penfold at 2026-03-26 07:31 UTC*
 
 ## Investigation Report
 
-**Investigator:** agent-claude  
-**Date:** 2026-03-25  
-**Status:** Root causes confirmed for both issues
+### Symptom
 
-### Issue 1 (PRIMARY): No classification rules for eval test tenant
+Worker crash-loops on startup at pipeline definition validation. The exact error:
 
-**Root cause:** The quality test tenant (00000000-0000-0000-0000-000000000003) has zero classification rules. Without rules, the classification engine defaults all emails to EMAIL/HUMAN (engine.go:86-89).
+```
+loading pipeline definitions for tenant c3170310-78bd-409c-b186-126f40bfa6ad: scanning pipeline definition: can't scan into dest[13] (col: timeout_seconds): cannot scan NULL into *int
+```
 
-**Why rules are missing:**
+The crash occurs at `services/worker/main.go:436-438` where `ValidateAllDefinitions` calls `ListPipelines`, which scans all `pipeline_definitions` rows. Any row with NULL `timeout_seconds` causes the scan to fail because the Go struct field is `int` (not `*int`).
 
-1. Classification rule seed migrations run during \`SetupQualityEnvironment()\` via \`db.RunMigrations()\` (helpers.go:93). These migrations iterate \`SELECT id FROM tenants\` and seed rules per tenant.
+### Root Cause
 
-2. The quality tenant is only created by \`EnsureTenantExists()\` which is called inside \`LoadFixtures()\` (helpers.go:194). Migrations run BEFORE the tenant exists.
+**Direct cause:** `StageDefinition.TimeoutSeconds` is declared as `int` (line 26 of `pkg/pipeline/definitions.go`), which cannot accept SQL NULL values. The pgx driver returns a scan error when it encounters NULL.
 
-3. \`TestEval_Newsletter\` (newsletter_eval_test.go) never calls \`LoadFixtures()\` or \`EnsureTenantExists()\` — it assumes the tenant and rules already exist.
+**Contributing cause — migration 151 (pf-bc6fa5, commit 05f882a):** This migration only updated 6 specific stages (`triage`, `extract_ner`, `extract_semantic`, `extract_assertions`, `newsletter_extract`, `analyze`) but **set them to specific values rather than fixing the NULL problem**. The migration's WHERE clauses match by stage name only, so it should have applied to all tenants — but DB inspection shows **all** of those stages still have NULL timeout_seconds (7,172 NULL rows out of 21,488 total).
 
-4. Even if the tenant were pre-created, migrations are idempotent (skip if rules exist for tenant). Re-running migrations won't seed rules for a newly added tenant unless the migration explicitly handles this case.
+**Why NULLs exist despite column DEFAULT:** The column was created with `DEFAULT 120` (migration 074) and is nullable (`IS NULL: YES`). Any row inserted without specifying `timeout_seconds` gets 120. However, the NULLs exist in exactly the 6 stages migration 151 targeted. This suggests migration 151 either: (a) never ran successfully against this database, or (b) ran but was subsequently reverted (the DOWN migration explicitly sets those stages back to NULL). The goose_db_version table is empty, so migration state tracking is unavailable.
 
-**Evidence chain:**
-- Migration 092 seeds specific newsletter rules (newsletter_ctg, newsletter_akamai_wave, newsletter_emea, newsletter_englearn, newsletter_akamai_spark) for all existing tenants via \`FOR t_rec IN SELECT id FROM tenants LOOP\`
-- Migration 135 seeds broad patterns (newsletter_comms_pattern, newsletter_wave_pattern, newsletter_addr_pattern) for all existing tenants
-- Migration 146 seeds newsletter_internal_corporate rule for all existing tenants
-- Migration 148 seeds newsletter_dynamic_signal rule for all existing tenants
-- All sender addresses match: ctgcomms@akamai.com, AkamaiWave@akamai.com, EMEA_newsletter@akamai.com, dynamicsignal@akamai.com, EngLearn@akamai.com, AkamaiWellness@akamai.com (via AkamaiSpark rule or broad patterns)
-- But none of these rules exist for tenant 000...003 because it didn't exist when migrations ran
+**Design issue:** The `timeout_seconds` column allows NULL but the Go struct uses a non-nullable type. This mismatch means any NULL in this column will crash the scan. Other nullable columns in the same struct (`ContentType`, `ModelOverride`, `PromptOverride`, `Temperature`, `MaxTokens`, `MaxRetries`) are correctly declared as pointer types.
 
-### Issue 2 (SECONDARY): All emails return source_id 3818
+### Affected Files
 
-**Root cause:** Deduplication by message_id. The .eml fixture files have static Message-ID headers (e.g., \`<B4540AD0-C28F-4AD5-BC61-629F1B0DE2DC@akamai.com>\`). On repeated test runs, \`CheckDuplicate()\` finds the message_id already exists in the sources table and returns the original source_id instead of creating a new source.
+1. `pkg/pipeline/definitions.go:26` — `TimeoutSeconds int` struct field (should handle NULL)
+2. `pkg/pipeline/definitions.go:95` — Scan call in `ListPipelines` (crash site)
+3. `pkg/pipeline/definitions.go:146` — Scan call in `GetPipelineStages`
+4. `pkg/pipeline/definitions.go:237` — Scan call in `UpdateStageConfig`
+5. `pkg/pipeline/definitions.go:334` — Scan call in `getStageDefinition`
+6. `pkg/temporal/stage_executor.go:20` — `PipelineStageConfig.TimeoutSeconds int` (downstream consumer)
+7. `pkg/temporal/stage_executor.go:37` — `StageConfig.TimeoutSeconds int` (downstream consumer)
+8. `services/worker/workflows/pipeline.go:835` — `localStageConfig.TimeoutSeconds int` (downstream consumer)
+9. `services/gateway/pipelineservice/definitions.go:363` — Proto conversion reads `sd.TimeoutSeconds`
+10. `services/gateway/pipelineservice/service.go:1956-1957` — Timeout map builder checks `> 0`
 
-The test generates unique source_tags per run, but the gateway dedup check fires before source creation. The response returns \`WasDuplicate: true\` with \`existingSourceId=3818\`, and the pipeline re-runs against the old source.
+### Related Issues
 
-**Impact:** All 6 test emails reference the same pre-existing source, so pipeline stages and classification results are read from stale data. Even if classification rules were present, the dedup would prevent fresh processing.
+- Migration 151 (pf-bc6fa5) was the intended fix but appears to have not persisted. The goose migration tracking table is empty.
+- The same NULL-vs-non-pointer pattern could theoretically affect any future column added as nullable in SQL but non-pointer in Go. However, all other nullable columns in StageDefinition are already pointer types — this is the only mismatch.
 
-### Fix Plan
+### Fragility Assessment
 
-**Fix 1 — Seed classification rules for quality tenant:**
-- Option A (recommended): Add a quality-test-specific rule seeding step in \`SetupQualityEnvironment()\` that creates the tenant FIRST, then either re-runs the relevant migrations or directly inserts the needed rules.
-- Option B: Create a new migration that seeds rules for ALL tenants including future ones (using a trigger or a function called from tenant creation).
-- Option C: Have \`TestEval_Newsletter\` call \`LoadFixtures()\` and add classification rule seeding to the fixture loader.
+- **Coupling:** The scan target type in Go must match the SQL column nullability. Four separate scan sites all share the same bug — any NULL in timeout_seconds crashes all of them.
+- **Test coverage:** `ValidateAllDefinitions` tests use mock listers that never return scan errors. There is no integration test that scans real NULL-containing rows. The `pipeline_definitions_test.go` test fixtures always set TimeoutSeconds to non-zero values.
+- **Change frequency:** `pipeline_definitions` schema is actively evolving (15+ migrations since creation). Each migration that adds rows or columns increases the risk of NULL mismatches.
 
-**Fix 2 — Prevent source_id dedup collision:**
-- Option A (recommended): The test should call \`CleanupTestTenant()\` at the start (like \`TestQuality_ExtractionAccuracy\` does) to remove previous sources, eliminating message_id collisions.
-- Option B: Modify the test to mutate Message-IDs with a per-run suffix before ingesting.
+### Fix Specification
 
-### Files Involved
+Two-part fix (code + data):
 
-- \`penfold/tests/quality/helpers.go\` — SetupQualityEnvironment, LoadFixtures, CleanupTestTenant
-- \`penfold/tests/quality/newsletter_eval_test.go\` — TestEval_Newsletter (missing cleanup/fixture/rule setup)
-- \`penfold/pkg/enrichment/classification/engine.go\` — Classify() defaults to EMAIL/HUMAN
-- \`penfold/pkg/enrichment/classification/repository.go\` — LoadRules() queries by tenant_id
-- \`penfold/migrations/092_seed_classification_rules_wave3.sql\` — Newsletter sender rules
-- \`penfold/migrations/135_newsletter_broad_patterns.sql\` — Broad newsletter patterns
-- \`penfold/migrations/146_newsletter_variant_routing.sql\` — NEWSLETTER_INTERNAL rules
-- \`penfold/migrations/148_newsletter_variant_dynamic_signal.sql\` — Dynamic Signal rules
-- \`penfold/pkg/ingest/storage/repository.go\` — CheckDuplicate (message_id + content_hash)
-- \`penfold/services/gateway/ingestservice/service.go\` — Dedup handling in IngestEmail
+**Part 1: Code — handle NULL timeout_seconds gracefully**
+
+1. File: `pkg/pipeline/definitions.go:26` — Change `TimeoutSeconds int` to `TimeoutSeconds *int`
+2. File: `pkg/pipeline/definitions.go` — All 4 scan calls already use `&sd.TimeoutSeconds`, which will work with `*int`
+3. File: `pkg/temporal/stage_executor.go:20,37` — Both `PipelineStageConfig` and `StageConfig` use `TimeoutSeconds int`. The mapping from `StageDefinition` to these types (in `services/worker/activities/pipeline_activities.go:334` and `services/worker/workflows/pipeline.go:3123`) must dereference the pointer with a default (e.g., 120).
+4. File: `services/gateway/pipelineservice/definitions.go:363` — Proto conversion must handle nil pointer
+5. All downstream consumers that check `cfg.TimeoutSeconds > 0` already handle zero as "use default", so passing 0 for NULL is safe
+
+**Alternative (simpler, preferred): Use COALESCE in SQL**
+
+Instead of changing the struct to `*int`, wrap the column in `COALESCE(timeout_seconds, 120)` in all 4 SELECT queries. This avoids touching any downstream code. The struct stays `int`, NULL becomes 120.
+
+**Part 2: Migration — backfill NULLs and prevent recurrence**
+
+1. New migration: `UPDATE pipeline_definitions SET timeout_seconds = 120 WHERE timeout_seconds IS NULL;`
+2. Same migration: `ALTER TABLE pipeline_definitions ALTER COLUMN timeout_seconds SET NOT NULL;`
+3. The column already has `DEFAULT 120`, so future inserts without timeout_seconds will get 120.
+4. Adding NOT NULL prevents this class of bug from recurring.
+
+### Test Requirements
+
+1. Test: Unit test scanning a row with NULL timeout_seconds — Verifies: scan does not panic/error
+2. Test: Integration test loading pipeline definitions from DB with mixed NULL/non-NULL timeout_seconds — Verifies: all rows load correctly with default applied
+3. Test: Verify NOT NULL constraint prevents NULL insertion after migration — Verifies: data integrity
+
+### Severity
+
+**CRITICAL** — Worker is completely down. No pipeline processing is happening. Every startup attempt crash-loops at validation.
 
 ## Instructions
 
@@ -159,4 +174,4 @@ Implement this task following the acceptance criteria above.
 
 1. Run tests: `make test && make vet`
 2. Build: `make build`
-3. **Run `cobuild complete pf-11850f`** -- this commits remaining changes, pushes, creates the PR, appends evidence, and marks the task needs-review. Do this as your LAST action.
+3. **Run `cobuild complete pf-af6c7c`** -- this commits remaining changes, pushes, creates the PR, appends evidence, and marks the task needs-review. Do this as your LAST action.

@@ -75,7 +75,7 @@ func (r *Repository) ListPipelines(ctx context.Context, tenantID string) ([]Pipe
 	rows, err := r.db.Query(ctx, `
 		SELECT id, tenant_id, pipeline, content_type, stage, stage_kind, persist_key, stage_order, enabled,
 		       model_override, prompt_override, skip_when_low, optional,
-		       timeout_seconds, temperature, max_tokens, max_retries, depends_on, created_at
+		       COALESCE(timeout_seconds, 120), temperature, max_tokens, max_retries, depends_on, created_at
 		FROM pipeline_definitions
 		WHERE tenant_id = $1
 		ORDER BY pipeline, stage_order
@@ -127,7 +127,7 @@ func (r *Repository) GetPipelineStages(ctx context.Context, tenantID, pipeline s
 	rows, err := r.db.Query(ctx, `
 		SELECT id, tenant_id, pipeline, content_type, stage, stage_kind, persist_key, stage_order, enabled,
 		       model_override, prompt_override, skip_when_low, optional,
-		       timeout_seconds, temperature, max_tokens, max_retries, depends_on, created_at
+		       COALESCE(timeout_seconds, 120), temperature, max_tokens, max_retries, depends_on, created_at
 		FROM pipeline_definitions
 		WHERE tenant_id = $1 AND pipeline = $2
 		ORDER BY stage_order
@@ -227,7 +227,7 @@ func (r *Repository) UpdateStageConfig(ctx context.Context, tenantID, pipeline, 
 		WHERE tenant_id = $1 AND pipeline = $2 AND stage = $3
 		RETURNING id, tenant_id, pipeline, content_type, stage, stage_kind, persist_key, stage_order, enabled,
 		          model_override, prompt_override, skip_when_low, optional,
-		          timeout_seconds, temperature, max_tokens, max_retries, depends_on, created_at
+		          COALESCE(timeout_seconds, 120), temperature, max_tokens, max_retries, depends_on, created_at
 	`, joinStrings(setClauses, ", "))
 
 	var sd StageDefinition
@@ -325,7 +325,7 @@ func (r *Repository) getStageDefinition(ctx context.Context, tenantID, pipeline,
 	err := r.db.QueryRow(ctx, `
 		SELECT id, tenant_id, pipeline, content_type, stage, stage_kind, persist_key, stage_order, enabled,
 		       model_override, prompt_override, skip_when_low, optional,
-		       timeout_seconds, temperature, max_tokens, max_retries, depends_on, created_at
+		       COALESCE(timeout_seconds, 120), temperature, max_tokens, max_retries, depends_on, created_at
 		FROM pipeline_definitions
 		WHERE tenant_id = $1 AND pipeline = $2 AND stage = $3
 	`, tenantID, pipeline, stage).Scan(
