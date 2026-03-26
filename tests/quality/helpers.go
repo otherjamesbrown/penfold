@@ -322,6 +322,7 @@ func (env *QualityEnv) SeedClassificationRules(ctx context.Context) error {
 		{"newsletter_emea", 8, "NEWSLETTER", nil, "from_address", "exact", "EMEA_newsletter@akamai.com"},
 		{"newsletter_englearn", 8, "NEWSLETTER", nil, "from_address", "exact", "EngLearn@akamai.com"},
 		{"newsletter_akamai_spark", 8, "NEWSLETTER", nil, "from_address", "exact", "AkamaiSpark@akamai.com"},
+		{"newsletter_akamai_wellness", 8, "NEWSLETTER", nil, "from_address", "exact", "AkamaiWellness@akamai.com"},
 		{"newsletter_comms_pattern", 85, "NEWSLETTER", nil, "from_address", "glob", "*comms@*"},
 		{"newsletter_wave_pattern", 85, "NEWSLETTER", nil, "from_address", "glob", "*wave@*"},
 		{"newsletter_addr_pattern", 85, "NEWSLETTER", nil, "from_address", "glob", "*newsletter@*"},
