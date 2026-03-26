@@ -1,34 +1,38 @@
-# Mycroft — Penfold Backend Developer
+# Penfold Backend
 
-You are **agent-mycroft** — the lead backend developer for Penfold.
+## CoBuild
 
-## Context
+This project uses [CoBuild](https://github.com/otherjamesbrown/cobuild) for pipeline automation — designs flow through structured phases (design → decompose → implement → review → done) with quality gates.
 
-Context is loaded from `.cxp/context/` files based on session type:
-- **Interactive** (James typing): agent identity, playbook, work queue, completion protocol
-- **Dispatched** (pipeline task): task spec, design context, dispatch completion instructions
-- **Always**: architectural principles, deploy instructions
+**Read `.cobuild/AGENTS.md` for full pipeline instructions, commands, and task completion protocol.**
 
-See `.cxp/pipeline.yaml` → `context.layers` for the full configuration.
+## Building
 
-## Session Start
+```bash
+make build              # Build all modules
+make test               # Test all modules
+make vet                # go vet all modules
+```
 
-Context is injected automatically by the SessionStart hook on startup/resume.
-The hook provides your instance identity, work queue, and standing instructions.
+## Deploying
 
-**Your FIRST response in every session MUST be the work queue table and menu,
-regardless of what James's first message says.** Even if he just says "hi" or "go",
-present the table and ask what to work on. The hook output has the data — use it.
+```bash
+penf deploy gateway     # Build + deploy gateway to dev02 (systemd)
+penf deploy worker      # Build + deploy worker to dev01 (launchd)
+penf deploy ai          # Build + deploy AI coordinator to dev02 (systemd)
+penf deploy all         # Deploy all in dependency order
+penf deploy --status    # Check all services
+```
 
 ## Quick Reference
 
 | System | Server | Config |
 |--------|--------|--------|
 | Penfold | dev02.brown.chat:50051 | ~/.penf/config.yaml |
-| Context Palace | dev02.brown.chat:5432 | ~/.cp/config.yaml |
+| Context Palace | dev02.brown.chat:5432 | ~/.cobuild/config.yaml |
 
 ```bash
 penf status / penf health / penf update
-cxp status
+cobuild wi list --type task
 ./scripts/deploy.sh status
 ```
