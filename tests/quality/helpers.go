@@ -322,7 +322,7 @@ func (env *QualityEnv) SeedClassificationRules(ctx context.Context) error {
 
 	rules := []classRule{
 		// Newsletter rules (from migrations 092, 135, 146, 148)
-		{"newsletter_ctg", 8, "NEWSLETTER", nil, "from_address", "exact", "ctgcomms@akamai.com"},
+		{"newsletter_ctg", 8, "NEWSLETTER_INTERNAL", nil, "from_address", "exact", "ctgcomms@akamai.com"},
 		{"newsletter_akamai_wave", 8, "NEWSLETTER", nil, "from_address", "exact", "AkamaiWave@akamai.com"},
 		{"newsletter_emea", 8, "NEWSLETTER", nil, "from_address", "exact", "EMEA_newsletter@akamai.com"},
 		{"newsletter_englearn", 8, "NEWSLETTER", nil, "from_address", "exact", "EngLearn@akamai.com"},
