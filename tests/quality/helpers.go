@@ -283,6 +283,11 @@ func (env *QualityEnv) CleanupTestTenant() error {
 		"glossary",
 		"insight_type_registry",
 		"mention_patterns",
+		// Seeded config — must be cleaned so SeedClassificationRules can re-insert with current values
+		"classification_match_conditions",
+		"classification_rules",
+		"pipeline_routing",
+		"pipeline_definitions",
 	}
 
 	for _, table := range cleanupOrder {
