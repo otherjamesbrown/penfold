@@ -1381,74 +1381,52 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		return state.result, nil
 	}
 
-	// Pre-classification for first-time ingestion (pf-1c083d).
+	// Pre-classification for first-time ingestion (pf-1c083d, pf-7640c8).
 	// When input.Pipeline is empty, triage hasn't run yet so the pipeline name is
-	// unknown. For email content we can detect notification sources deterministically
-	// from the sender address — no AI call needed. If the sender matches a known
-	// notification domain pattern, pre-set the pipeline to "notification" so the
-	// early pipeline definition fetch (below) fires and prompt_override=2 reaches
-	// the triage stage on first ingestion.
+	// unknown. Run the DB-backed rule engine (PreClassifyContent) to detect notification
+	// and newsletter senders before triage. If a rule matches, the pipeline name is known
+	// early so the early pipeline definition fetch (below) loads prompt_override before
+	// triage runs. This avoids the chicken-and-egg where prompt_override=0 is passed to
+	// triage because the pipeline wasn't known until triage completed.
 	//
-	// This mirrors what triage's rule engine does internally, but without waiting
-	// for triage to complete. If triage later disagrees (edge case), the post-triage
+	// If the rule engine returns no match, fall back to hardcoded notification sender
+	// detection for tenants that haven't seeded classification rules.
+	// If triage later routes to a different pipeline (edge case), the post-triage
 	// pipeline re-fetch corrects it.
 	var preclassifiedPipeline string
 	if input.Pipeline == "" && strings.EqualFold(input.ContentType, "email") && input.SenderEmail != "" {
-		if looksLikeNotificationSender(input.SenderEmail) {
-			preclassifiedPipeline = "notification"
-			logger.Info("Pre-classified as notification pipeline from sender address",
-				"sender_email", input.SenderEmail,
-				"pipeline", preclassifiedPipeline,
-			)
-		}
-
-		// Shadow-mode rule engine pre-classification (pf-b375ad).
-		// Run the DB-backed rule engine in parallel with looksLikeNotificationSender()
-		// and log any disagreements. The hardcoded result is still used for pipeline
-		// selection — the rule engine is observation-only at this stage.
 		ctxPreClassify := workflow.WithActivityOptions(ctx, fastOpts)
-		var preClassifyOut PreClassifyOutput
-		preClassifyErr := workflow.ExecuteActivity(ctxPreClassify, pkgtemporal.ActivityPreClassify, PreClassifyInput{
+		var preClassifyContentOut PreClassifyContentOutput
+		preClassifyContentErr := workflow.ExecuteActivity(ctxPreClassify, pkgtemporal.ActivityPreClassifyContent, PreClassifyContentInput{
 			TenantID:    input.TenantID,
 			ContentType: input.ContentType,
 			SenderEmail: input.SenderEmail,
 			Subject:     input.Subject,
 			Headers:     fetchedHeaders,
-		}).Get(ctx, &preClassifyOut)
+		}).Get(ctx, &preClassifyContentOut)
 
-		if preClassifyErr != nil {
-			logger.Warn("Shadow pre-classify activity failed, skipping parity check",
-				"error", preClassifyErr,
+		if preClassifyContentErr != nil {
+			logger.Warn("Pre-classify activity failed, falling back to hardcoded detection",
+				"error", preClassifyContentErr,
 				"sender_email", input.SenderEmail,
 			)
-		} else if preClassifyOut.Error != "" {
-			logger.Warn("Shadow pre-classify rule loading failed, skipping parity check",
-				"rule_error", preClassifyOut.Error,
+		} else if preClassifyContentOut.Pipeline != "" {
+			preclassifiedPipeline = preClassifyContentOut.Pipeline
+			logger.Info("Pre-classified pipeline from rule engine",
 				"sender_email", input.SenderEmail,
+				"pipeline", preclassifiedPipeline,
+				"content_subtype", preClassifyContentOut.ContentSubtype,
+				"rule_name", preClassifyContentOut.RuleName,
 			)
-		} else {
-			// Compare: looksLikeNotificationSender() says "notification" vs rule engine result.
-			hardcodedIsNotification := preclassifiedPipeline == "notification"
-			ruleEngineIsNotification := preClassifyOut.ContentSubtype == "NOTIFICATION"
+		}
 
-			if hardcodedIsNotification != ruleEngineIsNotification {
-				logger.Warn("Pre-classify parity MISMATCH: hardcoded and rule engine disagree",
-					"sender_email", input.SenderEmail,
-					"subject", input.Subject,
-					"hardcoded_notification", hardcodedIsNotification,
-					"rule_engine_notification", ruleEngineIsNotification,
-					"rule_engine_subtype", preClassifyOut.ContentSubtype,
-					"rule_engine_rule_name", preClassifyOut.RuleName,
-					"rule_engine_pipeline", preClassifyOut.PipelineName,
-				)
-			} else {
-				logger.Info("Pre-classify parity OK: hardcoded and rule engine agree",
-					"sender_email", input.SenderEmail,
-					"notification", hardcodedIsNotification,
-					"rule_engine_subtype", preClassifyOut.ContentSubtype,
-					"rule_engine_rule_name", preClassifyOut.RuleName,
-				)
-			}
+		// Fallback: hardcoded notification sender detection for tenants without seeded rules.
+		if preclassifiedPipeline == "" && looksLikeNotificationSender(input.SenderEmail) {
+			preclassifiedPipeline = "notification"
+			logger.Info("Pre-classified as notification pipeline from sender address (hardcoded fallback)",
+				"sender_email", input.SenderEmail,
+				"pipeline", preclassifiedPipeline,
+			)
 		}
 	}
 
