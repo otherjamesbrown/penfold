@@ -437,9 +437,9 @@ func (env *QualityEnv) SeedClassificationRules(ctx context.Context) error {
 		{"newsletter_internal", "triage", 10, 120, nil, "llm", nil},
 		{"newsletter_internal", "newsletter_extract", 20, 120, &promptV3, "structured_extract", &newsletterKey},
 		{"newsletter_internal", "embed", 30, 60, nil, "embedding", nil},
-		// newsletter_digest pipeline (prompt_override = 4 for v4 prompt)
+		// newsletter_digest pipeline (prompt_override = 3 for triage, 4 for extract)
 		{"newsletter_digest", "parse", 0, 60, nil, "code_only", nil},
-		{"newsletter_digest", "triage", 10, 120, nil, "llm", nil},
+		{"newsletter_digest", "triage", 10, 120, &promptV3, "llm", nil},
 		{"newsletter_digest", "newsletter_extract", 20, 120, &promptV4, "structured_extract", &newsletterKey},
 		{"newsletter_digest", "embed", 30, 60, nil, "embedding", nil},
 		// Notification pipeline (matches prod: parse, triage, summarize, extract_ner, extract_semantic, persist, embed)
