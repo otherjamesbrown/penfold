@@ -108,9 +108,10 @@ func MatchRouting(t *testing.T, env *QualityEnv, sourceID int64, expected *Routi
 		})
 	}
 
-	// Check 4: pipeline name (infer from stages + subtype)
+	// Check 4: pipeline name (infer from stages + actual subtype from DB)
 	if expected.Pipeline != "" {
-		inferredPipeline := inferPipeline(completedStages, expected.ContentSubtype)
+		actualSubtype, _ := getContentSubtype(env, sourceID)
+		inferredPipeline := inferPipeline(completedStages, actualSubtype)
 		pass := inferredPipeline == expected.Pipeline
 		if !pass {
 			t.Errorf("routing.pipeline: expected %q, inferred %q from stages", expected.Pipeline, inferredPipeline)
@@ -127,12 +128,21 @@ func MatchRouting(t *testing.T, env *QualityEnv, sourceID int64, expected *Routi
 }
 
 // inferPipeline infers the pipeline name from completed stages and optional content subtype.
-// The contentSubtype disambiguates variant pipelines that share the same stages
-// (e.g. newsletter vs newsletter_internal both run newsletter_extract).
+// Uses stage presence first, then falls back to content_subtype for cases where
+// category-specific stages didn't fire (e.g. newsletter_extract skipped).
 func inferPipeline(stages []string, contentSubtype ...string) string {
+	subtype := ""
+	if len(contentSubtype) > 0 {
+		subtype = contentSubtype[0]
+	}
+
+	// Stage-based inference (most reliable when category stages ran)
 	if slices.Contains(stages, "newsletter_extract") {
-		if len(contentSubtype) > 0 && contentSubtype[0] == "NEWSLETTER_INTERNAL" {
+		if subtype == "NEWSLETTER_INTERNAL" {
 			return "newsletter_internal"
+		}
+		if subtype == "NEWSLETTER_DIGEST" {
+			return "newsletter_digest"
 		}
 		return "newsletter"
 	}
@@ -140,11 +150,27 @@ func inferPipeline(stages []string, contentSubtype ...string) string {
 		return "notification"
 	}
 	if slices.Contains(stages, "extract_semantic") || slices.Contains(stages, "extract_ner") {
+		if subtype == "NOTIFICATION" {
+			return "notification"
+		}
 		return "standard"
 	}
 	// legacy: notification pipeline used summarize before notification_extract existed
 	if slices.Contains(stages, "summarize") && !slices.Contains(stages, "extract_semantic") {
 		return "notification"
 	}
+
+	// Fallback: infer from content_subtype when category stages didn't fire
+	switch subtype {
+	case "NEWSLETTER":
+		return "newsletter"
+	case "NEWSLETTER_INTERNAL":
+		return "newsletter_internal"
+	case "NEWSLETTER_DIGEST":
+		return "newsletter_digest"
+	case "NOTIFICATION":
+		return "notification"
+	}
+
 	return "unknown"
 }

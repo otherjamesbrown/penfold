@@ -299,54 +299,64 @@ func (env *QualityEnv) CleanupTestTenant() error {
 	return nil
 }
 
-// SeedClassificationRules seeds newsletter classification rules, pipeline routing,
+// SeedClassificationRules seeds classification rules, pipeline routing,
 // and pipeline definitions for the quality test tenant. Safe to call multiple times.
 func (env *QualityEnv) SeedClassificationRules(ctx context.Context) error {
 	type classRule struct {
-		name      string
-		priority  int
-		subtype   string
-		field     string
-		matchType string
-		value     string
+		name               string
+		priority           int
+		subtype            string
+		notificationSource *string // nil for newsletters
+		field              string
+		matchType          string
+		value              string
 	}
 
+	// Helper for notification_source pointers.
+	ns := func(s string) *string { return &s }
+
 	rules := []classRule{
-		// From migration 092: specific newsletter senders
-		{"newsletter_ctg", 8, "NEWSLETTER", "from_address", "exact", "ctgcomms@akamai.com"},
-		{"newsletter_akamai_wave", 8, "NEWSLETTER", "from_address", "exact", "AkamaiWave@akamai.com"},
-		{"newsletter_emea", 8, "NEWSLETTER", "from_address", "exact", "EMEA_newsletter@akamai.com"},
-		{"newsletter_englearn", 8, "NEWSLETTER", "from_address", "exact", "EngLearn@akamai.com"},
-		{"newsletter_akamai_spark", 8, "NEWSLETTER", "from_address", "exact", "AkamaiSpark@akamai.com"},
-		// From migration 135: broad sender patterns
-		{"newsletter_comms_pattern", 85, "NEWSLETTER", "from_address", "glob", "*comms@*"},
-		{"newsletter_wave_pattern", 85, "NEWSLETTER", "from_address", "glob", "*wave@*"},
-		{"newsletter_addr_pattern", 85, "NEWSLETTER", "from_address", "glob", "*newsletter@*"},
-		// From migration 146: internal corporate newsletter (subject match)
-		{"newsletter_internal_corporate", 80, "NEWSLETTER_INTERNAL", "subject", "contains", "Post-Its"},
-		// From migration 148: dynamic signal digest
-		{"newsletter_dynamic_signal", 7, "NEWSLETTER_DIGEST", "from_address", "contains", "dynamicsignal"},
+		// Newsletter rules (from migrations 092, 135, 146, 148)
+		{"newsletter_ctg", 8, "NEWSLETTER", nil, "from_address", "exact", "ctgcomms@akamai.com"},
+		{"newsletter_akamai_wave", 8, "NEWSLETTER", nil, "from_address", "exact", "AkamaiWave@akamai.com"},
+		{"newsletter_emea", 8, "NEWSLETTER", nil, "from_address", "exact", "EMEA_newsletter@akamai.com"},
+		{"newsletter_englearn", 8, "NEWSLETTER", nil, "from_address", "exact", "EngLearn@akamai.com"},
+		{"newsletter_akamai_spark", 8, "NEWSLETTER", nil, "from_address", "exact", "AkamaiSpark@akamai.com"},
+		{"newsletter_comms_pattern", 85, "NEWSLETTER", nil, "from_address", "glob", "*comms@*"},
+		{"newsletter_wave_pattern", 85, "NEWSLETTER", nil, "from_address", "glob", "*wave@*"},
+		{"newsletter_addr_pattern", 85, "NEWSLETTER", nil, "from_address", "glob", "*newsletter@*"},
+		{"newsletter_internal_corporate", 80, "NEWSLETTER_INTERNAL", nil, "subject", "contains", "Post-Its"},
+		{"newsletter_dynamic_signal", 7, "NEWSLETTER_DIGEST", nil, "from_address", "contains", "dynamicsignal"},
+
+		// Notification rules — matching test fixture .eml senders
+		{"notif_aha_mailer", 5, "NOTIFICATION", ns("aha"), "from_address", "glob", "*@*.mailer.aha.io"},
+		{"notif_aha_support", 5, "NOTIFICATION", ns("aha"), "from_address", "exact", "support@aha.io"},
+		{"notif_jira", 5, "NOTIFICATION", ns("jira"), "from_address", "contains", "jira"},
+		{"notif_oracle", 5, "NOTIFICATION", ns("oracle"), "from_address", "contains", "oracle-hcm"},
+		{"notif_google_security", 5, "NOTIFICATION", ns("google"), "from_address", "exact", "no-reply@accounts.google.com"},
+		{"notif_globalsecops", 5, "NOTIFICATION", ns("globalsecops"), "from_address", "exact", "globalsecops@akamai.com"},
+		{"notif_bitmovin", 5, "NOTIFICATION", ns("bitmovin"), "from_address", "contains", "bitmovin"},
+		{"notif_internal_action", 90, "NOTIFICATION", ns("internal"), "subject", "contains", "ACTION REQUESTED"},
 	}
 
 	for _, r := range rules {
-		// Insert rule if not exists, then get its ID either way.
+		// Insert rule if not exists, then get its ID.
+		if _, err := env.DB.Exec(ctx, `
+			INSERT INTO classification_rules (tenant_id, name, priority, content_type_scope, content_type, content_subtype, notification_source, active)
+			SELECT $1, $2::text, $3, 'EMAIL', 'EMAIL', $4::text, $5, true
+			WHERE NOT EXISTS (
+				SELECT 1 FROM classification_rules WHERE tenant_id = $1 AND name = $2::text
+			)
+		`, env.TenantID, r.name, r.priority, r.subtype, r.notificationSource); err != nil {
+			return fmt.Errorf("insert classification rule %s: %w", r.name, err)
+		}
+
 		var ruleID int
 		err := env.DB.QueryRow(ctx, `
-			WITH ins AS (
-				INSERT INTO classification_rules (tenant_id, name, priority, content_type_scope, content_type, content_subtype, active)
-				SELECT $1, $2, $3, 'EMAIL', 'EMAIL', $4, true
-				WHERE NOT EXISTS (
-					SELECT 1 FROM classification_rules WHERE tenant_id = $1 AND name = $2
-				)
-				RETURNING id
-			)
-			SELECT id FROM ins
-			UNION ALL
 			SELECT id FROM classification_rules WHERE tenant_id = $1 AND name = $2
-			LIMIT 1
-		`, env.TenantID, r.name, r.priority, r.subtype).Scan(&ruleID)
+		`, env.TenantID, r.name).Scan(&ruleID)
 		if err != nil {
-			return fmt.Errorf("upsert classification rule %s: %w", r.name, err)
+			return fmt.Errorf("get classification rule %s id: %w", r.name, err)
 		}
 
 		// Insert match condition only if the rule has none yet.
@@ -366,7 +376,7 @@ func (env *QualityEnv) SeedClassificationRules(ctx context.Context) error {
 		}
 	}
 
-	// Seed pipeline routing for all three newsletter variants.
+	// Seed pipeline routing.
 	type routing struct {
 		subtype  string
 		pipeline string
@@ -375,13 +385,14 @@ func (env *QualityEnv) SeedClassificationRules(ctx context.Context) error {
 		{"NEWSLETTER", "newsletter"},
 		{"NEWSLETTER_INTERNAL", "newsletter_internal"},
 		{"NEWSLETTER_DIGEST", "newsletter_digest"},
+		{"NOTIFICATION", "notification"},
 	} {
 		if _, err := env.DB.Exec(ctx, `
 			INSERT INTO pipeline_routing (tenant_id, content_type, content_subtype, pipeline, active)
-			SELECT $1, 'EMAIL', $2, $3, true
+			SELECT $1, 'EMAIL', $2::text, $3::text, true
 			WHERE NOT EXISTS (
 				SELECT 1 FROM pipeline_routing
-				WHERE tenant_id = $1 AND content_type = 'EMAIL' AND content_subtype = $2
+				WHERE tenant_id = $1 AND content_type = 'EMAIL' AND content_subtype = $2::text
 			)
 		`, env.TenantID, rt.subtype, rt.pipeline); err != nil {
 			return fmt.Errorf("insert pipeline routing for %s: %w", rt.pipeline, err)
@@ -410,6 +421,7 @@ func (env *QualityEnv) SeedClassificationRules(ctx context.Context) error {
 	}
 
 	newsletterKey := "newsletter"
+	promptV2 := 2
 	promptV3 := 3
 	promptV4 := 4
 
@@ -429,6 +441,14 @@ func (env *QualityEnv) SeedClassificationRules(ctx context.Context) error {
 		{"newsletter_digest", "triage", 1, 120, nil, "llm", nil},
 		{"newsletter_digest", "newsletter_extract", 2, 120, &promptV4, "structured_extract", &newsletterKey},
 		{"newsletter_digest", "embed", 3, 60, nil, "embedding", nil},
+		// Notification pipeline (matches prod: parse, triage, summarize, extract_ner, extract_semantic, persist, embed)
+		{"notification", "parse", 0, 30, nil, "code_only", nil},
+		{"notification", "triage", 10, 120, &promptV2, "llm", nil},
+		{"notification", "summarize", 15, 60, &promptV2, "llm", nil},
+		{"notification", "extract_ner", 20, 120, nil, "llm", nil},
+		{"notification", "extract_semantic", 25, 120, &promptV2, "llm", nil},
+		{"notification", "persist", 50, 60, nil, "code_only", nil},
+		{"notification", "embed", 60, 60, nil, "embedding", nil},
 	}
 
 	for _, d := range defs {
