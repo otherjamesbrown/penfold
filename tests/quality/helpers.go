@@ -434,12 +434,12 @@ func (env *QualityEnv) SeedClassificationRules(ctx context.Context) error {
 	defs := []pipelineDef{
 		// Base newsletter pipeline
 		{"newsletter", "parse", 0, 60, nil, "code_only", nil},
-		{"newsletter", "triage", 10, 120, nil, "llm", nil},
+		{"newsletter", "triage", 10, 120, &promptV2, "llm", nil},
 		{"newsletter", "newsletter_extract", 20, 120, nil, "structured_extract", &newsletterKey},
 		{"newsletter", "embed", 30, 60, nil, "embedding", nil},
 		// newsletter_internal pipeline (prompt_override = 3 for v3 prompt)
 		{"newsletter_internal", "parse", 0, 60, nil, "code_only", nil},
-		{"newsletter_internal", "triage", 10, 120, nil, "llm", nil},
+		{"newsletter_internal", "triage", 10, 120, &promptV2, "llm", nil},
 		{"newsletter_internal", "newsletter_extract", 20, 120, &promptV3, "structured_extract", &newsletterKey},
 		{"newsletter_internal", "embed", 30, 60, nil, "embedding", nil},
 		// newsletter_digest pipeline (prompt_override = 3 for triage, 4 for extract)
