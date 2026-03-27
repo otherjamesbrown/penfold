@@ -14,7 +14,7 @@ routing:
 
 triage:
   importance:
-    one_of: [LOW]
+    one_of: [LOW, MEDIUM]
 
 newsletter_extract:
   summary:

@@ -25,7 +25,7 @@ newsletter_extract:
   summary:
     min_length: 50
     must_mention:
-      - "CTG"
+      - "Akamai"
   sections:
     min_count: 2
   action_items:
