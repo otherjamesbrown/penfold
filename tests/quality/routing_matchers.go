@@ -43,10 +43,14 @@ func getCompletedStages(env *QualityEnv, sourceID int64) ([]string, error) {
 	}
 
 	// Check for structured extract stages that write to content_enrichment.extracted_data
-	// but don't record in pipeline_runs. Match via pipeline_definitions.persist_key.
+	// but don't record in pipeline_runs. Match via pipeline_definitions.persist_key,
+	// filtered to the pipeline that was actually routed for this source.
 	extractRows, err := env.DB.Query(ctx, `
 		SELECT pd.stage FROM pipeline_definitions pd
 		JOIN content_enrichment ce ON ce.tenant_id = pd.tenant_id::text
+		JOIN pipeline_routing pr ON pr.tenant_id = pd.tenant_id
+		  AND pr.pipeline = pd.pipeline
+		  AND pr.content_subtype = ce.content_subtype
 		WHERE ce.source_id = $1 AND ce.tenant_id = $2
 		  AND pd.persist_key IS NOT NULL
 		  AND ce.extracted_data IS NOT NULL

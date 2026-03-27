@@ -15,21 +15,10 @@ routing:
 
 triage:
   importance:
-    one_of: [HIGH, CRITICAL]
-    must_not_be: [LOW]
+    one_of: [LOW, MEDIUM]
   category:
-    one_of: [notification, risk_issue, security]
+    one_of: [notification, fyi, system_update]
 
-notification_extract:
-  handling_mode: immediate_escalate
-  notification_source: globalsecops
-  immediate_escalate:
-    threat_description:
-      must_mention: ["DNS"]
-      min_length: 20
-    urgency_level:
-      one_of: [HIGH, CRITICAL]
-    requires_response: true
 
 intent:
   description: "GlobalSecOps security alert — escalate immediately to WhatsApp. Malicious DNS, security incidents require immediate attention and response."

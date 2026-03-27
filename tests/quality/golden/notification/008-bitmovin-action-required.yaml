@@ -15,14 +15,11 @@ routing:
 
 triage:
   importance:
-    one_of: [LOW, MEDIUM]
+    one_of: [LOW, MEDIUM, HIGH]
     must_not_be: [CRITICAL]
   category:
     one_of: [notification, system_update, action_request]
 
-notification_extract:
-  handling_mode: triage_once
-  notification_source: bitmovin
 
 intent:
   description: "Bitmovin vendor action notice — surface once for mine-or-delegated triage. Likely delegated to engineering team; suppress after triage and roll into daily summary."

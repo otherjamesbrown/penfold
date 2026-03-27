@@ -20,9 +20,6 @@ triage:
   category:
     one_of: [notification, system_update, action_request]
 
-notification_extract:
-  handling_mode: triage_once
-  notification_source: aha
 
 intent:
   description: "Aha! daily to-dos — surface once for mine-or-delegated triage. After delegated, suppress individual notifications and roll into daily summary only."

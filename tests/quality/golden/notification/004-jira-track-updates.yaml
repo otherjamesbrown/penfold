@@ -20,11 +20,6 @@ triage:
   category:
     one_of: [notification, system_update, project_update]
 
-notification_extract:
-  handling_mode: daily_summary
-  notification_source: jira
-  activity_summary:
-    min_length: 20
 
 intent:
   description: "Jira TRACK ticket updates — never surface individually. Batch into daily summary: status changes, assignee changes, resolutions grouped by project."

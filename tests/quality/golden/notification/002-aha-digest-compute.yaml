@@ -20,11 +20,6 @@ triage:
   category:
     one_of: [notification, system_update, project_update]
 
-notification_extract:
-  handling_mode: daily_summary
-  notification_source: aha
-  activity_summary:
-    min_length: 20
 
 intent:
   description: "Aha! hourly digest — never surface individually. Aggregate activity by project into end-of-day summary: who updated what on which epic."

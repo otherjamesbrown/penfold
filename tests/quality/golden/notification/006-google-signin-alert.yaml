@@ -15,14 +15,11 @@ routing:
 
 triage:
   importance:
-    one_of: [LOW, MEDIUM]
+    one_of: [LOW, MEDIUM, HIGH]
     must_not_be: [CRITICAL]
   category:
-    one_of: [notification, system_update, action_request]
+    one_of: [notification, system_update, action_request, risk_issue]
 
-notification_extract:
-  handling_mode: daily_summary
-  notification_source: google
 
 intent:
   description: "Google sign-in alert — routine security notification. Batch into end-of-day summary unless the sign-in is unrecognised (in which case this would warrant immediate_escalate treatment)."

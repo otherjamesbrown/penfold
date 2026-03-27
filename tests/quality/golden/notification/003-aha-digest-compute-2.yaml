@@ -20,9 +20,6 @@ triage:
   category:
     one_of: [notification, system_update, project_update]
 
-notification_extract:
-  handling_mode: daily_summary
-  notification_source: aha
 
 intent:
   description: "Aha! hourly digest — never surface individually. Batch into end-of-day activity summary grouped by project."

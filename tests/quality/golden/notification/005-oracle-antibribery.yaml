@@ -17,15 +17,8 @@ triage:
   importance:
     one_of: [LOW, MEDIUM, HIGH]
   category:
-    one_of: [notification, system_update, compliance, internal_comms]
+    one_of: [notification, system_update, compliance, internal_comms, action_request]
 
-notification_extract:
-  handling_mode: compliance_status
-  notification_source: oracle
-  compliance_status:
-    course_name:
-      must_mention: ["Anti-Bribery"]
-    overdue: true
 
 intent:
   description: "Oracle compliance training reminder — group into Security and Compliance Training view. Surface once when new, weekly reminder until completed. Track James and direct reports."
