@@ -392,6 +392,7 @@ func (env *QualityEnv) SeedClassificationRules(ctx context.Context) error {
 		{"NEWSLETTER_INTERNAL", "newsletter_internal"},
 		{"NEWSLETTER_DIGEST", "newsletter_digest"},
 		{"NOTIFICATION", "notification"},
+		{"HUMAN", "standard"},
 	} {
 		if _, err := env.DB.Exec(ctx, `
 			INSERT INTO pipeline_routing (tenant_id, content_type, content_subtype, pipeline, active)
@@ -455,6 +456,19 @@ func (env *QualityEnv) SeedClassificationRules(ctx context.Context) error {
 		{"notification", "extract_semantic", 25, 120, &promptV2, "llm", nil},
 		{"notification", "persist", 50, 60, nil, "code_only", nil},
 		{"notification", "embed", 60, 60, nil, "embedding", nil},
+		// Standard pipeline (matches prod: parse, triage, summarize, extract_ner, extract_assertions, extract_semantic, persist, embed)
+		{"standard", "parse", 10, 30, nil, "code_only", nil},
+		{"standard", "triage", 20, 120, nil, "llm", nil},
+		{"standard", "summarize", 25, 60, nil, "llm", nil},
+		{"standard", "extract_ner", 30, 120, nil, "llm", nil},
+		{"standard", "extract_assertions", 40, 120, nil, "llm", nil},
+		{"standard", "attribute_project", 45, 60, nil, "llm", nil},
+		{"standard", "extract_semantic", 50, 120, nil, "llm", nil},
+		{"standard", "resolve", 60, 60, nil, "code_only", nil},
+		{"standard", "enrich_entities", 65, 120, nil, "code_only", nil},
+		{"standard", "analyze", 70, 120, nil, "llm", nil},
+		{"standard", "persist", 80, 60, nil, "code_only", nil},
+		{"standard", "embed", 90, 60, nil, "embedding", nil},
 	}
 
 	for _, d := range defs {

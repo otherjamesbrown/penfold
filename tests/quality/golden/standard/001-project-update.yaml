@@ -1,0 +1,29 @@
+email: emails/001-project-update.eml
+description: "Project Alpha MVP status — brief update, Q1 deadline concern from Marcus"
+last_verified: "2026-03-27"
+category: standard
+
+routing:
+  content_subtype: HUMAN
+  pipeline: standard
+  must_complete: [parse, triage, extract_ner, extract_semantic, embed]
+
+triage:
+  importance:
+    one_of: [LOW, MEDIUM]
+  category:
+    one_of: [PROJECT_UPDATE, STATUS_UPDATE, FYI]
+
+people:
+  min_count: 2
+  must_find:
+    - name_contains: "John"
+    - name_contains: "Sarah"
+
+assertions:
+  min_count: 0
+  max_count: 3
+
+intent:
+  description: "Brief project update — low content, mainly a scheduling request."
+  value: low

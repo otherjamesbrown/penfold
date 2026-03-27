@@ -1,0 +1,41 @@
+email: emails/011-risk-escalation.eml
+description: "Risk escalation — 3 explicit risks (budget, timeline, resource), financial figures"
+last_verified: "2026-03-27"
+category: standard
+
+routing:
+  content_subtype: HUMAN
+  pipeline: standard
+  must_complete: [parse, triage, extract_ner, extract_semantic, embed]
+
+triage:
+  importance:
+    one_of: [HIGH, CRITICAL]
+  category:
+    one_of: [RISK_ISSUE, PROJECT_UPDATE]
+
+people:
+  min_count: 4
+  must_find:
+    - name_contains: "Sarah Chen"
+    - name_contains: "John Smith"
+    - name_contains: "David Park"
+    - name_contains: "Marcus"
+  must_not_find:
+    - name_contains: "Acme Corp"
+
+assertions:
+  min_count: 3
+  must_find:
+    - type: risk
+      description_contains: "budget"
+    - type: risk
+      description_contains: "MVP target"
+    - type: risk
+      description_contains: "backend engineer"
+  must_not_find:
+    - type: security_incident
+
+intent:
+  description: "Risk escalation from PM — 3 named risks with financial impact, needs executive decision."
+  value: high

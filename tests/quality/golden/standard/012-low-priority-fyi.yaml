@@ -1,0 +1,29 @@
+email: emails/012-low-priority-fyi.eml
+description: "Negative test — lunch invitation, should be LOW with no business assertions"
+last_verified: "2026-03-27"
+category: standard
+
+routing:
+  content_subtype: HUMAN
+  pipeline: standard
+  must_complete: [parse, triage, embed]
+
+triage:
+  importance:
+    one_of: [LOW, NONE]
+  category:
+    one_of: [SOCIAL, FYI, LOW_PRIORITY, PERSONAL, OTHER]
+
+assertions:
+  max_count: 1
+  must_not_find:
+    - type: risk
+    - type: decision
+    - type: action
+      description_contains: "security"
+    - type: issue
+      description_contains: "incident"
+
+intent:
+  description: "Casual lunch invite — no business value, should not extract risks or decisions."
+  value: none

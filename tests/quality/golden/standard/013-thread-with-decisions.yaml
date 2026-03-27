@@ -1,0 +1,41 @@
+email: emails/013-thread-with-decisions.eml
+description: "Reply with 4 labeled decisions — scope reduction, resource realloc, revised timeline, exec updates"
+last_verified: "2026-03-27"
+category: standard
+
+routing:
+  content_subtype: HUMAN
+  pipeline: standard
+  must_complete: [parse, triage, extract_ner, extract_semantic, embed]
+
+triage:
+  importance:
+    one_of: [HIGH, CRITICAL]
+  category:
+    one_of: [PROJECT_UPDATE, DECISION, RISK_ISSUE]
+
+people:
+  min_count: 4
+  must_find:
+    - name_contains: "John Smith"
+    - name_contains: "Sarah Chen"
+    - name_contains: "Lisa"
+    - name_contains: "David"
+  must_not_find:
+    - name_contains: "Acme Corp"
+
+assertions:
+  min_count: 3
+  must_find:
+    - type: decision
+      description_contains: "Portal Redesign"
+    - type: decision
+      description_contains: "reassign"
+    - type: decision
+      description_contains: "MVP target"
+  must_not_find:
+    - type: security_incident
+
+intent:
+  description: "Executive response to risk escalation — 4 decisions with cross-project impact."
+  value: high

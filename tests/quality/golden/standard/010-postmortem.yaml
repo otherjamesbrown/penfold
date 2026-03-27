@@ -1,0 +1,33 @@
+email: emails/010-postmortem.eml
+description: "Blameless postmortem — P0 API Gateway incident, 2h15m, 3 enterprise SLA breaches"
+last_verified: "2026-03-27"
+category: standard
+
+routing:
+  content_subtype: HUMAN
+  pipeline: standard
+  must_complete: [parse, triage, extract_ner, extract_semantic, embed]
+
+triage:
+  importance:
+    one_of: [HIGH, CRITICAL]
+  category:
+    one_of: [INCIDENT, RISK_ISSUE, OPERATIONAL]
+
+people:
+  min_count: 3
+  must_find:
+    - name_contains: "Robert"
+    - name_contains: "Daniel"
+
+assertions:
+  min_count: 3
+  must_find:
+    - type: issue
+      description_contains: "P0"
+    - type: issue
+      description_contains: "autoscaling"
+
+intent:
+  description: "Post-incident review — action items with DRI assignments, Q1 SLA goal."
+  value: high

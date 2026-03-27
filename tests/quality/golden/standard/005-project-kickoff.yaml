@@ -1,0 +1,32 @@
+email: emails/005-project-kickoff.eml
+description: "ML Recommendations Tiger Team formation — executive-approved, Q2 MVP target"
+last_verified: "2026-03-27"
+category: standard
+
+routing:
+  content_subtype: HUMAN
+  pipeline: standard
+  must_complete: [parse, triage, extract_ner, extract_semantic, embed]
+
+triage:
+  importance:
+    one_of: [MEDIUM, HIGH]
+  category:
+    one_of: [PROJECT_UPDATE, DECISION, STRATEGIC]
+
+people:
+  min_count: 3
+  must_find:
+    - name_contains: "Brandon"
+    - name_contains: "Jessica"
+    - name_contains: "Lisa"
+
+assertions:
+  min_count: 1
+  must_find:
+    - type: decision
+      description_contains: "Tiger Team"
+
+intent:
+  description: "New project kickoff — strategic initiative with clear milestones and team assignments."
+  value: medium
