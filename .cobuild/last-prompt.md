@@ -1,57 +1,45 @@
-# Task: Add GetScores() to Langfuse client
+# Task: Add LLM-as-judge score reading to newsletter and notification eval tests
 
-**Task ID:** pf-056eaf
+**Task ID:** pf-2cb3e7
 **Agent:** 
 
 ## Task Content
 
-## Wave 1 (no deps)
+## Wave 3 — depends on pf-056eaf (GetScores)
 
-Add `GetScores()` to `pkg/langfuse/client.go` — a simple GET on `/api/public/scores?traceId={id}`. This enables reading LLM-as-judge scores that Langfuse evaluators write back to traces.
+Update the existing newsletter and notification eval tests to read LLM-as-judge scores from Langfuse evaluators after pipeline processing. This gives LLM-as-judge coverage across all 3 content categories.
 
-## Scope
+## What to add
 
-**New types in pkg/langfuse/client.go:**
+In both `tests/quality/newsletter_eval_test.go` and `tests/quality/notification_eval_test.go`, after the existing `RecordResult` call:
+
 ```go
-type Score struct {
-    ID        string  `json:"id"`
-    Name      string  `json:"name"`
-    Value     float64 `json:"value"`
-    Comment   string  `json:"comment"`
-    Source    string  `json:"source"`  // "EVAL" for LLM-as-judge
-    TraceID   string  `json:"traceId"`
-    CreatedAt string  `json:"createdAt"`
+// LLM-as-judge: read Langfuse evaluator scores
+if lfEval != nil {
+    time.Sleep(10 * time.Second)
+    scores, err := lfEval.GetScores(ctx, traceID)
+    if err == nil {
+        for _, score := range scores {
+            t.Logf("  langfuse.%s: %.1f", score.Name, score.Value)
+            if score.Value < 3.0 {
+                t.Errorf("langfuse.%s: score %.1f below threshold 3.0", score.Name, score.Value)
+            }
+        }
+    }
 }
-
-type GetScoresResponse struct {
-    Data []Score `json:"data"`
-    Meta PaginationMeta `json:"meta"`
-}
 ```
 
-**New method:**
-```go
-func (c *Client) GetScores(ctx context.Context, traceID string) ([]Score, error)
-```
-- GET `/api/public/scores?traceId={traceID}`
-- Uses standard auth header pattern (same as GetTraces)
-- Returns []Score, error
-
-**Add to LangfuseEval (tests/quality/langfuse_eval.go):**
-```go
-func (e *LangfuseEval) GetScores(ctx context.Context, traceID string) ([]langfuse.Score, error)
-```
-Nil-safe wrapper matching the existing pattern (returns empty slice + nil if e is nil).
+Note: Soft-assert pattern — if no scores returned (evaluators not yet configured in Langfuse UI), log a warning but don't fail. This avoids breaking the test suite before evaluators are configured.
 
 ## Code locations
-- `pkg/langfuse/client.go` — new types + GetScores method
-- `tests/quality/langfuse_eval.go` — nil-safe wrapper
+- `tests/quality/newsletter_eval_test.go` — ~12 lines added after RecordResult
+- `tests/quality/notification_eval_test.go` — same change
 
 ## Acceptance criteria
-- [ ] `Client.GetScores(ctx, traceID)` compiles and returns []Score
-- [ ] Uses same auth/request pattern as existing GetTraces
-- [ ] `LangfuseEval.GetScores()` is nil-safe (returns empty, nil if eval is nil)
-- [ ] `go build ./pkg/langfuse/...` passes
+- [ ] Both test files compile with the new GetScores call
+- [ ] LLM-as-judge scores are logged when present
+- [ ] Tests don't fail when Langfuse evaluators are not configured (empty scores list)
+- [ ] Scores below 3.0 are flagged as test errors when evaluators are configured
 - [ ] `go build ./tests/quality/...` passes
 
 ## Design Context (from pf-71f660)
@@ -378,7 +366,7 @@ Implement this task following the acceptance criteria above.
 
 1. Run tests: `make test && make vet`
 2. Build: `make build`
-3. **Run `cobuild complete pf-056eaf`** -- this commits remaining changes, pushes, creates the PR, appends evidence, and marks the task needs-review. Do this as your LAST action.
+3. **Run `cobuild complete pf-2cb3e7`** -- this commits remaining changes, pushes, creates the PR, appends evidence, and marks the task needs-review. Do this as your LAST action.
 
 **IMPORTANT RULES:**
 - NEVER use raw `git merge` or `git push` to main — always use `cobuild complete` which creates a PR

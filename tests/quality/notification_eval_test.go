@@ -110,6 +110,20 @@ func TestEval_Notification(t *testing.T) {
 			if err := lfEval.RecordResult(ctx, traceID, results); err != nil {
 				t.Logf("warning: Langfuse recording failed: %v", err)
 			}
+
+			// LLM-as-judge: read Langfuse evaluator scores
+			if lfEval != nil {
+				time.Sleep(10 * time.Second)
+				scores, err := lfEval.GetScores(ctx, traceID)
+				if err == nil {
+					for _, score := range scores {
+						t.Logf("  langfuse.%s: %.1f", score.Name, score.Value)
+						if score.Value < 3.0 {
+							t.Errorf("langfuse.%s: score %.1f below threshold 3.0", score.Name, score.Value)
+						}
+					}
+				}
+			}
 		})
 	}
 }
