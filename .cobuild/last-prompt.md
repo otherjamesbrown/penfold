@@ -1,34 +1,58 @@
-# Task: Retire legacy TestQuality_ExtractionAccuracy from quality_test.go
+# Task: Add GetScores() to Langfuse client
 
-**Task ID:** pf-71f46b
+**Task ID:** pf-056eaf
 **Agent:** 
 
 ## Task Content
 
-## Wave 4 — depends on pf-a0ab4f (TestEval_Standard)
+## Wave 1 (no deps)
 
-Remove `TestQuality_ExtractionAccuracy` from `tests/quality/quality_test.go` once `TestEval_Standard` covers all 8 golden files. This cleans up the legacy test that doesn't follow the eval framework pattern.
+Add `GetScores()` to `pkg/langfuse/client.go` — a simple GET on `/api/public/scores?traceId={id}`. This enables reading LLM-as-judge scores that Langfuse evaluators write back to traces.
 
-## Context
-The legacy test was the original extraction quality test. It uses a different setup/teardown pattern, has no L1 routing checks, no Langfuse recording, and no EvalResults. TestEval_Standard supersedes it entirely.
+## Scope
 
-## What to remove
-- The `TestQuality_ExtractionAccuracy` function from quality_test.go
-- Any helper functions or setup code that are ONLY used by that test (not shared with other tests)
-- If quality_test.go becomes empty after removal, remove the file entirely
+**New types in pkg/langfuse/client.go:**
+```go
+type Score struct {
+    ID        string  `json:"id"`
+    Name      string  `json:"name"`
+    Value     float64 `json:"value"`
+    Comment   string  `json:"comment"`
+    Source    string  `json:"source"`  // "EVAL" for LLM-as-judge
+    TraceID   string  `json:"traceId"`
+    CreatedAt string  `json:"createdAt"`
+}
 
-## What to preserve
-- Any other test functions in quality_test.go
-- Shared helpers used by other tests
+type GetScoresResponse struct {
+    Data []Score `json:"data"`
+    Meta PaginationMeta `json:"meta"`
+}
+```
+
+**New method:**
+```go
+func (c *Client) GetScores(ctx context.Context, traceID string) ([]Score, error)
+```
+- GET `/api/public/scores?traceId={traceID}`
+- Uses standard auth header pattern (same as GetTraces)
+- Returns []Score, error
+
+**Add to LangfuseEval (tests/quality/langfuse_eval.go):**
+```go
+func (e *LangfuseEval) GetScores(ctx context.Context, traceID string) ([]langfuse.Score, error)
+```
+Nil-safe wrapper matching the existing pattern (returns empty slice + nil if e is nil).
 
 ## Code locations
-- `tests/quality/quality_test.go` — remove TestQuality_ExtractionAccuracy
+- `pkg/langfuse/client.go` — new types + GetScores method
+- `tests/quality/langfuse_eval.go` — nil-safe wrapper
 
 ## Acceptance criteria
-- [ ] `TestQuality_ExtractionAccuracy` no longer exists in the codebase
-- [ ] No dead code left behind (unused helpers)
+- [ ] `Client.GetScores(ctx, traceID)` compiles and returns []Score
+- [ ] Uses same auth/request pattern as existing GetTraces
+- [ ] `LangfuseEval.GetScores()` is nil-safe (returns empty, nil if eval is nil)
+- [ ] `go build ./pkg/langfuse/...` passes
 - [ ] `go build ./tests/quality/...` passes
-- [ ] `go test -tags=quality ./tests/quality/... -run TestEval_Standard -v` covers equivalent cases
 
 ## Design Context (from pf-71f660)
 
@@ -354,7 +378,7 @@ Implement this task following the acceptance criteria above.
 
 1. Run tests: `make test && make vet`
 2. Build: `make build`
-3. **Run `cobuild complete pf-71f46b`** -- this commits remaining changes, pushes, creates the PR, appends evidence, and marks the task needs-review. Do this as your LAST action.
+3. **Run `cobuild complete pf-056eaf`** -- this commits remaining changes, pushes, creates the PR, appends evidence, and marks the task needs-review. Do this as your LAST action.
 
 **IMPORTANT RULES:**
 - NEVER use raw `git merge` or `git push` to main — always use `cobuild complete` which creates a PR
