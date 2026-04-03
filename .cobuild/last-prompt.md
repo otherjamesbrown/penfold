@@ -1,142 +1,374 @@
-# Task: Fix: extend PreClassifyContent to detect newsletter senders for early pipeline resolution
+# Task: Add GetScores() to Langfuse client
 
-**Task ID:** pf-7640c8
+**Task ID:** pf-056eaf
 **Agent:** 
 
 ## Task Content
 
-## Parent Bug
-pf-a9a2ee — Pipeline/Triage prompt_override not applied for eval tenant newsletter triage
+## Wave 1 (no deps)
 
-## Root Cause
-The pipeline isn't known before triage for newsletter content, so the early pipeline definition fetch doesn't fire and prompt_override=0 is passed to triage. Notifications work because PreClassifyContent detects notification senders before triage.
+Add `GetScores()` to `pkg/langfuse/client.go` — a simple GET on `/api/public/scores?traceId={id}`. This enables reading LLM-as-judge scores that Langfuse evaluators write back to traces.
 
-## What to Change
+## Scope
 
-### `services/worker/activities/triage_activities.go` — `PreClassifyContent` method
+**New types in pkg/langfuse/client.go:**
+```go
+type Score struct {
+    ID        string  `json:"id"`
+    Name      string  `json:"name"`
+    Value     float64 `json:"value"`
+    Comment   string  `json:"comment"`
+    Source    string  `json:"source"`  // "EVAL" for LLM-as-judge
+    TraceID   string  `json:"traceId"`
+    CreatedAt string  `json:"createdAt"`
+}
 
-Extend the pre-classification to also check newsletter sender patterns against classification rules. Currently it only detects notification sources. It should also resolve newsletter classification rules so the pipeline is known before triage.
+type GetScoresResponse struct {
+    Data []Score `json:"data"`
+    Meta PaginationMeta `json:"meta"`
+}
+```
 
-The classification rule engine already exists and is called inside triage. The fix is to move the rule engine call earlier — into PreClassifyContent — so the pipeline name is available for the early definition fetch.
+**New method:**
+```go
+func (c *Client) GetScores(ctx context.Context, traceID string) ([]Score, error)
+```
+- GET `/api/public/scores?traceId={traceID}`
+- Uses standard auth header pattern (same as GetTraces)
+- Returns []Score, error
 
-### `services/worker/workflows/pipeline.go` — early pipeline fetch
+**Add to LangfuseEval (tests/quality/langfuse_eval.go):**
+```go
+func (e *LangfuseEval) GetScores(ctx context.Context, traceID string) ([]langfuse.Score, error)
+```
+Nil-safe wrapper matching the existing pattern (returns empty slice + nil if e is nil).
 
-Verify that `preclassifiedPipeline` is set from PreClassifyContent output when newsletter rules match. The existing code at line 1461-1464 should already handle this if PreClassifyContent returns the correct pipeline.
+## Code locations
+- `pkg/langfuse/client.go` — new types + GetScores method
+- `tests/quality/langfuse_eval.go` — nil-safe wrapper
 
-### Key constraints
-- PreClassifyContent must be fast (no LLM calls) — classification rules are DB lookups only
-- Must not break existing notification pre-classification
-- Must handle the case where no rules match (fall through to triage as before)
+## Acceptance criteria
+- [ ] `Client.GetScores(ctx, traceID)` compiles and returns []Score
+- [ ] Uses same auth/request pattern as existing GetTraces
+- [ ] `LangfuseEval.GetScores()` is nil-safe (returns empty, nil if eval is nil)
+- [ ] `go build ./pkg/langfuse/...` passes
+- [ ] `go build ./tests/quality/...` passes
 
-### Acceptance Criteria
-- [ ] Newsletter items have pipeline resolved before triage
-- [ ] Triage prompt_override applied for newsletter/newsletter_internal/newsletter_digest
-- [ ] `TestEval_Newsletter` triage checks pass for all 6 items
-- [ ] Notification triage prompt_override=2 still works
-- [ ] Standard email triage (no override) not affected
-- [ ] `go test ./... && go vet ./...` passes
+## Design Context (from pf-71f660)
 
-## Design Context (from pf-a9a2ee)
+**Eval Framework Phase 3 — standard email evals + LLM-as-judge**
 
-**Pipeline/Triage — prompt_override not applied for eval tenant newsletter triage**
+# Eval Framework Phase 3 — Standard Email Evals + LLM-as-Judge
 
 ## Problem
 
-Newsletter triage prompt_override values (v2 for newsletter/newsletter_internal, v4 for newsletter_digest) are seeded in pipeline_definitions for the eval tenant but not applied during triage execution. Newsletters are still triaged as HIGH when they should be MEDIUM or LOW.
+Standard human emails (the largest content category) have no eval coverage in the new framework. The legacy `TestQuality_ExtractionAccuracy` test exists but doesn't follow the eval framework pattern — no L1 routing checks, no Langfuse recording, no `EvalResults`, and it can't run alongside the category-specific eval tests (newsletter, notification) because it uses a different setup/teardown pattern.
 
-## Evidence
+Additionally, Phases 1-2 only use deterministic matchers (substring, count bounds). For subjective quality questions like "is this summary useful?" or "did the extraction capture the key business meaning?", we need LLM-as-judge evaluation. This should cover all content categories (standard, newsletter, notification), not just standard emails.
 
-From `TestEval_Newsletter` run on 2026-03-26 (after all seeding fixes merged):
+## What Exists
 
-- 001-ctg-post-its (NEWSLETTER_INTERNAL): triage=HIGH, expected MEDIUM or lower
-- 002-akamai-wave (NEWSLETTER): triage=HIGH, expected MEDIUM or lower  
-- 004-dynamic-signal (NEWSLETTER_DIGEST): triage=HIGH, expected LOW
+### Golden files (4, root of golden/ directory)
+- `002-incident-response.yaml` — P0 incident, HIGH importance, issues + people
+- `011-risk-escalation.yaml` — 3 explicit risks with people and projects
+- `012-low-priority-fyi.yaml` — Negative test: LOW importance, no assertions expected
+- `013-thread-with-decisions.yaml` — 4 labeled decisions with thread context
 
-003-emea-newsletter correctly returns MEDIUM, 006-spark-wellness correctly returns LOW — suggesting the LLM sometimes gets it right but the prompt_override is not being used.
+### Fixtures (13 .eml files, only 4 have golden files)
+001-project-update, 002-incident-response, 003-meeting-invite, 004-code-review, 005-project-kickoff, 006-sales-update, 007-documentation, 008-security-review, 009-mobile-update, 010-postmortem, 011-risk-escalation, 012-low-priority-fyi, 013-thread-with-decisions
 
-Pipeline definitions confirm prompt_override is seeded:
-```sql
-SELECT pipeline, stage, prompt_override FROM pipeline_definitions 
-WHERE tenant_id = '00000000-0000-0000-0000-000000000003' AND stage = 'triage';
--- newsletter: 2, newsletter_internal: 2, newsletter_digest: 4
+### Matchers (in matchers.go)
+- `MatchTriage()` — importance + category (calls t.Error, no MatchDetail)
+- `MatchPeople()` — min/max count, must_find/must_not_find by name
+- `MatchAssertions()` — by type + description_contains
+- `MatchProjects()` — by name
+- `MatchPipelineStages()` — stage completion
+
+### Standard pipeline (15 stages in prod)
+parse → triage → summarize → extract_ner → extract_assertions → attribute_project → instruction_evaluate → extract_semantic → resolve → enrich_entities → analyze → persist → embed
+
+Key difference from newsletter/notification: standard emails extract to the `assertions` and `people` tables, not to `content_enrichment.extracted_data` JSON.
+
+### Langfuse infrastructure
+- Self-hosted Langfuse 3 on dev02:3000
+- `CreateScore()` API implemented in `pkg/langfuse/client.go`
+- `langfuse_eval.go` records L1/L2/L3 scores on pipeline traces
+- Datasets per category (`eval-newsletter`, `eval-notification`)
+
+## Design
+
+### Part A: Migrate standard email evals to new framework
+
+#### A1. Move golden files into `golden/standard/` subdirectory
+
+Relocate existing 4 files and add `routing:` section + `category: standard`:
+
+```yaml
+email: emails/002-incident-response.eml
+description: "P0 incident report — API Gateway degradation affecting 15% of requests"
+last_verified: "2026-03-26"
+category: standard
+
+routing:
+  content_subtype: HUMAN
+  pipeline: standard
+  must_complete: [parse, triage, extract_ner, extract_assertions, extract_semantic, embed]
+  must_not_run: [newsletter_extract]
+
+triage:
+  importance:
+    one_of: [HIGH, CRITICAL]
+  category:
+    one_of: [RISK_ISSUE, INCIDENT, OPERATIONAL]
+
+people:
+  min_count: 2
+  must_find:
+    - name_contains: "Daniel"
+
+assertions:
+  min_count: 1
+  must_find:
+    - type: issue
+      description_contains: "API"
 ```
 
-## Root Cause Hypotheses
+#### A2. Add 4 new golden files (8 total)
 
-1. **Worker doesn't read prompt_override from pipeline_definitions during triage** — the triage activity may use a hardcoded prompt version or read from a different config source
-2. **prompt_override lookup uses wrong tenant** — the worker may resolve the prompt using the default tenant instead of the eval tenant
-3. **prompt_templates table missing the required version** — triage v2 or v4 may not exist in the prompt_templates table for the eval tenant
-4. **Triage activity ignores prompt_override entirely** — the override may only be wired for extract stages, not triage
+**001-project-update.yaml** — Project Alpha MVP status, Q1 deadline risk
+- Triage: MEDIUM, PROJECT_UPDATE
+- People: John, Sarah (min 2)
+- Assertions: risk (Q1 deadline), action (sync meeting)
 
-## Investigation Steps
+**005-project-kickoff.yaml** — ML Tiger Team formation, executive-approved
+- Triage: HIGH, PROJECT_UPDATE/DECISION
+- People: Brandon, Jessica, Lisa (min 3)
+- Assertions: decision (Tiger Team approved), action (kickoff meeting)
 
-1. Check `prompt_templates` table: `SELECT stage, version, is_active FROM prompt_templates WHERE stage = 'triage'`
-2. Check worker triage activity code: how does it resolve which prompt to use? Does it read `prompt_override` from pipeline_definitions?
-3. Check worker logs during eval run: does it log which prompt version is being used for triage?
-4. Compare with notification pipeline: notification triage also has prompt_override=2 — does notification triage correctly use v2?
+**008-security-review.yaml** — Annual security audit, 2 P1 critical items
+- Triage: HIGH/CRITICAL, RISK_ISSUE/SECURITY
+- People: Daniel, Emily, Rob (min 3)
+- Assertions: risk (P1 auth), risk (P1 CI/CD), action (ADR). Must NOT flag K8s as issue (passed audit).
 
-## Acceptance Criteria
+**010-postmortem.yaml** — P0 API Gateway incident, 3 enterprise SLA breaches
+- Triage: HIGH/CRITICAL, INCIDENT
+- People: Robert, Dan, Steph (min 3)
+- Assertions: issue (SLA breach), issue (autoscaling root cause), action (runbook update), action (gradual rollout)
 
-- [ ] Triage activity reads and applies prompt_override from pipeline_definitions
-- [ ] Newsletter triage uses the overridden prompt (v2 or v4 depending on pipeline variant)
-- [ ] 001-ctg-post-its triaged MEDIUM or lower
-- [ ] 002-akamai-wave triaged MEDIUM or lower
-- [ ] 004-dynamic-signal triaged LOW
-- [ ] No regression on existing triage behaviour for standard/notification pipelines
+#### A3. Create `standard_eval_test.go`
+
+Same pattern as newsletter/notification:
+1. Setup: EnsureTenantExists, CleanupTestTenant, SeedClassificationRules
+2. Discover golden files from `golden/standard/`
+3. For each: ingest → kick → wait → L1 routing → L2 quality → Langfuse recording
+
+#### A4. Refactor existing matchers to return `MatchDetail`
+
+Wrap `MatchTriage`, `MatchPeople`, `MatchAssertions`, `MatchProjects` to produce structured results for Langfuse scoring. Create `MatchStandardExtract()` that orchestrates all four and returns `[]MatchDetail`.
+
+#### A5. Seed standard pipeline for eval tenant
+
+Add to `SeedClassificationRules`:
+- Pipeline routing: `HUMAN` → `standard`
+- Pipeline definitions: 15 stages matching prod (stage_order, stage_kind, timeouts)
+
+Note: HUMAN is the default subtype when no classification rules match, so no classification rules needed — just routing and definitions.
+
+#### A6. Retire legacy test runner
+
+Remove `TestQuality_ExtractionAccuracy` from `quality_test.go` once `TestEval_Standard` covers all 8 golden files.
+
+### Part B: LLM-as-Judge via Langfuse Evaluators
+
+#### Approach: Langfuse built-in evaluators
+
+Use Langfuse's native evaluator feature rather than calling Claude directly from test code. This means:
+
+1. **Define evaluator templates in Langfuse UI** (dev02:3000) — each template specifies a prompt, scoring rubric, and target model
+2. **Langfuse runs evaluators automatically** on matching traces — when a pipeline trace is created, Langfuse evaluates it and records scores
+3. **Our test code reads scores** via the existing `GetTraces()` API — no LLM calls from Go code
+4. **Evaluator prompts are tunable from the UI** — no code changes needed to adjust evaluation criteria
+
+#### Model: Claude Sonnet
+
+Use `claude-sonnet-4-6` for LLM-as-judge. Sonnet provides better judgment quality than Haiku for nuanced extraction evaluation, and the cost is acceptable since evaluators only run on eval traces (not production volume).
+
+Langfuse needs an Anthropic API key configured as an LLM provider to call Claude. Check if this is already set up in the Langfuse instance.
+
+#### Evaluator definitions (configure in Langfuse UI)
+
+**Evaluator 1: Extraction Completeness** (all categories)
+```
+Name: extraction_completeness
+Model: claude-sonnet-4-6
+Score: 1-5 scale
+Trigger: traces with tag "eval-*"
+
+Prompt:
+You are evaluating an email processing pipeline's extraction quality.
+
+## Email Content
+{{input}}
+
+## Extracted Data
+{{output}}
+
+Rate the extraction completeness on a 1-5 scale:
+1 - Major items missing, extraction is not useful
+2 - Several important items missing
+3 - Key items captured but some gaps
+4 - Nearly complete, minor omissions only
+5 - All important items captured accurately
+
+Score only the COMPLETENESS — whether important facts from the email
+appear in the extraction. Do not penalise for extra information.
+
+Return your score as a single integer (1-5) on the first line,
+followed by a brief explanation.
+```
+
+**Evaluator 2: Triage Accuracy** (all categories)
+```
+Name: triage_accuracy
+Model: claude-sonnet-4-6
+Score: 1-5 scale
+Trigger: traces with tag "eval-*"
+
+Prompt:
+You are evaluating whether an email was triaged correctly.
+
+## Email Content
+{{input}}
+
+## Triage Result
+Importance: {{importance}}
+Category: {{category}}
+
+Rate the triage accuracy on a 1-5 scale:
+1 - Completely wrong importance AND category
+2 - One dimension (importance or category) is significantly wrong
+3 - Roughly correct but could be better calibrated
+4 - Good classification, minor quibble at most
+5 - Perfect classification
+
+Return your score as a single integer (1-5) on the first line,
+followed by a brief explanation.
+```
+
+**Evaluator 3: Summary Usefulness** (newsletter + standard)
+```
+Name: summary_usefulness
+Model: claude-sonnet-4-6
+Score: 1-5 scale
+Trigger: traces with tag "eval-newsletter-*" or "eval-standard-*"
+
+Prompt:
+You are evaluating whether a content summary would be useful to a
+VP of Products who manages multiple teams and projects.
+
+## Original Content
+{{input}}
+
+## Generated Summary
+{{summary}}
+
+Rate usefulness on a 1-5 scale:
+1 - Summary is misleading or useless
+2 - Summary exists but misses the key points
+3 - Captures main topic but lacks actionable detail
+4 - Good summary, highlights what matters to an executive
+5 - Excellent — concise, actionable, highlights risks and decisions
+
+Return your score as a single integer (1-5) on the first line,
+followed by a brief explanation.
+```
+
+#### Integration with test harness
+
+The Go test code doesn't call the LLM — it reads Langfuse scores after processing:
+
+```go
+// After pipeline completes and deterministic checks run:
+if lfEval != nil {
+    // Wait briefly for Langfuse evaluators to run
+    time.Sleep(10 * time.Second)
+
+    // Read LLM-as-judge scores from Langfuse
+    scores, err := lfEval.GetScores(ctx, traceID)
+    if err == nil {
+        for _, score := range scores {
+            t.Logf("  langfuse.%s: %.1f", score.Name, score.Value)
+            if score.Value < 3.0 {
+                t.Errorf("langfuse.%s: score %.1f below threshold 3.0", score.Name, score.Value)
+            }
+        }
+    }
+}
+```
+
+This requires adding `GetScores()` to the Langfuse client — a simple GET on `/api/public/scores?traceId={id}`.
+
+#### Coverage: all categories
+
+LLM-as-judge evaluators run on ALL eval traces (newsletter, notification, standard) via the `eval-*` tag trigger. Category-specific evaluators (like summary_usefulness) use more specific tag patterns.
+
+### Part C: Implementation order
+
+| Wave | What | Depends on |
+|------|------|------------|
+| 1 | Move golden files to `golden/standard/`, add routing sections | Nothing |
+| 1 | Add 4 new golden files | Nothing |
+| 2 | Refactor matchers to return MatchDetail | Wave 1 |
+| 2 | Seed standard pipeline definitions | Nothing |
+| 2 | Configure Langfuse LLM provider (Anthropic API key) | Nothing |
+| 3 | Create `standard_eval_test.go` | Waves 1-2 |
+| 3 | Define Langfuse evaluator templates in UI | Wave 2 (LLM provider) |
+| 3 | Add `GetScores()` to Langfuse client | Nothing |
+| 4 | Integrate LLM-as-judge scores into eval tests | Wave 3 |
+| 4 | Retire legacy `quality_test.go` | Wave 3 |
+| 5 | Integration test: full run all categories | Waves 1-4 |
+
+## Dependencies
+
+- Phase 1/2 infrastructure — done
+- Worker running with standard pipeline — blocked by pf-b36282 (PreClassify duplicate, filed)
+- Anthropic API key in Langfuse — needs verification/setup
+- Standard pipeline routing for eval tenant — Part A5
+
+## Success Criteria
+
+- [ ] 8 standard email golden files with routing + extraction expectations
+- [ ] `TestEval_Standard` runs all golden files with L1 + L2 + Langfuse recording
+- [ ] Existing matchers produce `MatchDetail` for scoring
+- [ ] Standard pipeline definitions seeded for eval tenant
+- [ ] Langfuse evaluators configured: extraction_completeness, triage_accuracy, summary_usefulness
+- [ ] LLM-as-judge scores (from Langfuse evaluators) read and asserted in eval tests
+- [ ] LLM-as-judge covers all 3 categories (standard, newsletter, notification)
+- [ ] Legacy `quality_test.go` retired
+
+## Scope Boundaries
+
+**Not included:**
+- CLIC thread evaluation (cross-email assertion rollup) — future phase
+- Digest contribution (L3) — Phase 4
+- Automated scheduling/CI — Phase 4
+- Real James email fixtures (staying with Acme Corp synthetic for standard emails)
+- Langfuse evaluator config API in Go SDK (configure via UI instead)
+
 
 ---
 *Appended by agent-mycroft at 2026-03-26 18:48 UTC*
 
 ## Auto-completion evidence
 
-Commit: a86bff48 [pf-a9a2ee] Auto-commit remaining changes
-PR: https://github.com/otherjamesbrown/penfold/pull/79
+Commit: 438d2839 [pf-71f660] Auto-commit remaining changes
+PR: https://github.com/otherjamesbrown/penfold/pull/80
 
 ### Files changed
 ```
-.cobuild/last-prompt.md | 92 +++++++++++++++++++++++--------------------------
- 1 file changed, 44 insertions(+), 48 deletions(-)
+.cobuild/last-prompt.md | 907 +++++++++++++++++++++++++++++++++++++++++++++---
+ 1 file changed, 868 insertions(+), 39 deletions(-)
 ```
-
----
-*Appended by agent-penfold at 2026-03-26 18:49 UTC*
-
-
----
-*Investigation by agent-penfold at 2026-03-26 18:50 UTC*
-
-## Investigation Report
-
-### Root Cause — CONFIRMED
-
-The triage `prompt_override` is only applied when the pipeline is known **before** triage runs. The early pipeline definition fetch (pipeline.go:1455-1486) loads stage configs including prompt_override, but only fires when `resolvedEarlyPipeline != ""`.
-
-For newsletter items ingested via `penf ingest email` + `penf pipeline kick`, the pipeline isn't set until **after** triage classifies the content and resolves the routing. So `stageConfigMap` is empty during triage, and `promptOverrideForStage(stageConfigMap, "triage")` returns 0.
-
-The `PreClassify`/`PreClassifyContent` activity runs before triage for some items (notification detection from sender patterns), but newsletter classification happens inside triage itself (via the rule engine), so the pipeline is a chicken-and-egg: the pipeline is determined by triage output, but the prompt_override needs to be set before triage runs.
-
-### Affected Files
-- `services/worker/workflows/pipeline.go` — lines 1455-1520 (early pipeline definition fetch + triage invocation)
-- `services/worker/activities/triage_activities.go` — line 454-455 (PromptOverride usage)
-
-### Fix Specification
-Two options:
-
-**Option A: Two-pass triage for newsletter content**
-After triage routes to a newsletter pipeline, check if the pipeline definition has a triage prompt_override. If it does and it differs from what was used (0), re-run triage with the correct override. This is a retry, not a new stage.
-
-**Option B: Pre-classify newsletters like notifications**
-Extend the `PreClassifyContent` activity to also detect newsletter senders (using classification rules) and set the pipeline before triage. This makes newsletters work like notifications — pipeline known before triage, so early definition fetch works.
-
-**Recommendation: Option B** — it's consistent with the notification pattern, avoids double LLM calls, and the classification rule engine already exists.
-
-### Test Requirements
-1. Eval test: `TestEval_Newsletter` triage checks pass for all 6 items
-2. Notification triage regression: prompt_override=2 still applied correctly
-3. Standard email: no triage prompt_override should not break
-
-### Severity
-MEDIUM — triage importance is wrong but pipeline stages and extraction work correctly.
 
 ## Instructions
 
@@ -146,7 +378,7 @@ Implement this task following the acceptance criteria above.
 
 1. Run tests: `make test && make vet`
 2. Build: `make build`
-3. **Run `cobuild complete pf-7640c8`** -- this commits remaining changes, pushes, creates the PR, appends evidence, and marks the task needs-review. Do this as your LAST action.
+3. **Run `cobuild complete pf-056eaf`** -- this commits remaining changes, pushes, creates the PR, appends evidence, and marks the task needs-review. Do this as your LAST action.
 
 **IMPORTANT RULES:**
 - NEVER use raw `git merge` or `git push` to main — always use `cobuild complete` which creates a PR
