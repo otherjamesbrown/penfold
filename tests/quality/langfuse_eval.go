@@ -94,6 +94,15 @@ func (le *LangfuseEval) RecordResult(ctx context.Context, traceID string, result
 	return nil
 }
 
+// GetScores reads LLM-as-judge scores recorded by Langfuse evaluators for a trace.
+// Returns an empty slice with no error if the eval client is not configured.
+func (le *LangfuseEval) GetScores(ctx context.Context, traceID string) ([]langfuse.Score, error) {
+	if le.client == nil || traceID == "" {
+		return []langfuse.Score{}, nil
+	}
+	return le.client.GetScores(ctx, traceID)
+}
+
 // getLangfuseTraceID retrieves the Langfuse trace ID from the sources table.
 func getLangfuseTraceID(env *QualityEnv, sourceID int64) string {
 	var traceID *string

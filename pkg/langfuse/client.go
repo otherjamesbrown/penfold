@@ -369,6 +369,49 @@ func (c *Client) GetTraces(ctx context.Context, opts TraceQueryOpts) ([]Trace, e
 	return result.Data, nil
 }
 
+// PaginationMeta holds pagination metadata returned by list endpoints.
+type PaginationMeta struct {
+	Page       int `json:"page"`
+	Limit      int `json:"limit"`
+	TotalItems int `json:"totalItems"`
+	TotalPages int `json:"totalPages"`
+}
+
+// Score represents a Langfuse score attached to a trace.
+type Score struct {
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	Value     float64 `json:"value"`
+	Comment   string  `json:"comment"`
+	Source    string  `json:"source"` // "EVAL" for LLM-as-judge
+	TraceID   string  `json:"traceId"`
+	CreatedAt string  `json:"createdAt"`
+}
+
+// GetScoresResponse is the API response envelope for listing scores.
+type GetScoresResponse struct {
+	Data []Score        `json:"data"`
+	Meta PaginationMeta `json:"meta"`
+}
+
+// GetScores retrieves all scores for the given trace ID.
+// Calls GET /api/public/scores?traceId=<traceID>
+func (c *Client) GetScores(ctx context.Context, traceID string) ([]Score, error) {
+	path := fmt.Sprintf("/api/public/scores?traceId=%s", traceID)
+
+	resp, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("GetScores traceID=%q: %w", traceID, err)
+	}
+
+	result, err := parseResponse[GetScoresResponse](resp)
+	if err != nil {
+		return nil, fmt.Errorf("GetScores traceID=%q: %w", traceID, err)
+	}
+
+	return result.Data, nil
+}
+
 // GetObservations retrieves all observations for the given trace ID.
 // Calls GET /api/public/observations?traceId=<traceID>&limit=100
 func (c *Client) GetObservations(ctx context.Context, traceID string) ([]Observation, error) {

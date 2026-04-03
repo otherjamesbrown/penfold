@@ -1,56 +1,57 @@
-# Task: Refactor standard matchers to return MatchDetail + MatchStandardExtract()
+# Task: Add GetScores() to Langfuse client
 
-**Task ID:** pf-b95434
+**Task ID:** pf-056eaf
 **Agent:** 
 
 ## Task Content
 
-## Wave 2 — depends on pf-840988, pf-d15003
+## Wave 1 (no deps)
 
-Refactor `MatchTriage`, `MatchPeople`, `MatchAssertions`, `MatchProjects` in `tests/quality/matchers.go` to return `[]MatchDetail` in addition to (or instead of) calling `t.Error`. Then create `MatchStandardExtract()` that orchestrates all four and returns `[]MatchDetail` for Langfuse L2 scoring.
+Add `GetScores()` to `pkg/langfuse/client.go` — a simple GET on `/api/public/scores?traceId={id}`. This enables reading LLM-as-judge scores that Langfuse evaluators write back to traces.
 
-## Current state
-All four existing matchers call `t.Error` directly and return nothing. They work for basic pass/fail but produce no structured output for Langfuse scoring.
+## Scope
 
-## Approach
-
-**Option A (preferred):** Add new MatchDetail-returning variants alongside originals, then update callers.
-- `matchTriageDetail(t, expected, actual) []MatchDetail`
-- `matchPeopleDetail(t, expected, actual) []MatchDetail`
-- `matchAssertionsDetail(t, expected, actual) []MatchDetail`
-- `matchProjectsDetail(t, expected, actual) []MatchDetail`
-
-The originals can delegate to these internally (maintaining backward compat with newsletter/notification test callers).
-
-**New function:**
+**New types in pkg/langfuse/client.go:**
 ```go
-func MatchStandardExtract(t *testing.T, sourceID int64, db *sqlx.DB, exp *GoldenExpectation) []MatchDetail
-```
-- Queries assertions table, people table, projects table for sourceID
-- Calls matchTriageDetail, matchPeopleDetail, matchAssertionsDetail, matchProjectsDetail
-- Returns combined []MatchDetail for L2 scoring
+type Score struct {
+    ID        string  `json:"id"`
+    Name      string  `json:"name"`
+    Value     float64 `json:"value"`
+    Comment   string  `json:"comment"`
+    Source    string  `json:"source"`  // "EVAL" for LLM-as-judge
+    TraceID   string  `json:"traceId"`
+    CreatedAt string  `json:"createdAt"`
+}
 
-## MatchDetail structure (already defined in types.go)
-```go
-type MatchDetail struct {
-    Check    string
-    Pass     bool
-    Expected string
-    Actual   string
-    Message  string
+type GetScoresResponse struct {
+    Data []Score `json:"data"`
+    Meta PaginationMeta `json:"meta"`
 }
 ```
 
+**New method:**
+```go
+func (c *Client) GetScores(ctx context.Context, traceID string) ([]Score, error)
+```
+- GET `/api/public/scores?traceId={traceID}`
+- Uses standard auth header pattern (same as GetTraces)
+- Returns []Score, error
+
+**Add to LangfuseEval (tests/quality/langfuse_eval.go):**
+```go
+func (e *LangfuseEval) GetScores(ctx context.Context, traceID string) ([]langfuse.Score, error)
+```
+Nil-safe wrapper matching the existing pattern (returns empty slice + nil if e is nil).
+
 ## Code locations
-- `tests/quality/matchers.go` — refactor existing 4 functions, add MatchStandardExtract
-- `tests/quality/matchers_test.go` (if exists) or new `standard_matchers_test.go` — unit tests for MatchDetail output
+- `pkg/langfuse/client.go` — new types + GetScores method
+- `tests/quality/langfuse_eval.go` — nil-safe wrapper
 
 ## Acceptance criteria
-- [ ] `MatchStandardExtract()` returns `[]MatchDetail` with one entry per check
-- [ ] Each MatchDetail has Pass=true/false, human-readable Expected/Actual
-- [ ] Existing callers (newsletter_eval_test.go, notification_eval_test.go) still compile
-- [ ] `MatchTriage`, `MatchPeople`, `MatchAssertions` still call t.Error for backward compat
-- [ ] Unit tests verify MatchDetail output for at least 2 golden files (pass + fail case)
+- [ ] `Client.GetScores(ctx, traceID)` compiles and returns []Score
+- [ ] Uses same auth/request pattern as existing GetTraces
+- [ ] `LangfuseEval.GetScores()` is nil-safe (returns empty, nil if eval is nil)
+- [ ] `go build ./pkg/langfuse/...` passes
 - [ ] `go build ./tests/quality/...` passes
 
 ## Design Context (from pf-71f660)
@@ -377,7 +378,7 @@ Implement this task following the acceptance criteria above.
 
 1. Run tests: `make test && make vet`
 2. Build: `make build`
-3. **Run `cobuild complete pf-b95434`** -- this commits remaining changes, pushes, creates the PR, appends evidence, and marks the task needs-review. Do this as your LAST action.
+3. **Run `cobuild complete pf-056eaf`** -- this commits remaining changes, pushes, creates the PR, appends evidence, and marks the task needs-review. Do this as your LAST action.
 
 **IMPORTANT RULES:**
 - NEVER use raw `git merge` or `git push` to main — always use `cobuild complete` which creates a PR
