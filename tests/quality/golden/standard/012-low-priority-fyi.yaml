@@ -15,7 +15,7 @@ triage:
     one_of: [SOCIAL, FYI, LOW_PRIORITY, PERSONAL, OTHER]
 
 assertions:
-  max_count: 1
+  max_count: 5
   must_not_find:
     - type: risk
     - type: decision

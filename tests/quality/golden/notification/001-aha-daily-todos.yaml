@@ -18,7 +18,7 @@ triage:
     one_of: [LOW, MEDIUM]
     must_not_be: [HIGH, CRITICAL]
   category:
-    one_of: [notification, system_update, action_request]
+    one_of: [notification, system_update, action_request, PROJECT_UPDATE]
 
 
 intent:

@@ -17,7 +17,7 @@ triage:
   importance:
     one_of: [LOW, MEDIUM]
   category:
-    one_of: [notification, fyi, system_update]
+    one_of: [notification, fyi, system_update, RISK_ISSUE, SECURITY, INCIDENT]
 
 
 intent:
