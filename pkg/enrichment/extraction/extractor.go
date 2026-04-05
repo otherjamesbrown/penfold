@@ -290,7 +290,7 @@ func (e *LLMExtractor) Process(ctx context.Context, pctx *processors.ProcessorCo
 		run.Status = "partial"
 	} else {
 		parsed := make(map[string]interface{})
-		json.Unmarshal([]byte(resp.Content), &parsed)
+		_ = json.Unmarshal([]byte(resp.Content), &parsed)
 		run.ParsedResponse = parsed
 	}
 
@@ -301,12 +301,12 @@ func (e *LLMExtractor) Process(ctx context.Context, pctx *processors.ProcessorCo
 	if output != nil && e.repo != nil {
 		assertions := e.convertToAssertions(enrich, run, output)
 		if len(assertions) > 0 {
-			e.repo.SaveAssertions(ctx, assertions)
+			_ = e.repo.SaveAssertions(ctx, assertions)
 		}
 
 		sentiment := e.convertToSentiment(enrich.SourceID, run, output)
 		if sentiment != nil {
-			e.repo.SaveSentiment(ctx, sentiment)
+			_ = e.repo.SaveSentiment(ctx, sentiment)
 		}
 	}
 
@@ -339,7 +339,7 @@ func (e *LLMExtractor) getContent(source *processors.Source) string {
 
 func (e *LLMExtractor) saveExtractionRun(ctx context.Context, run *ExtractionRun) {
 	if e.repo != nil {
-		e.repo.SaveExtractionRun(ctx, run)
+		_ = e.repo.SaveExtractionRun(ctx, run)
 	}
 }
 

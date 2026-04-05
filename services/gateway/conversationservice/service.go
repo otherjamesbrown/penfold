@@ -342,7 +342,7 @@ func (s *Service) MergeConversations(ctx context.Context, req *conversationv1.Me
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to begin transaction: %v", err)
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck
 
 	moved, skipped, err := s.repo.MoveItems(ctx, tx, req.GetSourceConversationId(), req.GetTargetConversationId())
 	if err != nil {
@@ -434,7 +434,7 @@ func (s *Service) SplitConversation(ctx context.Context, req *conversationv1.Spl
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to begin transaction: %v", err)
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck
 
 	// Create new conversation
 	newConv := &Conversation{

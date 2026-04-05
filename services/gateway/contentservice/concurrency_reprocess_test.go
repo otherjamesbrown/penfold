@@ -78,7 +78,7 @@ type fakePGConn struct {
 }
 
 func (s *fakePGServer) serve(conn net.Conn) {
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 
 	c := &fakePGConn{srv: s, txStatus: 'I'}
 	backend := pgproto3.NewBackend(conn, conn)

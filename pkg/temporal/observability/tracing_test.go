@@ -22,7 +22,7 @@ func setupTestTracer(t *testing.T) (*tracetest.InMemoryExporter, func()) {
 
 	return exporter, func() {
 		otel.SetTracerProvider(oldTP)
-		tp.Shutdown(context.Background())
+		_ = tp.Shutdown(context.Background())
 	}
 }
 

@@ -374,7 +374,7 @@ func (r *Repository) RecordMatch(ctx context.Context, tenantID string, instructi
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck
 
 	insert := `
 		INSERT INTO instruction_matches (tenant_id, instruction_id, content_id, source_id, confidence, explanation)

@@ -97,7 +97,7 @@ func (s *Service) GetPipelineErrors(ctx context.Context, req *pipelinev1.GetPipe
 		s.logger.Error("Error querying pipeline errors", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to query errors: %v", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	// Build response
 	var events []*pipelinev1.PipelineErrorEvent

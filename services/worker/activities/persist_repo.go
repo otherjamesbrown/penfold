@@ -113,7 +113,7 @@ func (r *PersistRepo) PersistFindings(ctx context.Context, input *PersistFinding
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck
 
 	output := &PersistFindingsOutput{
 		CreatedAssertionIDs: []int64{},

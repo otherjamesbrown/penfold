@@ -148,7 +148,7 @@ func TestIngestMeeting_WithSeriesName(t *testing.T) {
 			ID:   "ms-existing",
 			Name: "Weekly Standup",
 		}
-		seriesRepo.Create(context.Background(), existingSeries)
+		_ = seriesRepo.Create(context.Background(), existingSeries)
 
 		svc := NewService(repo, tenantRepo, seriesRepo, logger)
 

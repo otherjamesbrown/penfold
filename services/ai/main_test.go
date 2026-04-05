@@ -38,14 +38,14 @@ func TestInitializationOrderPortBindingFirst(t *testing.T) {
 	}
 	grpcPort := grpcListener.Addr().(*net.TCPAddr).Port
 	// Keep the gRPC listener open - don't close it, this blocks the port
-	defer grpcListener.Close()
+	defer grpcListener.Close() //nolint:errcheck
 
 	httpListener, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatalf("Failed to find available HTTP port: %v", err)
 	}
 	httpPort := httpListener.Addr().(*net.TCPAddr).Port
-	httpListener.Close()
+	_ = httpListener.Close()
 
 	t.Logf("Blocked gRPC port %d with active listener - attempting to start ai-coordinator", grpcPort)
 

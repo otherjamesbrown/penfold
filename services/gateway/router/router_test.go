@@ -111,7 +111,7 @@ func startTestServer(t *testing.T, registerFunc func(*grpc.Server)) (string, fun
 
 	return lis.Addr().String(), func() {
 		server.Stop()
-		lis.Close()
+		_ = lis.Close()
 	}
 }
 

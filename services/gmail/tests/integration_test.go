@@ -132,7 +132,7 @@ func (api *MockGmailAPI) handleRequest(w http.ResponseWriter, r *http.Request) {
 			if len(parts) > 1 {
 				msgID := strings.Split(parts[1], "/")[0]
 				if msg, ok := api.messages[msgID]; ok {
-					json.NewEncoder(w).Encode(msg)
+					_ = json.NewEncoder(w).Encode(msg)
 					return
 				}
 			}
@@ -151,7 +151,7 @@ func (api *MockGmailAPI) handleRequest(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 		resp.ResultSizeEstimate = int64(len(resp.Messages))
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 
 	case strings.Contains(r.URL.Path, "/attachments/") && r.Method == http.MethodGet:
 		// Mock attachment download.
@@ -159,7 +159,7 @@ func (api *MockGmailAPI) handleRequest(w http.ResponseWriter, r *http.Request) {
 			"size": 100,
 			"data": "SGVsbG8sIHRoaXMgaXMgYSB0ZXN0IGF0dGFjaG1lbnQu", // Base64: "Hello, this is a test attachment."
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 
 	case strings.Contains(r.URL.Path, "/profile") && r.Method == http.MethodGet:
 		// Mock profile endpoint.
@@ -169,7 +169,7 @@ func (api *MockGmailAPI) handleRequest(w http.ResponseWriter, r *http.Request) {
 			"threadsTotal":   500,
 			"historyId":      "12345",
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 
 	case strings.Contains(r.URL.Path, "/history") && r.Method == http.MethodGet:
 		// Mock history endpoint for incremental sync.
@@ -184,7 +184,7 @@ func (api *MockGmailAPI) handleRequest(w http.ResponseWriter, r *http.Request) {
 			},
 			"historyId": "12346",
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 
 	default:
 		http.Error(w, "Not found", http.StatusNotFound)

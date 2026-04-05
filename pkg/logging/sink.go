@@ -193,20 +193,20 @@ func (s *DBSink) run() {
 			continue
 		case <-s.done:
 			// Drain remaining entries before exit
-			flush()
+			_ = flush()
 		drainLoop:
 			for {
 				select {
 				case entry := <-s.entryChan:
 					batch = append(batch, entry)
 					if len(batch) >= s.batchSize {
-						flush()
+						_ = flush()
 					}
 				default:
 					break drainLoop
 				}
 			}
-			flush()
+			_ = flush()
 			return
 		default:
 			// No flush request, continue normal processing
@@ -219,12 +219,12 @@ func (s *DBSink) run() {
 
 			// Flush if batch is full
 			if len(batch) >= s.batchSize {
-				flush()
+				_ = flush()
 			}
 
 		case <-s.flushTicker.C:
 			// Periodic flush
-			flush()
+			_ = flush()
 
 		case errChan := <-s.flushChan:
 			// Explicit flush request
@@ -233,20 +233,20 @@ func (s *DBSink) run() {
 
 		case <-s.done:
 			// Drain remaining entries before exit
-			flush()
+			_ = flush()
 		drainLoop2:
 			for {
 				select {
 				case entry := <-s.entryChan:
 					batch = append(batch, entry)
 					if len(batch) >= s.batchSize {
-						flush()
+						_ = flush()
 					}
 				default:
 					break drainLoop2
 				}
 			}
-			flush()
+			_ = flush()
 			return
 		}
 	}

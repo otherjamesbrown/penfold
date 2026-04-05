@@ -377,7 +377,7 @@ func (q *RedisQueue) RecoverStaleMessages() error {
 		qm.RetryCount++
 
 		if qm.RetryCount >= q.config.MaxRetries {
-			q.MoveToDeadLetter(messageID, "visibility timeout exceeded")
+			_ = q.MoveToDeadLetter(messageID, "visibility timeout exceeded")
 			continue
 		}
 
@@ -388,7 +388,7 @@ func (q *RedisQueue) RecoverStaleMessages() error {
 		pipe.Set(q.ctx, msgKey, updatedData, q.config.RetentionPeriod)
 		score := float64(qm.Priority)*1e12 + float64(time.Now().UnixNano())
 		pipe.ZAdd(q.ctx, queueKey, redis.Z{Score: score, Member: messageID})
-		pipe.Exec(q.ctx)
+		_, _ = pipe.Exec(q.ctx)
 	}
 
 	return nil

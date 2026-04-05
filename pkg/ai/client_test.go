@@ -264,7 +264,7 @@ func TestNewClient(t *testing.T) {
 			WithConnectTimeout(5*time.Second),
 		)
 		require.NoError(t, err)
-		defer client.Close()
+		defer client.Close() //nolint:errcheck //nolint:errcheck
 
 		assert.NotNil(t, client)
 		assert.NotNil(t, client.conn)
@@ -279,7 +279,7 @@ func TestClient_GenerateEmbedding(t *testing.T) {
 
 	client, err := NewClient(addr)
 	require.NoError(t, err)
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	t.Run("nil request returns error", func(t *testing.T) {
 		_, err := client.GenerateEmbedding(context.Background(), nil)
@@ -316,7 +316,7 @@ func TestClient_GenerateSummary(t *testing.T) {
 
 	client, err := NewClient(addr)
 	require.NoError(t, err)
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	t.Run("nil request returns error", func(t *testing.T) {
 		_, err := client.GenerateSummary(context.Background(), nil)
@@ -343,7 +343,7 @@ func TestClient_ExtractAssertions(t *testing.T) {
 
 	client, err := NewClient(addr)
 	require.NoError(t, err)
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	t.Run("nil request returns error", func(t *testing.T) {
 		_, err := client.ExtractAssertions(context.Background(), nil)
@@ -375,7 +375,7 @@ func TestClient_HealthCheck(t *testing.T) {
 
 		client, err := NewClient(addr)
 		require.NoError(t, err)
-		defer client.Close()
+		defer client.Close() //nolint:errcheck //nolint:errcheck
 
 		err = client.HealthCheck(context.Background())
 		assert.NoError(t, err)
@@ -392,7 +392,7 @@ func TestClient_HealthCheck(t *testing.T) {
 
 		client, err := NewClient(addr, WithMaxRetries(0))
 		require.NoError(t, err)
-		defer client.Close()
+		defer client.Close() //nolint:errcheck //nolint:errcheck
 
 		err = client.HealthCheck(context.Background())
 		assert.Error(t, err)
@@ -441,7 +441,7 @@ func TestClient_RetryBehavior(t *testing.T) {
 			WithRetryBackoff(10*time.Millisecond),
 		)
 		require.NoError(t, err)
-		defer client.Close()
+		defer client.Close() //nolint:errcheck //nolint:errcheck
 
 		resp, err := client.GenerateEmbedding(context.Background(), &aiv1.EmbeddingRequest{
 			Text: "test",
@@ -467,7 +467,7 @@ func TestClient_RetryBehavior(t *testing.T) {
 			WithRetryBackoff(10*time.Millisecond),
 		)
 		require.NoError(t, err)
-		defer client.Close()
+		defer client.Close() //nolint:errcheck //nolint:errcheck
 
 		_, err = client.GenerateEmbedding(context.Background(), &aiv1.EmbeddingRequest{
 			Text: "test",
@@ -492,7 +492,7 @@ func TestClient_RetryBehavior(t *testing.T) {
 			WithRetryBackoff(100*time.Millisecond),
 		)
 		require.NoError(t, err)
-		defer client.Close()
+		defer client.Close() //nolint:errcheck //nolint:errcheck
 
 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		defer cancel()
@@ -596,7 +596,7 @@ func TestClient_GetModelStatus(t *testing.T) {
 
 	client, err := NewClient(addr)
 	require.NoError(t, err)
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	t.Run("nil request uses defaults", func(t *testing.T) {
 		resp, err := client.GetModelStatus(context.Background(), nil)
@@ -621,7 +621,7 @@ func TestClient_ClassifyContent(t *testing.T) {
 
 	client, err := NewClient(addr)
 	require.NoError(t, err)
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	t.Run("nil request returns error", func(t *testing.T) {
 		_, err := client.ClassifyContent(context.Background(), nil)
@@ -648,7 +648,7 @@ func TestClient_TriageContent(t *testing.T) {
 
 	client, err := NewClient(addr)
 	require.NoError(t, err)
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	t.Run("nil request returns error", func(t *testing.T) {
 		_, err := client.TriageContent(context.Background(), nil)
@@ -696,7 +696,7 @@ func TestClient_ExtractEntities(t *testing.T) {
 
 	client, err := NewClient(addr)
 	require.NoError(t, err)
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	t.Run("nil request returns error", func(t *testing.T) {
 		_, err := client.ExtractEntities(context.Background(), nil)
@@ -745,7 +745,7 @@ func TestClient_DeepAnalyze(t *testing.T) {
 
 	client, err := NewClient(addr)
 	require.NoError(t, err)
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	t.Run("nil request returns error", func(t *testing.T) {
 		_, err := client.DeepAnalyze(context.Background(), nil)

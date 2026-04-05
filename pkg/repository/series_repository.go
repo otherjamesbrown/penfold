@@ -239,7 +239,7 @@ func (r *seriesRepository) Delete(ctx context.Context, id string) (orphanedCount
 	if err != nil {
 		return 0, fmt.Errorf("begin transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck
 
 	// Count meetings that will be orphaned
 	countQuery := `

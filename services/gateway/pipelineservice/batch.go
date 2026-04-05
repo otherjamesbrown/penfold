@@ -318,7 +318,7 @@ func (s *Service) getPendingSourceIDs(ctx context.Context, sourceTag string, lim
 	if err != nil {
 		return nil, fmt.Errorf("querying pending source IDs: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var ids []int64
 	for rows.Next() {

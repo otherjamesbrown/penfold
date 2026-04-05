@@ -68,10 +68,10 @@ func scanTerm(scanner interface {
 	// Handle context - can be array, string, or null
 	if len(contextRaw) > 0 {
 		if contextRaw[0] == '[' {
-			json.Unmarshal(contextRaw, &term.Context)
+			_ = json.Unmarshal(contextRaw, &term.Context)
 		} else if contextRaw[0] == '"' {
 			var singleContext string
-			json.Unmarshal(contextRaw, &singleContext)
+			_ = json.Unmarshal(contextRaw, &singleContext)
 			if singleContext != "" {
 				term.Context = []string{singleContext}
 			}
@@ -81,10 +81,10 @@ func scanTerm(scanner interface {
 	// Handle aliases similarly
 	if len(aliasesRaw) > 0 {
 		if aliasesRaw[0] == '[' {
-			json.Unmarshal(aliasesRaw, &term.Aliases)
+			_ = json.Unmarshal(aliasesRaw, &term.Aliases)
 		} else if aliasesRaw[0] == '"' {
 			var singleAlias string
-			json.Unmarshal(aliasesRaw, &singleAlias)
+			_ = json.Unmarshal(aliasesRaw, &singleAlias)
 			if singleAlias != "" {
 				term.Aliases = []string{singleAlias}
 			}
@@ -308,10 +308,10 @@ func (r *Repository) List(ctx context.Context, filter TermFilter) ([]*Term, erro
 		// Handle context - can be array, string, or null
 		if len(contextRaw) > 0 {
 			if contextRaw[0] == '[' {
-				json.Unmarshal(contextRaw, &term.Context)
+				_ = json.Unmarshal(contextRaw, &term.Context)
 			} else if contextRaw[0] == '"' {
 				var singleContext string
-				json.Unmarshal(contextRaw, &singleContext)
+				_ = json.Unmarshal(contextRaw, &singleContext)
 				if singleContext != "" {
 					term.Context = []string{singleContext}
 				}
@@ -320,10 +320,10 @@ func (r *Repository) List(ctx context.Context, filter TermFilter) ([]*Term, erro
 		// Handle aliases similarly
 		if len(aliasesRaw) > 0 {
 			if aliasesRaw[0] == '[' {
-				json.Unmarshal(aliasesRaw, &term.Aliases)
+				_ = json.Unmarshal(aliasesRaw, &term.Aliases)
 			} else if aliasesRaw[0] == '"' {
 				var singleAlias string
-				json.Unmarshal(aliasesRaw, &singleAlias)
+				_ = json.Unmarshal(aliasesRaw, &singleAlias)
 				if singleAlias != "" {
 					term.Aliases = []string{singleAlias}
 				}

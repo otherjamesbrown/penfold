@@ -284,7 +284,7 @@ func (m *SubscriptionManager) RenewSubscription(ctx context.Context, subscriptio
 			m.config.Metrics.SubscriptionErrors.Inc()
 		}
 		subscription.Status = SubscriptionStatusError
-		m.config.SubscriptionStore.SaveSubscription(ctx, subscription)
+		_ = m.config.SubscriptionStore.SaveSubscription(ctx, subscription)
 		return fmt.Errorf("renewing watch: %w", err)
 	}
 
@@ -405,7 +405,7 @@ func (m *SubscriptionManager) createWatch(ctx context.Context, accessToken strin
 	if err != nil {
 		return nil, fmt.Errorf("executing request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -437,7 +437,7 @@ func (m *SubscriptionManager) stopWatch(ctx context.Context, accessToken string)
 	if err != nil {
 		return fmt.Errorf("executing request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	// 204 No Content is success for stop watch.
 	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
@@ -463,7 +463,7 @@ func (m *SubscriptionManager) getUserEmail(ctx context.Context, accessToken stri
 	if err != nil {
 		return "", fmt.Errorf("executing request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)

@@ -490,7 +490,7 @@ func (r *repositoryImpl) PurgeByContentID(ctx context.Context, contentID string)
 	if err != nil {
 		return fmt.Errorf("beginning transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck
 
 	// Look up the source and verify it's soft-deleted
 	var sourceID int64
@@ -658,7 +658,7 @@ func (r *repositoryImpl) PurgeByFilters(ctx context.Context, tenantID string, so
 	if err != nil {
 		return 0, nil, fmt.Errorf("beginning transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck
 
 	// Delete in FK dependency order (batch operations)
 	// 1. Delete pipeline_runs

@@ -434,7 +434,7 @@ func TestWorkerPool(t *testing.T) {
 		defer cancel()
 
 		pool.Start(ctx)
-		defer pool.Stop(context.Background())
+		defer pool.Stop(context.Background()) //nolint:errcheck
 
 		// Dispatch some tasks.
 		for i := 0; i < 5; i++ {
@@ -465,7 +465,7 @@ func TestWorkerPool(t *testing.T) {
 		ctx := context.Background()
 
 		pool.Start(ctx)
-		defer pool.Stop(context.Background())
+		defer pool.Stop(context.Background()) //nolint:errcheck
 
 		stats := pool.GetPoolStats()
 		if stats.TotalWorkers != 2 {
@@ -482,7 +482,7 @@ func TestWorkerPool(t *testing.T) {
 		ctx := context.Background()
 
 		pool.Start(ctx)
-		defer pool.Stop(context.Background())
+		defer pool.Stop(context.Background()) //nolint:errcheck
 
 		result := pool.HealthCheck()
 		if !result.Healthy {
@@ -655,7 +655,7 @@ func TestIntelligentScheduler(t *testing.T) {
 			AccountID: "acc-1",
 			Priority:  Priority{Score: 30},
 		}
-		sched.Schedule(task)
+		_ = sched.Schedule(task)
 
 		// Reschedule with higher priority.
 		newPriority := Priority{Score: 80}
@@ -678,7 +678,7 @@ func TestIntelligentScheduler(t *testing.T) {
 			TenantID:  "tenant-1",
 			AccountID: "acc-1",
 		}
-		sched.Schedule(task)
+		_ = sched.Schedule(task)
 
 		if err := sched.CancelTask("task-1"); err != nil {
 			t.Errorf("cancel failed: %v", err)
@@ -698,7 +698,7 @@ func TestIntelligentScheduler(t *testing.T) {
 				TenantID:  "tenant-1",
 				AccountID: "acc-1",
 			}
-			sched.Schedule(task)
+			_ = sched.Schedule(task)
 		}
 
 		tasks := sched.ListTasks(TaskStatusPending, 10)
@@ -713,7 +713,7 @@ func TestIntelligentScheduler(t *testing.T) {
 		})
 
 		for i := 0; i < 5; i++ {
-			sched.Schedule(&SyncTask{TenantID: "t", AccountID: "a"})
+			_ = sched.Schedule(&SyncTask{TenantID: "t", AccountID: "a"})
 		}
 
 		err := sched.Schedule(&SyncTask{TenantID: "t", AccountID: "a"})

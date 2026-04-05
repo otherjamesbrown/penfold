@@ -243,7 +243,7 @@ func (a *AIActivities) handleSummarizeTask(ctx context.Context, input ProcessWit
 	maxLength := int32(150)
 	if lenStr, ok := input.Parameters["max_length"]; ok {
 		var parsed int32
-		fmt.Sscanf(lenStr, "%d", &parsed)
+		_, _ = fmt.Sscanf(lenStr, "%d", &parsed)
 		if parsed > 0 {
 			maxLength = parsed
 		}

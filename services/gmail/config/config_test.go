@@ -258,12 +258,12 @@ func TestLoadServiceEnv(t *testing.T) {
 	savedEnv := make(map[string]string)
 	for _, v := range envVars {
 		savedEnv[v] = os.Getenv(v)
-		os.Unsetenv(v)
+		_ = os.Unsetenv(v)
 	}
 	defer func() {
 		for k, v := range savedEnv {
 			if v != "" {
-				os.Setenv(k, v)
+				_ = os.Setenv(k, v)
 			}
 		}
 	}()
@@ -286,8 +286,8 @@ func TestLoadServiceEnv(t *testing.T) {
 	})
 
 	t.Run("GMAIL_GRPC_PORT", func(t *testing.T) {
-		os.Setenv("GMAIL_GRPC_PORT", "9000")
-		defer os.Unsetenv("GMAIL_GRPC_PORT")
+		_ = os.Setenv("GMAIL_GRPC_PORT", "9000")
+		defer os.Unsetenv("GMAIL_GRPC_PORT") //nolint:errcheck
 
 		cfg := &Config{GRPCPort: DefaultGRPCPort}
 		loadServiceEnv(cfg)
@@ -298,8 +298,8 @@ func TestLoadServiceEnv(t *testing.T) {
 	})
 
 	t.Run("GMAIL_GRPC_PORT invalid value", func(t *testing.T) {
-		os.Setenv("GMAIL_GRPC_PORT", "not-a-number")
-		defer os.Unsetenv("GMAIL_GRPC_PORT")
+		_ = os.Setenv("GMAIL_GRPC_PORT", "not-a-number")
+		defer os.Unsetenv("GMAIL_GRPC_PORT") //nolint:errcheck
 
 		cfg := &Config{GRPCPort: DefaultGRPCPort}
 		loadServiceEnv(cfg)
@@ -311,8 +311,8 @@ func TestLoadServiceEnv(t *testing.T) {
 	})
 
 	t.Run("GMAIL_HTTP_PORT", func(t *testing.T) {
-		os.Setenv("GMAIL_HTTP_PORT", "9001")
-		defer os.Unsetenv("GMAIL_HTTP_PORT")
+		_ = os.Setenv("GMAIL_HTTP_PORT", "9001")
+		defer os.Unsetenv("GMAIL_HTTP_PORT") //nolint:errcheck
 
 		cfg := &Config{HTTPPort: DefaultHTTPPort}
 		loadServiceEnv(cfg)
@@ -323,8 +323,8 @@ func TestLoadServiceEnv(t *testing.T) {
 	})
 
 	t.Run("GMAIL_HTTP_PORT invalid value", func(t *testing.T) {
-		os.Setenv("GMAIL_HTTP_PORT", "invalid")
-		defer os.Unsetenv("GMAIL_HTTP_PORT")
+		_ = os.Setenv("GMAIL_HTTP_PORT", "invalid")
+		defer os.Unsetenv("GMAIL_HTTP_PORT") //nolint:errcheck
 
 		cfg := &Config{HTTPPort: DefaultHTTPPort}
 		loadServiceEnv(cfg)
@@ -336,8 +336,8 @@ func TestLoadServiceEnv(t *testing.T) {
 	})
 
 	t.Run("GMAIL_OAUTH_CREDENTIALS_PATH", func(t *testing.T) {
-		os.Setenv("GMAIL_OAUTH_CREDENTIALS_PATH", "/path/to/credentials.json")
-		defer os.Unsetenv("GMAIL_OAUTH_CREDENTIALS_PATH")
+		_ = os.Setenv("GMAIL_OAUTH_CREDENTIALS_PATH", "/path/to/credentials.json")
+		defer os.Unsetenv("GMAIL_OAUTH_CREDENTIALS_PATH") //nolint:errcheck
 
 		cfg := &Config{}
 		loadServiceEnv(cfg)
@@ -348,8 +348,8 @@ func TestLoadServiceEnv(t *testing.T) {
 	})
 
 	t.Run("GMAIL_TOKEN_STORE_PATH", func(t *testing.T) {
-		os.Setenv("GMAIL_TOKEN_STORE_PATH", "/path/to/tokens")
-		defer os.Unsetenv("GMAIL_TOKEN_STORE_PATH")
+		_ = os.Setenv("GMAIL_TOKEN_STORE_PATH", "/path/to/tokens")
+		defer os.Unsetenv("GMAIL_TOKEN_STORE_PATH") //nolint:errcheck
 
 		cfg := &Config{}
 		loadServiceEnv(cfg)
@@ -360,8 +360,8 @@ func TestLoadServiceEnv(t *testing.T) {
 	})
 
 	t.Run("GMAIL_MAX_SYNC_BATCH_SIZE", func(t *testing.T) {
-		os.Setenv("GMAIL_MAX_SYNC_BATCH_SIZE", "1000")
-		defer os.Unsetenv("GMAIL_MAX_SYNC_BATCH_SIZE")
+		_ = os.Setenv("GMAIL_MAX_SYNC_BATCH_SIZE", "1000")
+		defer os.Unsetenv("GMAIL_MAX_SYNC_BATCH_SIZE") //nolint:errcheck
 
 		cfg := &Config{MaxSyncBatchSize: DefaultMaxSyncBatchSize}
 		loadServiceEnv(cfg)
@@ -372,8 +372,8 @@ func TestLoadServiceEnv(t *testing.T) {
 	})
 
 	t.Run("GMAIL_MAX_SYNC_BATCH_SIZE invalid value", func(t *testing.T) {
-		os.Setenv("GMAIL_MAX_SYNC_BATCH_SIZE", "abc")
-		defer os.Unsetenv("GMAIL_MAX_SYNC_BATCH_SIZE")
+		_ = os.Setenv("GMAIL_MAX_SYNC_BATCH_SIZE", "abc")
+		defer os.Unsetenv("GMAIL_MAX_SYNC_BATCH_SIZE") //nolint:errcheck
 
 		cfg := &Config{MaxSyncBatchSize: DefaultMaxSyncBatchSize}
 		loadServiceEnv(cfg)
@@ -385,8 +385,8 @@ func TestLoadServiceEnv(t *testing.T) {
 	})
 
 	t.Run("GMAIL_SYNC_TIMEOUT_SECONDS", func(t *testing.T) {
-		os.Setenv("GMAIL_SYNC_TIMEOUT_SECONDS", "600")
-		defer os.Unsetenv("GMAIL_SYNC_TIMEOUT_SECONDS")
+		_ = os.Setenv("GMAIL_SYNC_TIMEOUT_SECONDS", "600")
+		defer os.Unsetenv("GMAIL_SYNC_TIMEOUT_SECONDS") //nolint:errcheck
 
 		cfg := &Config{SyncTimeoutSeconds: DefaultSyncTimeoutSeconds}
 		loadServiceEnv(cfg)
@@ -397,8 +397,8 @@ func TestLoadServiceEnv(t *testing.T) {
 	})
 
 	t.Run("GMAIL_SYNC_TIMEOUT_SECONDS invalid value", func(t *testing.T) {
-		os.Setenv("GMAIL_SYNC_TIMEOUT_SECONDS", "xyz")
-		defer os.Unsetenv("GMAIL_SYNC_TIMEOUT_SECONDS")
+		_ = os.Setenv("GMAIL_SYNC_TIMEOUT_SECONDS", "xyz")
+		defer os.Unsetenv("GMAIL_SYNC_TIMEOUT_SECONDS") //nolint:errcheck
 
 		cfg := &Config{SyncTimeoutSeconds: DefaultSyncTimeoutSeconds}
 		loadServiceEnv(cfg)
@@ -410,19 +410,19 @@ func TestLoadServiceEnv(t *testing.T) {
 	})
 
 	t.Run("all env vars set", func(t *testing.T) {
-		os.Setenv("GMAIL_GRPC_PORT", "9000")
-		os.Setenv("GMAIL_HTTP_PORT", "9001")
-		os.Setenv("GMAIL_OAUTH_CREDENTIALS_PATH", "/credentials.json")
-		os.Setenv("GMAIL_TOKEN_STORE_PATH", "/tokens")
-		os.Setenv("GMAIL_MAX_SYNC_BATCH_SIZE", "1000")
-		os.Setenv("GMAIL_SYNC_TIMEOUT_SECONDS", "600")
+		_ = os.Setenv("GMAIL_GRPC_PORT", "9000")
+		_ = os.Setenv("GMAIL_HTTP_PORT", "9001")
+		_ = os.Setenv("GMAIL_OAUTH_CREDENTIALS_PATH", "/credentials.json")
+		_ = os.Setenv("GMAIL_TOKEN_STORE_PATH", "/tokens")
+		_ = os.Setenv("GMAIL_MAX_SYNC_BATCH_SIZE", "1000")
+		_ = os.Setenv("GMAIL_SYNC_TIMEOUT_SECONDS", "600")
 		defer func() {
-			os.Unsetenv("GMAIL_GRPC_PORT")
-			os.Unsetenv("GMAIL_HTTP_PORT")
-			os.Unsetenv("GMAIL_OAUTH_CREDENTIALS_PATH")
-			os.Unsetenv("GMAIL_TOKEN_STORE_PATH")
-			os.Unsetenv("GMAIL_MAX_SYNC_BATCH_SIZE")
-			os.Unsetenv("GMAIL_SYNC_TIMEOUT_SECONDS")
+			_ = os.Unsetenv("GMAIL_GRPC_PORT")
+			_ = os.Unsetenv("GMAIL_HTTP_PORT")
+			_ = os.Unsetenv("GMAIL_OAUTH_CREDENTIALS_PATH")
+			_ = os.Unsetenv("GMAIL_TOKEN_STORE_PATH")
+			_ = os.Unsetenv("GMAIL_MAX_SYNC_BATCH_SIZE")
+			_ = os.Unsetenv("GMAIL_SYNC_TIMEOUT_SECONDS")
 		}()
 
 		cfg := &Config{

@@ -240,7 +240,7 @@ func setupTestOAuth(t *testing.T, tenantID string) *oauth.OAuth2Manager {
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),
 	}
-	tokenStorage.StoreToken(context.Background(), token)
+	_ = tokenStorage.StoreToken(context.Background(), token)
 
 	manager, err := oauth.NewOAuth2Manager(&oauth.Config{
 		Credentials: &oauth.Credentials{
@@ -389,7 +389,7 @@ func TestMemoryStateStorage(t *testing.T) {
 			LastSyncAt: time.Now(),
 			CreatedAt:  time.Now(),
 		}
-		storage.SaveState(ctx, state)
+		_ = storage.SaveState(ctx, state)
 
 		latest, err := storage.GetLatestState(ctx, "tenant-2")
 		if err != nil {
@@ -410,7 +410,7 @@ func TestMemoryStateStorage(t *testing.T) {
 			Status:    SyncStatusPending,
 			CreatedAt: time.Now(),
 		}
-		storage.SaveState(ctx, state)
+		_ = storage.SaveState(ctx, state)
 
 		states, err := storage.ListStates(ctx, "tenant-2", 10)
 		if err != nil {
@@ -443,7 +443,7 @@ func TestMemoryStateStorage(t *testing.T) {
 			Status:    SyncStatusCompleted,
 			CreatedAt: time.Now().Add(-48 * time.Hour),
 		}
-		storage.SaveState(ctx, oldState)
+		_ = storage.SaveState(ctx, oldState)
 
 		count, err := storage.CleanupOldStates(ctx, 24*time.Hour)
 		if err != nil {
@@ -576,7 +576,7 @@ func TestFullSync(t *testing.T) {
 		switch {
 		case r.URL.Path == "/gmail/v1/users/me/profile":
 			atomic.AddInt32(&profileCalls, 1)
-			json.NewEncoder(w).Encode(Profile{
+			_ = json.NewEncoder(w).Encode(Profile{
 				EmailAddress:  "test@example.com",
 				MessagesTotal: 2,
 				ThreadsTotal:  1,
@@ -585,7 +585,7 @@ func TestFullSync(t *testing.T) {
 
 		case r.URL.Path == "/gmail/v1/users/me/messages" && r.Method == "GET":
 			atomic.AddInt32(&messageListCalls, 1)
-			json.NewEncoder(w).Encode(MessageList{
+			_ = json.NewEncoder(w).Encode(MessageList{
 				Messages: []MessageRef{
 					{ID: "msg-1", ThreadID: "thread-1"},
 					{ID: "msg-2", ThreadID: "thread-1"},
@@ -595,7 +595,7 @@ func TestFullSync(t *testing.T) {
 
 		case r.URL.Path == "/gmail/v1/users/me/messages/msg-1":
 			atomic.AddInt32(&messageGetCalls, 1)
-			json.NewEncoder(w).Encode(Message{
+			_ = json.NewEncoder(w).Encode(Message{
 				ID:           "msg-1",
 				ThreadID:     "thread-1",
 				LabelIDs:     []string{"INBOX"},
@@ -614,7 +614,7 @@ func TestFullSync(t *testing.T) {
 
 		case r.URL.Path == "/gmail/v1/users/me/messages/msg-2":
 			atomic.AddInt32(&messageGetCalls, 1)
-			json.NewEncoder(w).Encode(Message{
+			_ = json.NewEncoder(w).Encode(Message{
 				ID:           "msg-2",
 				ThreadID:     "thread-1",
 				LabelIDs:     []string{"INBOX", "UNREAD"},
@@ -734,7 +734,7 @@ func TestIncrementalSync(t *testing.T) {
 
 		switch {
 		case r.URL.Path == "/gmail/v1/users/me/history":
-			json.NewEncoder(w).Encode(HistoryList{
+			_ = json.NewEncoder(w).Encode(HistoryList{
 				History: []History{
 					{
 						ID: 12346,
@@ -747,7 +747,7 @@ func TestIncrementalSync(t *testing.T) {
 			})
 
 		case r.URL.Path == "/gmail/v1/users/me/messages/new-msg-1":
-			json.NewEncoder(w).Encode(Message{
+			_ = json.NewEncoder(w).Encode(Message{
 				ID:           "new-msg-1",
 				ThreadID:     "thread-2",
 				LabelIDs:     []string{"INBOX"},
@@ -776,7 +776,7 @@ func TestIncrementalSync(t *testing.T) {
 		LastSyncAt: time.Now().Add(-1 * time.Hour),
 		CreatedAt:  time.Now().Add(-1 * time.Hour),
 	}
-	stateStorage.SaveState(context.Background(), prevState)
+	_ = stateStorage.SaveState(context.Background(), prevState)
 
 	engine, err := NewEngine(&EngineConfig{
 		OAuth2Manager: oauthManager,
@@ -833,21 +833,21 @@ func TestIncrementalSyncFallbackToFull(t *testing.T) {
 
 		switch {
 		case r.URL.Path == "/gmail/v1/users/me/profile":
-			json.NewEncoder(w).Encode(Profile{
+			_ = json.NewEncoder(w).Encode(Profile{
 				EmailAddress:  "test@example.com",
 				MessagesTotal: 1,
 				HistoryID:     1000,
 			})
 
 		case r.URL.Path == "/gmail/v1/users/me/messages" && r.Method == "GET":
-			json.NewEncoder(w).Encode(MessageList{
+			_ = json.NewEncoder(w).Encode(MessageList{
 				Messages: []MessageRef{
 					{ID: "msg-1"},
 				},
 			})
 
 		case r.URL.Path == "/gmail/v1/users/me/messages/msg-1":
-			json.NewEncoder(w).Encode(Message{ID: "msg-1"})
+			_ = json.NewEncoder(w).Encode(Message{ID: "msg-1"})
 
 		default:
 			http.Error(w, "not found", http.StatusNotFound)
@@ -895,7 +895,7 @@ func TestCancelSync(t *testing.T) {
 		TenantID: "tenant-1",
 		Status:   SyncStatusInProgress,
 	}
-	stateStorage.SaveState(ctx, state)
+	_ = stateStorage.SaveState(ctx, state)
 
 	oauthManager := setupTestOAuth(t, "tenant-1")
 	engine, _ := NewEngine(&EngineConfig{
@@ -924,7 +924,7 @@ func TestCancelCompletedSync(t *testing.T) {
 		TenantID: "tenant-1",
 		Status:   SyncStatusCompleted,
 	}
-	stateStorage.SaveState(ctx, state)
+	_ = stateStorage.SaveState(ctx, state)
 
 	oauthManager := setupTestOAuth(t, "tenant-1")
 	engine, _ := NewEngine(&EngineConfig{
@@ -1095,7 +1095,7 @@ func TestContextCancellation(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Simulate slow API.
 		time.Sleep(500 * time.Millisecond)
-		json.NewEncoder(w).Encode(Profile{
+		_ = json.NewEncoder(w).Encode(Profile{
 			EmailAddress:  "test@example.com",
 			MessagesTotal: 1000,
 			HistoryID:     1000,
@@ -1134,6 +1134,6 @@ func BenchmarkRateLimiter(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		limiter.Wait(ctx)
+		_ = limiter.Wait(ctx)
 	}
 }

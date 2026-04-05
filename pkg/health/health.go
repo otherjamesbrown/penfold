@@ -191,7 +191,7 @@ func (h *Checker) Handler() http.Handler {
 			w.WriteHeader(http.StatusServiceUnavailable)
 		}
 
-		json.NewEncoder(w).Encode(status)
+		_ = json.NewEncoder(w).Encode(status)
 	})
 }
 
@@ -211,7 +211,7 @@ func (h *Checker) ReadyHandler() http.Handler {
 			w.WriteHeader(http.StatusOK)
 		}
 
-		json.NewEncoder(w).Encode(status)
+		_ = json.NewEncoder(w).Encode(status)
 	})
 }
 
@@ -222,6 +222,6 @@ func (h *Checker) LiveHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status": "alive"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "alive"})
 	})
 }

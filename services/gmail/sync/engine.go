@@ -575,7 +575,7 @@ func (e *Engine) FullSync(ctx context.Context, tenantID string, opts *SyncOption
 		case <-ctx.Done():
 			state.Status = SyncStatusInterrupted
 			state.NextPageToken = pageToken
-			e.config.StateStorage.SaveState(ctx, state)
+			_ = e.config.StateStorage.SaveState(ctx, state)
 			return nil, ctx.Err()
 		default:
 		}
@@ -590,7 +590,7 @@ func (e *Engine) FullSync(ctx context.Context, tenantID string, opts *SyncOption
 				Retryable: true,
 			})
 			state.ErrorCount++
-			e.config.StateStorage.SaveState(ctx, state)
+			_ = e.config.StateStorage.SaveState(ctx, state)
 			continue
 		}
 
@@ -642,7 +642,7 @@ func (e *Engine) FullSync(ctx context.Context, tenantID string, opts *SyncOption
 			}
 
 			// Update state periodically.
-			e.config.StateStorage.SaveState(ctx, state)
+			_ = e.config.StateStorage.SaveState(ctx, state)
 
 			// Check max results.
 			if opts.MaxResults > 0 && state.ProcessedCount >= opts.MaxResults {
@@ -668,7 +668,7 @@ func (e *Engine) FullSync(ctx context.Context, tenantID string, opts *SyncOption
 	} else {
 		state.Status = SyncStatusCompleted
 	}
-	e.config.StateStorage.SaveState(ctx, state)
+	_ = e.config.StateStorage.SaveState(ctx, state)
 
 	if e.metrics != nil {
 		e.metrics.SyncsCompleted.Inc()
@@ -763,7 +763,7 @@ func (e *Engine) IncrementalSync(ctx context.Context, tenantID string, opts *Syn
 		case <-ctx.Done():
 			state.Status = SyncStatusInterrupted
 			state.NextPageToken = pageToken
-			e.config.StateStorage.SaveState(ctx, state)
+			_ = e.config.StateStorage.SaveState(ctx, state)
 			return nil, ctx.Err()
 		default:
 		}
@@ -786,7 +786,7 @@ func (e *Engine) IncrementalSync(ctx context.Context, tenantID string, opts *Syn
 				Retryable: true,
 			})
 			state.ErrorCount++
-			e.config.StateStorage.SaveState(ctx, state)
+			_ = e.config.StateStorage.SaveState(ctx, state)
 			continue
 		}
 
@@ -880,7 +880,7 @@ func (e *Engine) IncrementalSync(ctx context.Context, tenantID string, opts *Syn
 			result.ErrorCount++
 		}
 
-		e.config.StateStorage.SaveState(ctx, state)
+		_ = e.config.StateStorage.SaveState(ctx, state)
 	}
 
 	// Complete the sync.
@@ -894,7 +894,7 @@ func (e *Engine) IncrementalSync(ctx context.Context, tenantID string, opts *Syn
 	} else {
 		state.Status = SyncStatusCompleted
 	}
-	e.config.StateStorage.SaveState(ctx, state)
+	_ = e.config.StateStorage.SaveState(ctx, state)
 
 	if e.metrics != nil {
 		e.metrics.SyncsCompleted.Inc()
@@ -977,7 +977,7 @@ func (e *Engine) ResumeSync(ctx context.Context, tenantID string, opts *SyncOpti
 		case <-ctx.Done():
 			state.Status = SyncStatusInterrupted
 			state.NextPageToken = pageToken
-			e.config.StateStorage.SaveState(ctx, state)
+			_ = e.config.StateStorage.SaveState(ctx, state)
 			return nil, ctx.Err()
 		default:
 		}
@@ -991,7 +991,7 @@ func (e *Engine) ResumeSync(ctx context.Context, tenantID string, opts *SyncOpti
 				Retryable: true,
 			})
 			state.ErrorCount++
-			e.config.StateStorage.SaveState(ctx, state)
+			_ = e.config.StateStorage.SaveState(ctx, state)
 			continue
 		}
 
@@ -1041,7 +1041,7 @@ func (e *Engine) ResumeSync(ctx context.Context, tenantID string, opts *SyncOpti
 				result.ErrorCount++
 			}
 
-			e.config.StateStorage.SaveState(ctx, state)
+			_ = e.config.StateStorage.SaveState(ctx, state)
 		}
 
 		if msgList.NextPageToken == "" {
@@ -1062,7 +1062,7 @@ func (e *Engine) ResumeSync(ctx context.Context, tenantID string, opts *SyncOpti
 	} else {
 		state.Status = SyncStatusCompleted
 	}
-	e.config.StateStorage.SaveState(ctx, state)
+	_ = e.config.StateStorage.SaveState(ctx, state)
 
 	if e.metrics != nil {
 		e.metrics.SyncsCompleted.Inc()
@@ -1337,7 +1337,7 @@ func (e *Engine) doAPIRequest(ctx context.Context, accessToken, method, url stri
 		}
 
 		respBody, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if err != nil {
 			lastErr = fmt.Errorf("reading response: %w", err)
 			continue
@@ -1449,7 +1449,7 @@ func (e *Engine) markSyncFailed(ctx context.Context, state *SyncState, err error
 		Retryable: false,
 	})
 	state.ErrorCount++
-	e.config.StateStorage.SaveState(ctx, state)
+	_ = e.config.StateStorage.SaveState(ctx, state)
 
 	if e.metrics != nil {
 		e.metrics.SyncsFailed.Inc()

@@ -45,7 +45,7 @@ func TestGetTracesByContentID(t *testing.T) {
 			}
 
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(response)
+			_ = json.NewEncoder(w).Encode(response)
 		}))
 		defer mockServer.Close()
 
@@ -69,7 +69,7 @@ func TestGetTracesByContentID(t *testing.T) {
 			}
 
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(response)
+			_ = json.NewEncoder(w).Encode(response)
 		}))
 		defer mockServer.Close()
 
@@ -91,7 +91,7 @@ func TestGetTracesByContentID(t *testing.T) {
 	t.Run("APIError", func(t *testing.T) {
 		mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte("Unauthorized"))
+			_, _ = w.Write([]byte("Unauthorized"))
 		}))
 		defer mockServer.Close()
 
@@ -131,7 +131,7 @@ func TestGetObservations(t *testing.T) {
 			}
 
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(response)
+			_ = json.NewEncoder(w).Encode(response)
 		}))
 		defer mockServer.Close()
 

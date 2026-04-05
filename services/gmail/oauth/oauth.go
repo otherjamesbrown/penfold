@@ -373,7 +373,7 @@ func (m *OAuth2Manager) exchangeCode(ctx context.Context, code string, flowState
 	if err != nil {
 		return nil, fmt.Errorf("executing token request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -465,7 +465,7 @@ func (m *OAuth2Manager) RefreshToken(ctx context.Context, tenantID string) (*Tok
 		}
 		return nil, fmt.Errorf("executing refresh request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -571,7 +571,7 @@ func (m *OAuth2Manager) RevokeToken(ctx context.Context, tenantID string) error 
 	if err != nil {
 		return fmt.Errorf("executing revoke request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	// Delete from storage regardless of revocation result.
 	if err := m.config.Storage.DeleteToken(ctx, tenantID); err != nil {

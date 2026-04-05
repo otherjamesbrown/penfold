@@ -129,7 +129,7 @@ func TestRateLimiter_Allow(t *testing.T) {
 
 		// Drain the limit
 		for i := 0; i < 5; i++ {
-			limiter.Allow(ctx, "tenant1", "/api/test")
+			_ = limiter.Allow(ctx, "tenant1", "/api/test")
 		}
 
 		// Next should be blocked
@@ -270,7 +270,7 @@ func TestRateLimiter_Allow(t *testing.T) {
 
 		// Exhaust tenant1's limit
 		for i := 0; i < 3; i++ {
-			limiter.Allow(ctx, "tenant1", "/api/test")
+			_ = limiter.Allow(ctx, "tenant1", "/api/test")
 		}
 
 		// tenant2 should still have full limit
@@ -343,8 +343,8 @@ func TestRateLimiter_AllowWithInfo(t *testing.T) {
 		ctx := context.Background()
 
 		// Exhaust limit
-		limiter.Allow(ctx, "tenant1", "/api/test")
-		limiter.Allow(ctx, "tenant1", "/api/test")
+		_ = limiter.Allow(ctx, "tenant1", "/api/test")
+		_ = limiter.Allow(ctx, "tenant1", "/api/test")
 
 		info, err := limiter.AllowWithInfo(ctx, "tenant1", "/api/test")
 		if err != ErrRateLimitExceeded {
@@ -415,9 +415,9 @@ func TestRateLimiter_Stats(t *testing.T) {
 	ctx := context.Background()
 
 	// Make requests from different tenants/endpoints
-	limiter.Allow(ctx, "tenant1", "/api/a")
-	limiter.Allow(ctx, "tenant1", "/api/b")
-	limiter.Allow(ctx, "tenant2", "/api/a")
+	_ = limiter.Allow(ctx, "tenant1", "/api/a")
+	_ = limiter.Allow(ctx, "tenant1", "/api/b")
+	_ = limiter.Allow(ctx, "tenant2", "/api/a")
 
 	stats = limiter.Stats()
 	if stats.ActiveBuckets != 3 {

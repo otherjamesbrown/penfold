@@ -332,7 +332,7 @@ func (a *Aggregator) Handler() http.Handler {
 			w.WriteHeader(http.StatusServiceUnavailable)
 		}
 
-		json.NewEncoder(w).Encode(health)
+		_ = json.NewEncoder(w).Encode(health)
 	})
 }
 
@@ -352,7 +352,7 @@ func (a *Aggregator) ReadyHandler() http.Handler {
 			w.WriteHeader(http.StatusOK)
 		}
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"ready":  health.Status != pkghealth.StatusUnhealthy,
 			"status": health.Status,
 		})
@@ -366,7 +366,7 @@ func (a *Aggregator) LiveHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"alive":  true,
 			"uptime": time.Since(a.startTime).String(),
 		})

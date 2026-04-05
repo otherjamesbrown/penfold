@@ -276,7 +276,7 @@ func TestCompleteAuthFlow_Success(t *testing.T) {
 				"scope":         ScopeGmailReadonly,
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		}
 	}))
 	defer server.Close()
@@ -352,7 +352,7 @@ func (m *OAuth2Manager) exchangeCodeWithURL(ctx context.Context, code string, fl
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	var tokenResp struct {
 		AccessToken  string `json:"access_token"`
@@ -656,7 +656,7 @@ func TestRefreshToken_Success(t *testing.T) {
 			"scope":        ScopeGmailReadonly,
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -752,7 +752,7 @@ func (m *OAuth2Manager) refreshTokenWithURL(ctx context.Context, tenantID string
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	var tokenResp struct {
 		AccessToken string `json:"access_token"`
@@ -802,7 +802,7 @@ func (m *OAuth2Manager) exchangeCodeWithURLErrorHandling(ctx context.Context, co
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	// Check for HTTP errors
 	if resp.StatusCode != http.StatusOK {
@@ -1038,7 +1038,7 @@ func TestExchangeCode_HTTPError(t *testing.T) {
 			"error_description": "Code has expired",
 		}
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -1086,7 +1086,7 @@ func TestExchangeCode_InvalidJSON(t *testing.T) {
 	// Create a mock server that returns invalid JSON.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte("not valid json"))
+		_, _ = w.Write([]byte("not valid json"))
 	}))
 	defer server.Close()
 
@@ -1251,7 +1251,7 @@ func TestGetValidToken_ExpiredTokenRefresh(t *testing.T) {
 			"expires_in":   3600,
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 

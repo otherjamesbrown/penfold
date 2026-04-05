@@ -1206,7 +1206,7 @@ func (r *Repository) DeleteEntity(ctx context.Context, tenantID string, personID
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck
 
 	// Delete related records first to avoid foreign key violations
 

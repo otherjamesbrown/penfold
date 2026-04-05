@@ -102,7 +102,7 @@ func (a *DeviceCodeAuth) requestDeviceCode(ctx context.Context) (*deviceCodeResp
 	if err != nil {
 		return nil, fmt.Errorf("executing device code request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -155,7 +155,7 @@ func (a *DeviceCodeAuth) pollForToken(dcResp *deviceCodeResponse) (*StoredToken,
 		}
 
 		body, readErr := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if readErr != nil {
 			return nil, fmt.Errorf("reading token poll response: %w", readErr)
 		}

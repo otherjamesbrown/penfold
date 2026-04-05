@@ -626,7 +626,7 @@ func createTestDOCX(t *testing.T, text string) []byte {
 </Types>`
 
 	f, _ := w.Create("[Content_Types].xml")
-	f.Write([]byte(contentTypes))
+	_, _ = f.Write([]byte(contentTypes))
 
 	// Create word/document.xml with our text.
 	docXML := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -635,9 +635,9 @@ func createTestDOCX(t *testing.T, text string) []byte {
 </w:document>`, html.EscapeString(text))
 
 	f, _ = w.Create("word/document.xml")
-	f.Write([]byte(docXML))
+	_, _ = f.Write([]byte(docXML))
 
-	w.Close()
+	_ = w.Close()
 	return buf.Bytes()
 }
 

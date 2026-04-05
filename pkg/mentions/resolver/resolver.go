@@ -230,13 +230,13 @@ func (r *Resolver) executeStage1(ctx context.Context, batch ResolutionBatch, tra
 	understanding, err := r.stages.ExecuteStage1(ctx, batch, traceID)
 	if err != nil {
 		if r.tracer != nil && stageID > 0 {
-			r.tracer.RecordStageFailed(stageID, err.Error())
+			_ = r.tracer.RecordStageFailed(stageID, err.Error())
 		}
 		return nil, err
 	}
 
 	if r.tracer != nil && stageID > 0 {
-		r.tracer.RecordStageComplete(stageID,
+		_ = r.tracer.RecordStageComplete(stageID,
 			fmt.Sprintf("Found %d mentions", len(understanding.Mentions)), understanding)
 	}
 
@@ -258,13 +258,13 @@ func (r *Resolver) executeStage2(ctx context.Context, understanding *Stage1Under
 	relationships, err := r.stages.ExecuteStage2(ctx, understanding, batch, traceID)
 	if err != nil {
 		if r.tracer != nil && stageID > 0 {
-			r.tracer.RecordStageFailed(stageID, err.Error())
+			_ = r.tracer.RecordStageFailed(stageID, err.Error())
 		}
 		return nil, err
 	}
 
 	if r.tracer != nil && stageID > 0 {
-		r.tracer.RecordStageComplete(stageID,
+		_ = r.tracer.RecordStageComplete(stageID,
 			fmt.Sprintf("%d relationships found", len(relationships.MentionRelationships)), relationships)
 	}
 
@@ -297,7 +297,7 @@ func (r *Resolver) executeStage3(
 	matching, err := r.stages.ExecuteStage3(ctx, understanding, relationships, candidates, traceID)
 	if err != nil {
 		if r.tracer != nil && stageID > 0 {
-			r.tracer.RecordStageFailed(stageID, err.Error())
+			_ = r.tracer.RecordStageFailed(stageID, err.Error())
 		}
 		return nil, err
 	}
@@ -305,7 +305,7 @@ func (r *Resolver) executeStage3(
 	// Record decisions
 	if r.tracer != nil && stageID > 0 {
 		for _, res := range matching.Resolutions {
-			r.tracer.RecordDecision(traceID, stageID, res.Decision, nil, res.MentionText,
+			_ = r.tracer.RecordDecision(traceID, stageID, res.Decision, nil, res.MentionText,
 				func() string {
 					if res.ResolvedTo != nil {
 						return res.ResolvedTo.EntityName
@@ -324,7 +324,7 @@ func (r *Resolver) executeStage3(
 				queued++
 			}
 		}
-		r.tracer.RecordStageComplete(stageID,
+		_ = r.tracer.RecordStageComplete(stageID,
 			fmt.Sprintf("%d resolved, %d queued, %d new suggested", resolved, queued, len(matching.NewEntitiesSuggested)),
 			matching)
 	}
@@ -347,7 +347,7 @@ func (r *Resolver) executeStage4(ctx context.Context, resolutions []Resolution, 
 			stageID, err := r.tracer.RecordStageStart(traceID, 4, StageNameVerification,
 				"No uncertain resolutions", nil)
 			if err == nil && stageID > 0 {
-				r.tracer.RecordStageSkipped(stageID, "No resolutions need verification")
+				_ = r.tracer.RecordStageSkipped(stageID, "No resolutions need verification")
 			}
 		}
 		return resolutions
@@ -387,7 +387,7 @@ func (r *Resolver) executeStage4(ctx context.Context, resolutions []Resolution, 
 	}
 
 	if r.tracer != nil && stageID > 0 {
-		r.tracer.RecordStageComplete(stageID,
+		_ = r.tracer.RecordStageComplete(stageID,
 			fmt.Sprintf("%d/%d verified", verified, len(needsVerification)), nil)
 	}
 
@@ -399,7 +399,7 @@ func (r *Resolver) completeTrace(traceID string, mentionsFound, autoResolved, qu
 	if r.tracer == nil {
 		return
 	}
-	r.tracer.CompleteTrace(traceID, mentionsFound, autoResolved, queuedForReview, newEntitiesSuggested)
+	_ = r.tracer.CompleteTrace(traceID, mentionsFound, autoResolved, queuedForReview, newEntitiesSuggested)
 }
 
 // failTrace marks the trace as failed.
@@ -407,13 +407,13 @@ func (r *Resolver) failTrace(traceID string, errorMsg string) {
 	if r.tracer == nil {
 		return
 	}
-	r.tracer.FailTrace(traceID, errorMsg)
+	_ = r.tracer.FailTrace(traceID, errorMsg)
 }
 
 // generateTraceID generates a unique trace ID.
 func generateTraceID() string {
 	b := make([]byte, 8)
-	rand.Read(b)
+	_, _ = rand.Read(b)
 	return "trace_" + hex.EncodeToString(b)
 }
 

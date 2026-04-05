@@ -128,7 +128,7 @@ func (r *Repository) GetJob(ctx context.Context, jobID string) (*JobDetails, *So
 	}
 
 	if len(processedJSON) > 0 {
-		json.Unmarshal(processedJSON, &job.ProcessedFiles)
+		_ = json.Unmarshal(processedJSON, &job.ProcessedFiles)
 	}
 
 	// Get source stats for this job
@@ -589,7 +589,7 @@ func (r *Repository) CreatePromptVersion(ctx context.Context, stage string, cont
 	if err != nil {
 		return nil, fmt.Errorf("starting transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck
 
 	// Get max version for this stage
 	var maxVersion int
@@ -640,7 +640,7 @@ func (r *Repository) ActivatePromptVersion(ctx context.Context, stage string, ve
 	if err != nil {
 		return nil, fmt.Errorf("starting transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck
 
 	// Verify the version exists
 	var exists bool

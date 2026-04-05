@@ -61,7 +61,7 @@ func (r *PostgresAssertionRepository) StoreAssertions(
 		logger.Error("Failed to begin transaction", logging.Err(err))
 		return 0, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck
 
 	// Delete existing assertions for this source before inserting fresh ones.
 	// This ensures reprocessing replaces rather than accumulates assertions.

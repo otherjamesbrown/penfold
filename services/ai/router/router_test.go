@@ -336,7 +336,7 @@ func TestCircuitBreaker_Reset(t *testing.T) {
 	cb := NewCircuitBreaker("test", cfg)
 
 	// Open the circuit
-	cb.Allow()
+	_ = cb.Allow()
 	cb.RecordFailure()
 
 	if cb.State() != CircuitOpen {
@@ -438,7 +438,7 @@ func TestModelRouter_RegisterBackend(t *testing.T) {
 		EnableMetrics:        false, // Disable for tests
 	}
 	router := NewModelRouter(cfg)
-	defer router.Shutdown(context.Background())
+	defer router.Shutdown(context.Background()) //nolint:errcheck
 
 	backend := newMockBackend("ollama", "ollama", true)
 
@@ -475,10 +475,10 @@ func TestModelRouter_RegisterBackend(t *testing.T) {
 
 func TestModelRouter_UnregisterBackend(t *testing.T) {
 	router := NewModelRouter(&RouterConfig{EnableMetrics: false})
-	defer router.Shutdown(context.Background())
+	defer router.Shutdown(context.Background()) //nolint:errcheck
 
 	backend := newMockBackend("ollama", "ollama", true)
-	router.RegisterBackend(backend)
+	_ = router.RegisterBackend(backend)
 
 	// Unregister should succeed
 	err := router.UnregisterBackend("ollama")
@@ -504,10 +504,10 @@ func TestModelRouter_Route_SingleBackend(t *testing.T) {
 		DefaultTimeout: 5 * time.Second,
 		EnableMetrics:  false,
 	})
-	defer router.Shutdown(context.Background())
+	defer router.Shutdown(context.Background()) //nolint:errcheck
 
 	backend := newMockBackend("ollama", "ollama", true)
-	router.RegisterBackend(backend)
+	_ = router.RegisterBackend(backend)
 
 	req := &Request{
 		ID:      "test-1",
@@ -530,7 +530,7 @@ func TestModelRouter_Route_SingleBackend(t *testing.T) {
 
 func TestModelRouter_Route_NoBackends(t *testing.T) {
 	router := NewModelRouter(&RouterConfig{EnableMetrics: false})
-	defer router.Shutdown(context.Background())
+	defer router.Shutdown(context.Background()) //nolint:errcheck
 
 	req := &Request{
 		ID:      "test-1",
@@ -546,7 +546,7 @@ func TestModelRouter_Route_NoBackends(t *testing.T) {
 
 func TestModelRouter_Route_NilRequest(t *testing.T) {
 	router := NewModelRouter(&RouterConfig{EnableMetrics: false})
-	defer router.Shutdown(context.Background())
+	defer router.Shutdown(context.Background()) //nolint:errcheck
 
 	_, err := router.Route(context.Background(), nil)
 	if err == nil {
@@ -556,13 +556,13 @@ func TestModelRouter_Route_NilRequest(t *testing.T) {
 
 func TestModelRouter_Route_SpecificModel(t *testing.T) {
 	router := NewModelRouter(&RouterConfig{EnableMetrics: false})
-	defer router.Shutdown(context.Background())
+	defer router.Shutdown(context.Background()) //nolint:errcheck
 
 	ollama := newMockBackend("ollama", "ollama", true)
 	gemini := newMockBackend("gemini", "google", false)
 
-	router.RegisterBackend(ollama)
-	router.RegisterBackend(gemini)
+	_ = router.RegisterBackend(ollama)
+	_ = router.RegisterBackend(gemini)
 
 	// Request specific model
 	req := &Request{
@@ -587,11 +587,11 @@ func TestModelRouter_Route_Timeout(t *testing.T) {
 		DefaultTimeout: 50 * time.Millisecond,
 		EnableMetrics:  false,
 	})
-	defer router.Shutdown(context.Background())
+	defer router.Shutdown(context.Background()) //nolint:errcheck
 
 	backend := newMockBackend("slow", "test", true)
 	backend.SetProcessDelay(200 * time.Millisecond)
-	router.RegisterBackend(backend)
+	_ = router.RegisterBackend(backend)
 
 	req := &Request{
 		ID:      "test-1",
@@ -615,13 +615,13 @@ func TestModelRouter_Route_CircuitBreaker(t *testing.T) {
 		EnableMetrics: false,
 	}
 	router := NewModelRouter(cfg)
-	defer router.Shutdown(context.Background())
+	defer router.Shutdown(context.Background()) //nolint:errcheck
 
 	backend := newMockBackend("flaky", "test", true)
 	backend.processFunc = func(ctx context.Context, req *Request) (*Response, error) {
 		return nil, errors.New("backend error")
 	}
-	router.RegisterBackend(backend)
+	_ = router.RegisterBackend(backend)
 
 	req := &Request{
 		ID:      "test",
@@ -630,8 +630,8 @@ func TestModelRouter_Route_CircuitBreaker(t *testing.T) {
 	}
 
 	// Fail twice to trip the circuit
-	router.Route(context.Background(), req)
-	router.Route(context.Background(), req)
+	_, _ = router.Route(context.Background(), req)
+	_, _ = router.Route(context.Background(), req)
 
 	// Circuit should be open - check stats
 	stats := router.GetCircuitStats("flaky")
@@ -667,7 +667,7 @@ func TestModelRouter_Route_Fallback(t *testing.T) {
 		EnableMetrics: false,
 	}
 	router := NewModelRouter(cfg)
-	defer router.Shutdown(context.Background())
+	defer router.Shutdown(context.Background()) //nolint:errcheck
 
 	primary := newMockBackend("primary", "test", true)
 	primary.processFunc = func(ctx context.Context, req *Request) (*Response, error) {
@@ -676,8 +676,8 @@ func TestModelRouter_Route_Fallback(t *testing.T) {
 
 	fallback := newMockBackend("fallback", "test", true)
 
-	router.RegisterBackend(primary)
-	router.RegisterBackend(fallback)
+	_ = router.RegisterBackend(primary)
+	_ = router.RegisterBackend(fallback)
 
 	req := &Request{
 		ID:      "test",
@@ -706,7 +706,7 @@ func TestModelRouter_Route_AllFallbacksFail(t *testing.T) {
 		EnableMetrics: false,
 	}
 	router := NewModelRouter(cfg)
-	defer router.Shutdown(context.Background())
+	defer router.Shutdown(context.Background()) //nolint:errcheck
 
 	primary := newMockBackend("primary", "test", true)
 	primary.processFunc = func(ctx context.Context, req *Request) (*Response, error) {
@@ -718,8 +718,8 @@ func TestModelRouter_Route_AllFallbacksFail(t *testing.T) {
 		return nil, errors.New("fallback also failed")
 	}
 
-	router.RegisterBackend(primary)
-	router.RegisterBackend(fallback)
+	_ = router.RegisterBackend(primary)
+	_ = router.RegisterBackend(fallback)
 
 	req := &Request{
 		ID:      "test",
@@ -742,10 +742,10 @@ func TestModelRouter_HealthChecks(t *testing.T) {
 	router := NewModelRouter(cfg)
 
 	backend := newMockBackend("test", "test", true)
-	router.RegisterBackend(backend)
+	_ = router.RegisterBackend(backend)
 
 	router.StartHealthChecks()
-	defer router.Shutdown(context.Background())
+	defer router.Shutdown(context.Background()) //nolint:errcheck
 
 	// Wait for initial check
 	time.Sleep(20 * time.Millisecond)
@@ -786,11 +786,11 @@ func TestModelRouter_QueueRequest(t *testing.T) {
 		EnableMetrics:  false,
 	}
 	router := NewModelRouter(cfg)
-	defer router.Shutdown(context.Background())
+	defer router.Shutdown(context.Background()) //nolint:errcheck
 
 	backend := newMockBackend("test", "test", true)
 	backend.SetProcessDelay(50 * time.Millisecond)
-	router.RegisterBackend(backend)
+	_ = router.RegisterBackend(backend)
 
 	req := &Request{
 		ID:      "queued-1",
@@ -823,13 +823,13 @@ func TestModelRouter_QueueFull(t *testing.T) {
 		EnableMetrics: false,
 	}
 	router := NewModelRouter(cfg)
-	defer router.Shutdown(context.Background())
+	defer router.Shutdown(context.Background()) //nolint:errcheck
 
 	// Create a blocking channel that prevents the processor from completing
 	blockChan := make(chan struct{})
 	backend := newMockBackend("test", "test", true)
 	backend.SetBlockChan(blockChan)
-	router.RegisterBackend(backend)
+	_ = router.RegisterBackend(backend)
 
 	// Fill the queue - these will block in the processor
 	for i := 0; i < 2; i++ {
@@ -869,7 +869,7 @@ func TestModelRouter_Shutdown(t *testing.T) {
 	router := NewModelRouter(&RouterConfig{EnableMetrics: false})
 
 	backend := newMockBackend("test", "test", true)
-	router.RegisterBackend(backend)
+	_ = router.RegisterBackend(backend)
 	router.StartHealthChecks()
 
 	// Shutdown should succeed
@@ -895,13 +895,13 @@ func TestModelRouter_Shutdown(t *testing.T) {
 
 func TestModelRouter_Selector(t *testing.T) {
 	router := NewModelRouter(&RouterConfig{EnableMetrics: false})
-	defer router.Shutdown(context.Background())
+	defer router.Shutdown(context.Background()) //nolint:errcheck
 
 	ollama := newMockBackend("ollama", "ollama", true)
 	gemini := newMockBackend("gemini", "google", false)
 
-	router.RegisterBackend(ollama)
-	router.RegisterBackend(gemini)
+	_ = router.RegisterBackend(ollama)
+	_ = router.RegisterBackend(gemini)
 
 	// Set custom selector
 	selector := &DefaultModelSelector{
@@ -939,13 +939,13 @@ func TestModelRouter_Selector(t *testing.T) {
 
 func TestModelRouter_LoadBalancing(t *testing.T) {
 	router := NewModelRouter(&RouterConfig{EnableMetrics: false})
-	defer router.Shutdown(context.Background())
+	defer router.Shutdown(context.Background()) //nolint:errcheck
 
 	backend1 := newMockBackend("backend1", "test", true)
 	backend2 := newMockBackend("backend2", "test", true)
 
-	router.RegisterBackend(backend1)
-	router.RegisterBackend(backend2)
+	_ = router.RegisterBackend(backend1)
+	_ = router.RegisterBackend(backend2)
 
 	// Send multiple requests
 	for i := 0; i < 10; i++ {
@@ -954,7 +954,7 @@ func TestModelRouter_LoadBalancing(t *testing.T) {
 			Type:    RequestTypeEmbedding,
 			Content: "test",
 		}
-		router.Route(context.Background(), req)
+		_, _ = router.Route(context.Background(), req)
 	}
 
 	// Both backends should have received requests
@@ -1072,10 +1072,10 @@ func TestModelRouter_Concurrent(t *testing.T) {
 		MaxQueueSize:   1000,
 		EnableMetrics:  false,
 	})
-	defer router.Shutdown(context.Background())
+	defer router.Shutdown(context.Background()) //nolint:errcheck
 
 	backend := newMockBackend("test", "test", true)
-	router.RegisterBackend(backend)
+	_ = router.RegisterBackend(backend)
 
 	var wg sync.WaitGroup
 	goroutines := 50
@@ -1091,7 +1091,7 @@ func TestModelRouter_Concurrent(t *testing.T) {
 					Type:    RequestTypeEmbedding,
 					Content: "test",
 				}
-				router.Route(context.Background(), req)
+				_, _ = router.Route(context.Background(), req)
 			}
 		}(i)
 	}
@@ -1115,7 +1115,7 @@ func BenchmarkCircuitBreaker_Allow(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		cb.Execute(ctx, func(ctx context.Context) error {
+		_ = cb.Execute(ctx, func(ctx context.Context) error {
 			return nil
 		})
 	}
@@ -1123,10 +1123,10 @@ func BenchmarkCircuitBreaker_Allow(b *testing.B) {
 
 func BenchmarkModelRouter_Route(b *testing.B) {
 	router := NewModelRouter(&RouterConfig{EnableMetrics: false})
-	defer router.Shutdown(context.Background())
+	defer router.Shutdown(context.Background()) //nolint:errcheck
 
 	backend := newMockBackend("bench", "test", true)
-	router.RegisterBackend(backend)
+	_ = router.RegisterBackend(backend)
 
 	req := &Request{
 		ID:      "bench",
@@ -1137,16 +1137,16 @@ func BenchmarkModelRouter_Route(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		router.Route(ctx, req)
+		_, _ = router.Route(ctx, req)
 	}
 }
 
 func BenchmarkModelRouter_Route_Parallel(b *testing.B) {
 	router := NewModelRouter(&RouterConfig{EnableMetrics: false})
-	defer router.Shutdown(context.Background())
+	defer router.Shutdown(context.Background()) //nolint:errcheck
 
 	backend := newMockBackend("bench", "test", true)
-	router.RegisterBackend(backend)
+	_ = router.RegisterBackend(backend)
 
 	ctx := context.Background()
 
@@ -1158,7 +1158,7 @@ func BenchmarkModelRouter_Route_Parallel(b *testing.B) {
 			Content: "benchmark content",
 		}
 		for pb.Next() {
-			router.Route(ctx, req)
+			_, _ = router.Route(ctx, req)
 		}
 	})
 }

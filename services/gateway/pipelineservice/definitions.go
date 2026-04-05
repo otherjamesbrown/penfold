@@ -252,7 +252,7 @@ func (s *Service) AuditPipelineCompleteness(ctx context.Context, req *pipelinev1
 		s.logger.Error("Error auditing pipeline completeness", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to audit pipeline completeness: %v", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var items []*pipelinev1.AuditItem
 	for rows.Next() {
@@ -327,7 +327,7 @@ func (s *Service) ComparePipelineRuns(ctx context.Context, req *pipelinev1.Compa
 		s.logger.Error("Error comparing pipeline runs", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to compare pipeline runs: %v", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var stats []*pipelinev1.PipelineRunStats
 	for rows.Next() {

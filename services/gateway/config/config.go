@@ -258,7 +258,7 @@ func Load() (*GatewayConfig, error) {
 	// Load base configuration from pkg/config.
 	// Set service name if not already set.
 	if os.Getenv("PENFOLD_SERVICE_NAME") == "" {
-		os.Setenv("PENFOLD_SERVICE_NAME", "gateway")
+		_ = os.Setenv("PENFOLD_SERVICE_NAME", "gateway")
 	}
 
 	baseCfg, err := config.LoadConfig()

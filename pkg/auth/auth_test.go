@@ -594,7 +594,7 @@ func TestAPIKeyOrJWTMiddleware(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(claims.Subject))
+		_, _ = w.Write([]byte(claims.Subject))
 	}))
 
 	tests := []struct {

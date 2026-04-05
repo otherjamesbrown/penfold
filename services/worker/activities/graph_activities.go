@@ -140,7 +140,7 @@ func (a *GraphActivities) refreshOAuthToken(ctx context.Context, tenantID, clien
 	if err != nil {
 		return nil, fmt.Errorf("executing token refresh: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

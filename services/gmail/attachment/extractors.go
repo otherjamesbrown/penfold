@@ -338,7 +338,7 @@ func extractDOCXText(file *zip.File) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("opening file: %w", err)
 	}
-	defer rc.Close()
+	defer rc.Close() //nolint:errcheck
 
 	content, err := io.ReadAll(rc)
 	if err != nil {
@@ -539,7 +539,7 @@ func extractSharedStrings(file *zip.File) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rc.Close()
+	defer rc.Close() //nolint:errcheck
 
 	content, err := io.ReadAll(rc)
 	if err != nil {
@@ -590,7 +590,7 @@ func extractSheetText(file *zip.File, sharedStrings []string, maxRows int) (stri
 	if err != nil {
 		return "", err
 	}
-	defer rc.Close()
+	defer rc.Close() //nolint:errcheck
 
 	content, err := io.ReadAll(rc)
 	if err != nil {
@@ -644,7 +644,7 @@ func extractSheetText(file *zip.File, sharedStrings []string, maxRows int) (stri
 				// If type is "s", this is a shared string reference.
 				if cellType == "s" && sharedStrings != nil {
 					idx := 0
-					fmt.Sscanf(value, "%d", &idx)
+					_, _ = fmt.Sscanf(value, "%d", &idx)
 					if idx >= 0 && idx < len(sharedStrings) {
 						value = sharedStrings[idx]
 					}

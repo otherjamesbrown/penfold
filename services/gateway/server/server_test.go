@@ -392,7 +392,7 @@ func startMockServer(t *testing.T, registerFunc func(*grpc.Server)) (string, fun
 
 	return lis.Addr().String(), func() {
 		server.Stop()
-		lis.Close()
+		_ = lis.Close()
 	}
 }
 
@@ -867,7 +867,7 @@ func TestRateLimiter_Integration_TenantIsolation(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		md := metadata.New(map[string]string{"x-tenant-id": "tenant-1"})
 		ctx := metadata.NewIncomingContext(context.Background(), md)
-		interceptor(ctx, nil, info, handler)
+		_, _ = interceptor(ctx, nil, info, handler)
 	}
 
 	// tenant-1 should be rate limited
@@ -1622,7 +1622,7 @@ func BenchmarkRouter_RouteSearch(b *testing.B) {
 	defer cleanup()
 
 	r := router.NewRouter()
-	r.RegisterBackend(router.BackendSearch, addr)
+	_ = r.RegisterBackend(router.BackendSearch, addr)
 	time.Sleep(100 * time.Millisecond)
 
 	ctx := context.Background()
@@ -1632,7 +1632,7 @@ func BenchmarkRouter_RouteSearch(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		r.RouteSearch(ctx, req)
+		_, _ = r.RouteSearch(ctx, req)
 	}
 }
 

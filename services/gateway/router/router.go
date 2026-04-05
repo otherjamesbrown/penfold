@@ -207,7 +207,7 @@ func (r *Router) connectBackend(backend *Backend) error {
 
 	// Close existing connection if any.
 	if backend.conn != nil {
-		backend.conn.Close()
+		_ = backend.conn.Close()
 		backend.conn = nil
 	}
 

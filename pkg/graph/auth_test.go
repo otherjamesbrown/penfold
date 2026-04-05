@@ -59,7 +59,7 @@ func TestInitiate_WithMockServer(t *testing.T) {
 			t.Errorf("scope missing offline_access: got %q", scope)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"device_code":      "mock-device-code",
 			"user_code":        "MOCK-CODE",
 			"verification_uri": "https://microsoft.com/devicelogin",
@@ -74,7 +74,7 @@ func TestInitiate_WithMockServer(t *testing.T) {
 		count := tokenCalls.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 		if count == 1 {
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"error": "authorization_pending",
 			})
 			return
@@ -86,7 +86,7 @@ func TestInitiate_WithMockServer(t *testing.T) {
 		if r.FormValue("device_code") != "mock-device-code" {
 			t.Errorf("token poll: device_code mismatch: got %q", r.FormValue("device_code"))
 		}
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"access_token":  "mock-access-token",
 			"refresh_token": "mock-refresh-token",
 			"expires_in":    3600,
@@ -170,7 +170,7 @@ func TestInitiate_AuthorizationPending_MultipleBeforeSuccess(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/tenant2/oauth2/v2.0/devicecode", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"device_code":      "dc2",
 			"user_code":        "UC2",
 			"verification_uri": "https://microsoft.com/devicelogin",
@@ -183,10 +183,10 @@ func TestInitiate_AuthorizationPending_MultipleBeforeSuccess(t *testing.T) {
 		count := tokenCalls.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 		if count < 4 {
-			json.NewEncoder(w).Encode(map[string]interface{}{"error": "authorization_pending"})
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "authorization_pending"})
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"access_token":  "at2",
 			"refresh_token": "rt2",
 			"expires_in":    3600,
@@ -234,7 +234,7 @@ func TestInitiate_ExpiredDeviceCode(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/tenant3/oauth2/v2.0/devicecode", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"device_code":      "dc3",
 			"user_code":        "UC3",
 			"verification_uri": "https://microsoft.com/devicelogin",
@@ -245,7 +245,7 @@ func TestInitiate_ExpiredDeviceCode(t *testing.T) {
 	})
 	mux.HandleFunc("/tenant3/oauth2/v2.0/token", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"error": "expired_token"})
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"error": "expired_token"})
 	})
 
 	srv := httptest.NewServer(mux)

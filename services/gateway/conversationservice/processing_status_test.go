@@ -154,7 +154,7 @@ func TestGetConversationProcessingStatus_HappyPath(t *testing.T) {
 		GetSourceByContentIDFunc: func(ctx context.Context, contentID string) (*pipeline.PendingSource, error) {
 			// Extract index from contentID "content-NNN"
 			var idx int
-			fmt.Sscanf(contentID, "content-%d", &idx)
+			_, _ = fmt.Sscanf(contentID, "content-%d", &idx)
 			sourceID := int64(1000 + idx)
 			return &pipeline.PendingSource{
 				ID:        sourceID,
