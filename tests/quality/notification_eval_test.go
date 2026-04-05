@@ -111,16 +111,32 @@ func TestEval_Notification(t *testing.T) {
 				t.Logf("warning: Langfuse recording failed: %v", err)
 			}
 
-			// LLM-as-judge: read Langfuse evaluator scores
-			if lfEval != nil {
+			// LLM-as-judge: read Langfuse evaluator scores.
+			// Only check known LLM-as-judge score names (1-5 scale) — not the
+			// deterministic binary scores (routing_correct, extraction_quality)
+			// recorded by RecordResult, which are 0/1 and would always fail this check.
+			if lfEval != nil && traceID != "" {
 				time.Sleep(10 * time.Second)
 				scores, err := lfEval.GetScores(ctx, traceID)
 				if err == nil {
+					llmJudgeNames := map[string]bool{
+						"extraction_completeness": true,
+						"triage_accuracy":         true,
+						"summary_usefulness":      true,
+					}
+					llmScoresFound := 0
 					for _, score := range scores {
+						if !llmJudgeNames[score.Name] {
+							continue
+						}
+						llmScoresFound++
 						t.Logf("  langfuse.%s: %.1f", score.Name, score.Value)
 						if score.Value < 3.0 {
 							t.Errorf("langfuse.%s: score %.1f below threshold 3.0", score.Name, score.Value)
 						}
+					}
+					if llmScoresFound == 0 {
+						t.Logf("  langfuse: no LLM-as-judge scores found — Langfuse evaluators not yet configured (see task for setup steps)")
 					}
 				}
 			}

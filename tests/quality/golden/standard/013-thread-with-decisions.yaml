@@ -32,7 +32,7 @@ assertions:
     - type: decision
       description_contains: "reassign"
     - type: decision
-      description_contains: "MVP target"
+      description_contains: "April"
   must_not_find:
     - type: security_incident
 

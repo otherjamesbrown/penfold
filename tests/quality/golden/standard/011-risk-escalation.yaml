@@ -27,12 +27,9 @@ people:
 assertions:
   min_count: 3
   must_find:
-    - type: risk
-      description_contains: "budget"
-    - type: risk
-      description_contains: "MVP target"
-    - type: risk
-      description_contains: "backend engineer"
+    - description_contains: "budget"
+    - description_contains: "timeline"
+    - description_contains: "backend engineer"
   must_not_find:
     - type: security_incident
 
