@@ -39,13 +39,6 @@ jobs:
           working-directory: pkg
           args: --timeout=5m
 
-      - name: golangci-lint (cmd/penf)
-        uses: golangci/golangci-lint-action@v7
-        with:
-          version: v2.8.0
-          working-directory: cmd/penf
-          args: --timeout=5m
-
       - name: Install golangci-lint (for services step)
         run: |
           curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.8.0
@@ -114,7 +107,6 @@ jobs:
       matrix:
         module:
           - pkg
-          - cmd/penf
           - penfold-go-pipeline
           - services/ai
           - services/gateway
@@ -236,12 +228,6 @@ jobs:
             echo "available=false" >> $GITHUB_OUTPUT
             echo "::warning::LLM not available, E2E tests will be skipped"
           fi
-
-      - name: Run database migrations
-        if: steps.llm-check.outputs.available == 'true'
-        run: |
-          cd cmd/penf
-          go run . migrate up
 
       - name: Run E2E tests
         if: steps.llm-check.outputs.available == 'true'
