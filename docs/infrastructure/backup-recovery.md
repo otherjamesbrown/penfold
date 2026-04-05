@@ -517,17 +517,17 @@ else
 fi
 
 # Test restore to temporary database
-docker exec penfold-postgres-1 createdb -U postgres penfold_test
+docker exec penfold-postgres-1 createdb -U postgres penfold_restore_test
 gunzip -c "${BACKUP_FILE}" | \
-    docker exec -i penfold-postgres-1 psql -U postgres -d penfold_test
+    docker exec -i penfold-postgres-1 psql -U postgres -d penfold_restore_test
 
 # Verify record counts
-SOURCES=$(docker exec penfold-postgres-1 psql -U postgres -d penfold_test \
+SOURCES=$(docker exec penfold-postgres-1 psql -U postgres -d penfold_restore_test \
     -t -c "SELECT COUNT(*) FROM sources;")
 echo "Sources restored: ${SOURCES}"
 
 # Cleanup
-docker exec penfold-postgres-1 dropdb -U postgres penfold_test
+docker exec penfold-postgres-1 dropdb -U postgres penfold_restore_test
 ```
 
 #### Test 2: Full Recovery Simulation

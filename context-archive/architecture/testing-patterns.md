@@ -31,8 +31,8 @@ package integration
 func SetupTestDB(t *testing.T) *TestDB {
     t.Helper()
 
-    // Connect to dedicated test database
-    dbName := getEnvOrDefault("PENFOLD_DB_NAME", "penfold_test_integration")
+    // Connect to live penfold DB using test tenant isolation
+    dbName := getEnvOrDefault("PENFOLD_DB_NAME", "penfold")
     pool, err := pgxpool.New(ctx, connStr)
     require.NoError(t, err)
 
@@ -53,8 +53,8 @@ func (db *TestDB) TruncateAllTables(t *testing.T) {
 ```
 
 **Key Points**:
-- Integration tests: `penfold_test_integration` on dev02
-- E2E tests: `penfold_test_e2e` on dev02
+- Integration tests: live `penfold` DB on dev02, test tenant `00000000-0000-0000-0000-000000000003`
+- E2E tests: live `penfold` DB on dev02, e2e tenant `00000000-0000-0000-0000-000000000001`
 - Cleanup via `t.Cleanup()` for automatic resource release
 
 ## 3. YAML Fixture Loading
@@ -297,8 +297,8 @@ go test -tags=flaky ./... -v
 # Never commit credentials
 source ~/github/otherjamesbrown/secrets/.env.penfold
 
-# Environment-specific databases
-export PENFOLD_DB_NAME=penfold_test_integration
+# Use live DB with tenant isolation (no separate test databases)
+export PENFOLD_DB_NAME=penfold
 ```
 
 ### API Key Isolation

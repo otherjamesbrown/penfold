@@ -260,7 +260,7 @@ services:
   test-postgres:
     image: pgvector/pgvector:pg16
     environment:
-      POSTGRES_DB: penfold_test
+      POSTGRES_DB: penfold
       POSTGRES_USER: test_user
       POSTGRES_PASSWORD: test_pass
     tmpfs:

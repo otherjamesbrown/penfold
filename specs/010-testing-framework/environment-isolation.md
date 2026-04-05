@@ -180,7 +180,7 @@ services:
   test-postgres:
     image: pgvector/pgvector:pg16
     environment:
-      POSTGRES_DB: penfold_test
+      POSTGRES_DB: penfold
       POSTGRES_USER: test_user
       POSTGRES_PASSWORD: test_pass
     tmpfs:
@@ -233,7 +233,7 @@ services:
       dockerfile: Dockerfile.test
     environment:
       - ENVIRONMENT=testing
-      - DATABASE_URL=postgresql://test_user:test_pass@test-postgres:5432/penfold_test
+      - DATABASE_URL=postgresql://test_user:test_pass@test-postgres:5432/penfold
       - REDIS_URL=redis://test-redis:6379/0
       - OLLAMA_URL=http://ai-mock:11434
       - AI_MOCKING_MODE=full

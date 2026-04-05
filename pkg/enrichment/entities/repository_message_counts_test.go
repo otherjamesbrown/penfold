@@ -4,6 +4,7 @@ package entities
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 
@@ -295,10 +296,18 @@ func TestIncrementMessageCounts_Independent(t *testing.T) {
 // Helper functions for test setup/teardown
 
 func getTestDatabaseURL() string {
-	if url := os.Getenv("PENFOLD_TEST_DB_URL"); url != "" {
-		return url
+	host := getEnvOrDefault("PENFOLD_DB_HOST", "dev02.brown.chat")
+	port := getEnvOrDefault("PENFOLD_DB_PORT", "5432")
+	user := getEnvOrDefault("PENFOLD_DB_USER", "penfold")
+	dbName := getEnvOrDefault("PENFOLD_DB_NAME", "penfold")
+	return fmt.Sprintf("host=%s port=%s user=%s dbname=%s sslmode=verify-full", host, port, user, dbName)
+}
+
+func getEnvOrDefault(key, defaultVal string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
 	}
-	return "postgres://postgres:postgres@localhost:5432/penfold_test?sslmode=disable"
+	return defaultVal
 }
 
 func cleanupPerson(t *testing.T, ctx context.Context, pool *pgxpool.Pool, personID int64) {
