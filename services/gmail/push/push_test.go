@@ -310,7 +310,7 @@ func TestServerDeduplication(t *testing.T) {
 		BatchWindow: 0, // Disable batching for this test.
 	})
 	_ = processor.Start()
-	defer processor.Stop()
+	defer processor.Stop() //nolint:errcheck
 
 	handler, _ := NewHandler(&HandlerConfig{
 		SubscriptionStore:     store,
@@ -366,7 +366,7 @@ func TestServerHTTPHandler(t *testing.T) {
 		BatchWindow: 0,
 	})
 	_ = processor.Start()
-	defer processor.Stop()
+	defer processor.Stop() //nolint:errcheck
 
 	handler, _ := NewHandler(&HandlerConfig{
 		SubscriptionStore:     store,
@@ -394,7 +394,7 @@ func TestServerHTTPHandler(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("health check status = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Test push endpoint with GET (should fail).
 	resp, err = http.Get(ts.URL + "/gmail/push")
@@ -404,7 +404,7 @@ func TestServerHTTPHandler(t *testing.T) {
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("GET status = %d, want %d", resp.StatusCode, http.StatusMethodNotAllowed)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Test push endpoint with valid POST.
 	notification := PushNotification{
@@ -423,7 +423,7 @@ func TestServerHTTPHandler(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("POST status = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Test push endpoint with invalid JSON.
 	resp, err = http.Post(ts.URL+"/gmail/push", "application/json", bytes.NewReader([]byte("invalid")))
@@ -433,7 +433,7 @@ func TestServerHTTPHandler(t *testing.T) {
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("invalid POST status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 }
 
 // TestServerAuth tests server authentication.
@@ -1142,7 +1142,7 @@ func TestServerRateLimiting(t *testing.T) {
 		BatchWindow: 0,
 	})
 	_ = processor.Start()
-	defer processor.Stop()
+	defer processor.Stop() //nolint:errcheck
 
 	handler, _ := NewHandler(&HandlerConfig{
 		SubscriptionStore:     store,
@@ -1186,7 +1186,7 @@ func TestServerRateLimiting(t *testing.T) {
 			if resp.StatusCode == http.StatusTooManyRequests {
 				t.Errorf("request %d should not be rate limited", i)
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 
 		// Third request should be rate limited.
@@ -1202,7 +1202,7 @@ func TestServerRateLimiting(t *testing.T) {
 		if err != nil {
 			t.Fatalf("rate limited request failed: %v", err)
 		}
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck
 
 		if resp.StatusCode != http.StatusTooManyRequests {
 			t.Errorf("third request should be rate limited, got status %d", resp.StatusCode)
@@ -1241,7 +1241,7 @@ func TestServerRateLimiting(t *testing.T) {
 			if resp.StatusCode != http.StatusOK {
 				t.Errorf("health check %d should not be rate limited, got status %d", i, resp.StatusCode)
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 	})
 
@@ -1274,7 +1274,7 @@ func TestServerRateLimiting(t *testing.T) {
 		if err != nil {
 			t.Fatalf("request failed: %v", err)
 		}
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck
 
 		// Check that rate limit headers are set.
 		if resp.Header.Get("X-RateLimit-Limit") == "" {
@@ -1316,7 +1316,7 @@ func TestServerRateLimiting(t *testing.T) {
 			if resp.StatusCode == http.StatusTooManyRequests {
 				t.Errorf("request %d should not be rate limited when rate limiting is disabled", i)
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 	})
 }

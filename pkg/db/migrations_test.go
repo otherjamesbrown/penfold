@@ -65,7 +65,7 @@ func TestFindMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpDir) //nolint:errcheck
 
 	// Create test migration files
 	files := []string{
@@ -104,7 +104,7 @@ func TestFindMigrations_EmptyDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpDir) //nolint:errcheck
 
 	migrations, err := findMigrations(tmpDir)
 	if err != nil {
@@ -164,7 +164,7 @@ func TestRunMigrationsToTarget(t *testing.T) {
 	// Create a temporary directory with test migration files
 	tmpDir, err := os.MkdirTemp("", "migrations_target_test")
 	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpDir) //nolint:errcheck
 
 	// Create test migration files
 	migrations := map[string]string{
@@ -217,7 +217,7 @@ func TestRunMigrationsToTarget_AlreadyApplied(t *testing.T) {
 	// Create a temporary directory with test migration files
 	tmpDir, err := os.MkdirTemp("", "migrations_already_applied_test")
 	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpDir) //nolint:errcheck
 
 	// Create test migration files
 	migrations := map[string]string{
@@ -263,7 +263,7 @@ func TestRunMigrationsToTarget_InvalidTarget(t *testing.T) {
 	// Create a temporary directory with test migration files
 	tmpDir, err := os.MkdirTemp("", "migrations_invalid_target_test")
 	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpDir) //nolint:errcheck
 
 	// Create a test migration file
 	err = os.WriteFile(filepath.Join(tmpDir, "001_test_invalid.sql"), []byte("CREATE TABLE test_invalid (id INT);"), 0644)
@@ -288,7 +288,7 @@ func TestGetMigrationStatus(t *testing.T) {
 	// Create a temporary directory with test migration files
 	tmpDir, err := os.MkdirTemp("", "migrations_status_test")
 	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpDir) //nolint:errcheck
 
 	// Create test migration files
 	migrations := map[string]string{
@@ -368,7 +368,7 @@ func TestGetMigrationStatus_Empty(t *testing.T) {
 	// Create an empty temporary directory
 	tmpDir, err := os.MkdirTemp("", "migrations_status_empty_test")
 	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpDir) //nolint:errcheck
 
 	// Get migration status
 	status, err := GetMigrationStatus(ctx, pool, tmpDir)
@@ -440,7 +440,7 @@ func TestGetMigrationStatus_SqlSuffixNormalization(t *testing.T) {
 	// Create a temporary directory with test migration files
 	tmpDir, err := os.MkdirTemp("", "migrations_norm_test")
 	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpDir) //nolint:errcheck
 
 	// Create test migration files (with .sql extension)
 	migrations := map[string]string{
@@ -534,7 +534,7 @@ func TestApplyMigration_VersionFormatConsistency(t *testing.T) {
 	// Create a temporary directory with a test migration file
 	tmpDir, err := os.MkdirTemp("", "migration_version_format_test")
 	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpDir) //nolint:errcheck
 
 	// Create a test migration file with .sql extension
 	migrationFilename := "999_test_version_format.sql"

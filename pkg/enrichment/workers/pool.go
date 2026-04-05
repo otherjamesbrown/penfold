@@ -181,7 +181,7 @@ func (w *Worker) processMessage(qm *queues.QueuedMessage) {
 	msg, err := qm.ParseMessage()
 	if err != nil {
 		// Invalid message, move to DLQ
-		w.Queue.MoveToDeadLetter(qm.ID, fmt.Sprintf("parse error: %v", err))
+		_ = w.Queue.MoveToDeadLetter(qm.ID, fmt.Sprintf("parse error: %v", err))
 		w.FailedCount.Add(1)
 		return
 	}
@@ -195,20 +195,20 @@ func (w *Worker) processMessage(qm *queues.QueuedMessage) {
 		// Check error type for retry decision
 		if procErr, ok := err.(*queues.ProcessingError); ok {
 			if procErr.IsRetryable() {
-				w.Queue.Nack(qm.ID)
+				_ = w.Queue.Nack(qm.ID)
 			} else {
-				w.Queue.MoveToDeadLetter(qm.ID, procErr.Error())
+				_ = w.Queue.MoveToDeadLetter(qm.ID, procErr.Error())
 			}
 		} else {
 			// Unknown error, retry
-			w.Queue.Nack(qm.ID)
+			_ = w.Queue.Nack(qm.ID)
 		}
 		w.FailedCount.Add(1)
 		return
 	}
 
 	// Success
-	w.Queue.Ack(qm.ID)
+	_ = w.Queue.Ack(qm.ID)
 	w.ProcessedCount.Add(1)
 }
 

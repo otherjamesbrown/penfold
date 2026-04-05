@@ -23,11 +23,11 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	}()
 
 	t.Run("uses defaults when env vars not set", func(t *testing.T) {
-		os.Unsetenv("TEMPORAL_HOST_PORT")
-		os.Unsetenv("TEMPORAL_NAMESPACE")
-		os.Unsetenv("TEMPORAL_TASK_QUEUE")
-		os.Unsetenv("TEMPORAL_MAX_CONCURRENT_ACTIVITIES")
-		os.Unsetenv("TEMPORAL_MAX_CONCURRENT_WORKFLOWS")
+		_ = os.Unsetenv("TEMPORAL_HOST_PORT")
+		_ = os.Unsetenv("TEMPORAL_NAMESPACE")
+		_ = os.Unsetenv("TEMPORAL_TASK_QUEUE")
+		_ = os.Unsetenv("TEMPORAL_MAX_CONCURRENT_ACTIVITIES")
+		_ = os.Unsetenv("TEMPORAL_MAX_CONCURRENT_WORKFLOWS")
 
 		cfg := LoadConfigFromEnv()
 
@@ -49,11 +49,11 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	})
 
 	t.Run("uses env vars when set", func(t *testing.T) {
-		os.Setenv("TEMPORAL_HOST_PORT", "temporal:7233")
-		os.Setenv("TEMPORAL_NAMESPACE", "penfold")
-		os.Setenv("TEMPORAL_TASK_QUEUE", "custom-queue")
-		os.Setenv("TEMPORAL_MAX_CONCURRENT_ACTIVITIES", "20")
-		os.Setenv("TEMPORAL_MAX_CONCURRENT_WORKFLOWS", "15")
+		_ = os.Setenv("TEMPORAL_HOST_PORT", "temporal:7233")
+		_ = os.Setenv("TEMPORAL_NAMESPACE", "penfold")
+		_ = os.Setenv("TEMPORAL_TASK_QUEUE", "custom-queue")
+		_ = os.Setenv("TEMPORAL_MAX_CONCURRENT_ACTIVITIES", "20")
+		_ = os.Setenv("TEMPORAL_MAX_CONCURRENT_WORKFLOWS", "15")
 
 		cfg := LoadConfigFromEnv()
 
@@ -75,8 +75,8 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	})
 
 	t.Run("uses defaults for invalid int values", func(t *testing.T) {
-		os.Setenv("TEMPORAL_MAX_CONCURRENT_ACTIVITIES", "invalid")
-		os.Setenv("TEMPORAL_MAX_CONCURRENT_WORKFLOWS", "not-a-number")
+		_ = os.Setenv("TEMPORAL_MAX_CONCURRENT_ACTIVITIES", "invalid")
+		_ = os.Setenv("TEMPORAL_MAX_CONCURRENT_WORKFLOWS", "not-a-number")
 
 		cfg := LoadConfigFromEnv()
 
@@ -92,10 +92,10 @@ func TestLoadConfigFromEnv(t *testing.T) {
 func TestGetEnvOrDefault(t *testing.T) {
 	const testKey = "TEST_TEMPORAL_VAR"
 
-	defer os.Unsetenv(testKey)
+	defer os.Unsetenv(testKey) //nolint:errcheck
 
 	t.Run("returns default when not set", func(t *testing.T) {
-		os.Unsetenv(testKey)
+		_ = os.Unsetenv(testKey)
 		result := getEnvOrDefault(testKey, "default-value")
 		if result != "default-value" {
 			t.Errorf("expected default-value, got %s", result)
@@ -103,7 +103,7 @@ func TestGetEnvOrDefault(t *testing.T) {
 	})
 
 	t.Run("returns env value when set", func(t *testing.T) {
-		os.Setenv(testKey, "custom-value")
+		_ = os.Setenv(testKey, "custom-value")
 		result := getEnvOrDefault(testKey, "default-value")
 		if result != "custom-value" {
 			t.Errorf("expected custom-value, got %s", result)
@@ -111,7 +111,7 @@ func TestGetEnvOrDefault(t *testing.T) {
 	})
 
 	t.Run("returns default for empty string", func(t *testing.T) {
-		os.Setenv(testKey, "")
+		_ = os.Setenv(testKey, "")
 		result := getEnvOrDefault(testKey, "default-value")
 		if result != "default-value" {
 			t.Errorf("expected default-value, got %s", result)
@@ -122,10 +122,10 @@ func TestGetEnvOrDefault(t *testing.T) {
 func TestGetEnvIntOrDefault(t *testing.T) {
 	const testKey = "TEST_TEMPORAL_INT_VAR"
 
-	defer os.Unsetenv(testKey)
+	defer os.Unsetenv(testKey) //nolint:errcheck
 
 	t.Run("returns default when not set", func(t *testing.T) {
-		os.Unsetenv(testKey)
+		_ = os.Unsetenv(testKey)
 		result := getEnvIntOrDefault(testKey, 42)
 		if result != 42 {
 			t.Errorf("expected 42, got %d", result)
@@ -133,7 +133,7 @@ func TestGetEnvIntOrDefault(t *testing.T) {
 	})
 
 	t.Run("returns parsed int when valid", func(t *testing.T) {
-		os.Setenv(testKey, "100")
+		_ = os.Setenv(testKey, "100")
 		result := getEnvIntOrDefault(testKey, 42)
 		if result != 100 {
 			t.Errorf("expected 100, got %d", result)
@@ -141,7 +141,7 @@ func TestGetEnvIntOrDefault(t *testing.T) {
 	})
 
 	t.Run("returns default for invalid int", func(t *testing.T) {
-		os.Setenv(testKey, "not-a-number")
+		_ = os.Setenv(testKey, "not-a-number")
 		result := getEnvIntOrDefault(testKey, 42)
 		if result != 42 {
 			t.Errorf("expected 42, got %d", result)
@@ -149,7 +149,7 @@ func TestGetEnvIntOrDefault(t *testing.T) {
 	})
 
 	t.Run("handles negative numbers", func(t *testing.T) {
-		os.Setenv(testKey, "-5")
+		_ = os.Setenv(testKey, "-5")
 		result := getEnvIntOrDefault(testKey, 42)
 		if result != -5 {
 			t.Errorf("expected -5, got %d", result)
@@ -157,7 +157,7 @@ func TestGetEnvIntOrDefault(t *testing.T) {
 	})
 
 	t.Run("handles zero", func(t *testing.T) {
-		os.Setenv(testKey, "0")
+		_ = os.Setenv(testKey, "0")
 		result := getEnvIntOrDefault(testKey, 42)
 		if result != 0 {
 			t.Errorf("expected 0, got %d", result)
@@ -168,8 +168,8 @@ func TestGetEnvIntOrDefault(t *testing.T) {
 // setEnvOrUnset sets an environment variable or unsets it if the value is empty.
 func setEnvOrUnset(key, value string) {
 	if value == "" {
-		os.Unsetenv(key)
+		_ = os.Unsetenv(key)
 	} else {
-		os.Setenv(key, value)
+		_ = os.Setenv(key, value)
 	}
 }

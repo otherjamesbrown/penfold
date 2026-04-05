@@ -219,33 +219,33 @@ func (r *ValidationReport) generateJSON(w io.Writer) error {
 // generateText writes the report as plain text.
 func (r *ValidationReport) generateText(w io.Writer) error {
 	// Header.
-	fmt.Fprintf(w, "================================================================================\n")
-	fmt.Fprintf(w, "%s\n", r.Title)
-	fmt.Fprintf(w, "================================================================================\n\n")
+	_, _ = fmt.Fprintf(w, "================================================================================\n")
+	_, _ = fmt.Fprintf(w, "%s\n", r.Title)
+	_, _ = fmt.Fprintf(w, "================================================================================\n\n")
 
-	fmt.Fprintf(w, "Version:     %s\n", r.Version)
+	_, _ = fmt.Fprintf(w, "Version:     %s\n", r.Version)
 	if r.Environment != "" {
-		fmt.Fprintf(w, "Environment: %s\n", r.Environment)
+		_, _ = fmt.Fprintf(w, "Environment: %s\n", r.Environment)
 	}
-	fmt.Fprintf(w, "Start Time:  %s\n", r.StartTime.Format(time.RFC3339))
-	fmt.Fprintf(w, "End Time:    %s\n", r.EndTime.Format(time.RFC3339))
-	fmt.Fprintf(w, "Duration:    %s\n\n", r.Summary.Duration)
+	_, _ = fmt.Fprintf(w, "Start Time:  %s\n", r.StartTime.Format(time.RFC3339))
+	_, _ = fmt.Fprintf(w, "End Time:    %s\n", r.EndTime.Format(time.RFC3339))
+	_, _ = fmt.Fprintf(w, "Duration:    %s\n\n", r.Summary.Duration)
 
 	// Overall Status.
-	fmt.Fprintf(w, "OVERALL STATUS: %s\n", r.Summary.OverallStatus)
-	fmt.Fprintf(w, "--------------------------------------------------------------------------------\n\n")
+	_, _ = fmt.Fprintf(w, "OVERALL STATUS: %s\n", r.Summary.OverallStatus)
+	_, _ = fmt.Fprintf(w, "--------------------------------------------------------------------------------\n\n")
 
 	// Summary.
-	fmt.Fprintf(w, "SUMMARY\n")
-	fmt.Fprintf(w, "  Total Checks:   %d\n", r.Summary.TotalChecks)
-	fmt.Fprintf(w, "  Passed:         %d\n", r.Summary.PassedChecks)
-	fmt.Fprintf(w, "  Failed:         %d\n", r.Summary.FailedChecks)
-	fmt.Fprintf(w, "  Warnings:       %d\n", r.Summary.WarningChecks)
-	fmt.Fprintf(w, "  Skipped:        %d\n\n", r.Summary.SkippedChecks)
+	_, _ = fmt.Fprintf(w, "SUMMARY\n")
+	_, _ = fmt.Fprintf(w, "  Total Checks:   %d\n", r.Summary.TotalChecks)
+	_, _ = fmt.Fprintf(w, "  Passed:         %d\n", r.Summary.PassedChecks)
+	_, _ = fmt.Fprintf(w, "  Failed:         %d\n", r.Summary.FailedChecks)
+	_, _ = fmt.Fprintf(w, "  Warnings:       %d\n", r.Summary.WarningChecks)
+	_, _ = fmt.Fprintf(w, "  Skipped:        %d\n\n", r.Summary.SkippedChecks)
 
 	// Results by category.
-	fmt.Fprintf(w, "RESULTS BY CATEGORY\n")
-	fmt.Fprintf(w, "--------------------------------------------------------------------------------\n")
+	_, _ = fmt.Fprintf(w, "RESULTS BY CATEGORY\n")
+	_, _ = fmt.Fprintf(w, "--------------------------------------------------------------------------------\n")
 
 	// Sort categories for consistent output.
 	categories := make([]string, 0, len(r.Results))
@@ -258,9 +258,9 @@ func (r *ValidationReport) generateText(w io.Writer) error {
 		results := r.Results[category]
 		stats := r.Summary.ByCategory[category]
 
-		fmt.Fprintf(w, "\n[%s] Status: %s (%d/%d passed)\n", category, stats.Status, stats.Passed, stats.Total)
-		fmt.Fprintf(w, "  %-40s %-8s %-12s %s\n", "Check", "Status", "Duration", "Message")
-		fmt.Fprintf(w, "  %-40s %-8s %-12s %s\n", "-----", "------", "--------", "-------")
+		_, _ = fmt.Fprintf(w, "\n[%s] Status: %s (%d/%d passed)\n", category, stats.Status, stats.Passed, stats.Total)
+		_, _ = fmt.Fprintf(w, "  %-40s %-8s %-12s %s\n", "Check", "Status", "Duration", "Message")
+		_, _ = fmt.Fprintf(w, "  %-40s %-8s %-12s %s\n", "-----", "------", "--------", "-------")
 
 		for _, result := range results {
 			durationStr := fmt.Sprintf("%.1fms", float64(result.Duration.Microseconds())/1000)
@@ -271,7 +271,7 @@ func (r *ValidationReport) generateText(w io.Writer) error {
 			if len(message) > 50 {
 				message = message[:47] + "..."
 			}
-			fmt.Fprintf(w, "  %-40s %-8s %-12s %s\n",
+			_, _ = fmt.Fprintf(w, "  %-40s %-8s %-12s %s\n",
 				truncateString(result.Name, 40),
 				result.Status,
 				durationStr,
@@ -283,22 +283,22 @@ func (r *ValidationReport) generateText(w io.Writer) error {
 	// Failed checks detail.
 	failed := r.GetFailedResults()
 	if len(failed) > 0 {
-		fmt.Fprintf(w, "\n\nFAILED CHECKS DETAIL\n")
-		fmt.Fprintf(w, "--------------------------------------------------------------------------------\n")
+		_, _ = fmt.Fprintf(w, "\n\nFAILED CHECKS DETAIL\n")
+		_, _ = fmt.Fprintf(w, "--------------------------------------------------------------------------------\n")
 		for _, result := range failed {
-			fmt.Fprintf(w, "\n  %s:\n", result.Name)
+			_, _ = fmt.Fprintf(w, "\n  %s:\n", result.Name)
 			if result.Error != "" {
-				fmt.Fprintf(w, "    Error: %s\n", result.Error)
+				_, _ = fmt.Fprintf(w, "    Error: %s\n", result.Error)
 			}
 			if result.Details != nil {
-				fmt.Fprintf(w, "    Details: %v\n", result.Details)
+				_, _ = fmt.Fprintf(w, "    Details: %v\n", result.Details)
 			}
 		}
 	}
 
-	fmt.Fprintf(w, "\n================================================================================\n")
-	fmt.Fprintf(w, "Report generated at %s\n", time.Now().Format(time.RFC3339))
-	fmt.Fprintf(w, "================================================================================\n")
+	_, _ = fmt.Fprintf(w, "\n================================================================================\n")
+	_, _ = fmt.Fprintf(w, "Report generated at %s\n", time.Now().Format(time.RFC3339))
+	_, _ = fmt.Fprintf(w, "================================================================================\n")
 
 	return nil
 }

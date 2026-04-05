@@ -108,7 +108,7 @@ func (r *Repository) CreateBatch(ctx context.Context, inputs []EntryInput) (int6
 	}
 
 	results := r.db.SendBatch(ctx, batch)
-	defer results.Close()
+	defer results.Close() //nolint:errcheck
 
 	var inserted int64
 	for i := 0; i < len(inputs); i++ {

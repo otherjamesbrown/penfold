@@ -45,25 +45,25 @@ func TestConfigFromEnv(t *testing.T) {
 
 	// Restore original env vars after test
 	defer func() {
-		os.Setenv("DB_HOST", origHost)
-		os.Setenv("DB_PORT", origPort)
-		os.Setenv("DB_NAME", origName)
-		os.Setenv("DB_USER", origUser)
-		os.Setenv("DB_PASSWORD", origPass)
-		os.Setenv("DB_SSLMODE", origSSL)
-		os.Setenv("DB_MAX_CONNS", origMaxConns)
-		os.Setenv("DB_MIN_CONNS", origMinConns)
+		_ = os.Setenv("DB_HOST", origHost)
+		_ = os.Setenv("DB_PORT", origPort)
+		_ = os.Setenv("DB_NAME", origName)
+		_ = os.Setenv("DB_USER", origUser)
+		_ = os.Setenv("DB_PASSWORD", origPass)
+		_ = os.Setenv("DB_SSLMODE", origSSL)
+		_ = os.Setenv("DB_MAX_CONNS", origMaxConns)
+		_ = os.Setenv("DB_MIN_CONNS", origMinConns)
 	}()
 
 	// Set test env vars
-	os.Setenv("DB_HOST", "testhost")
-	os.Setenv("DB_PORT", "5433")
-	os.Setenv("DB_NAME", "testdb")
-	os.Setenv("DB_USER", "testuser")
-	os.Setenv("DB_PASSWORD", "testpass")
-	os.Setenv("DB_SSLMODE", "require")
-	os.Setenv("DB_MAX_CONNS", "50")
-	os.Setenv("DB_MIN_CONNS", "10")
+	_ = os.Setenv("DB_HOST", "testhost")
+	_ = os.Setenv("DB_PORT", "5433")
+	_ = os.Setenv("DB_NAME", "testdb")
+	_ = os.Setenv("DB_USER", "testuser")
+	_ = os.Setenv("DB_PASSWORD", "testpass")
+	_ = os.Setenv("DB_SSLMODE", "require")
+	_ = os.Setenv("DB_MAX_CONNS", "50")
+	_ = os.Setenv("DB_MIN_CONNS", "10")
 
 	cfg := ConfigFromEnv()
 
@@ -95,9 +95,9 @@ func TestConfigFromEnv(t *testing.T) {
 
 func TestConfigFromEnv_InvalidPort(t *testing.T) {
 	origPort := os.Getenv("DB_PORT")
-	defer os.Setenv("DB_PORT", origPort)
+	defer os.Setenv("DB_PORT", origPort) //nolint:errcheck
 
-	os.Setenv("DB_PORT", "invalid")
+	_ = os.Setenv("DB_PORT", "invalid")
 	cfg := ConfigFromEnv()
 
 	// Should fall back to default

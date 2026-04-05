@@ -75,9 +75,9 @@ func TestRegistry_GetByStage(t *testing.T) {
 	enrichProc1 := &mockProcessor{name: "Enricher1", stage: StageCommonEnrichment}
 	enrichProc2 := &mockProcessor{name: "Enricher2", stage: StageCommonEnrichment}
 
-	r.Register(classProc)
-	r.Register(enrichProc1)
-	r.Register(enrichProc2)
+	_ = r.Register(classProc)
+	_ = r.Register(enrichProc1)
+	_ = r.Register(enrichProc2)
 
 	// Check classification stage
 	classProcs := r.GetByStage(StageClassification)
@@ -105,7 +105,7 @@ func TestRegistry_GetTypeSpecificProcessor(t *testing.T) {
 		name:     "JiraExtractor",
 		subtypes: []enrichment.ContentSubtype{enrichment.SubtypeNotificationJira},
 	}
-	r.Register(jiraProc)
+	_ = r.Register(jiraProc)
 
 	// Check registered subtype
 	proc, ok := r.GetTypeSpecificProcessor(enrichment.SubtypeNotificationJira)
@@ -130,9 +130,9 @@ func TestRegistry_All(t *testing.T) {
 	proc2 := &mockProcessor{name: "Second", stage: StageCommonEnrichment}
 	proc3 := &mockProcessor{name: "Third", stage: StageTypeSpecific}
 
-	r.Register(proc1)
-	r.Register(proc2)
-	r.Register(proc3)
+	_ = r.Register(proc1)
+	_ = r.Register(proc2)
+	_ = r.Register(proc3)
 
 	all := r.All()
 	if len(all) != 3 {

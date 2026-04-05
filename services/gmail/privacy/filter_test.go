@@ -1231,6 +1231,6 @@ Support Team`,
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		filter.FilterMessage(ctx, msg, "tenant-1")
+		_, _ = filter.FilterMessage(ctx, msg, "tenant-1")
 	}
 }

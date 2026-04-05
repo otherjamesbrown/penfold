@@ -277,7 +277,7 @@ func (c *Client) CreateScore(ctx context.Context, req *CreateScoreRequest) error
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("CreateScore: API error (status %d): %s", resp.StatusCode, string(body))

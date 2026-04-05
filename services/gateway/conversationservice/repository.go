@@ -454,7 +454,7 @@ func (r *PostgresRepository) UpdateState(ctx context.Context, conversationID, st
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck
 
 	// Get current state
 	var oldState string

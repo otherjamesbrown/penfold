@@ -29,14 +29,14 @@ func clearEnv(t *testing.T) {
 		"PENFOLD_TEMPORAL_NAMESPACE",
 	}
 	for _, v := range envVars {
-		os.Unsetenv(v)
+		_ = os.Unsetenv(v)
 	}
 }
 
 // setMinimalEnv sets the minimum required environment variables.
 func setMinimalEnv(t *testing.T) {
 	t.Helper()
-	os.Setenv("PENFOLD_SERVICE_NAME", "test-service")
+	_ = os.Setenv("PENFOLD_SERVICE_NAME", "test-service")
 }
 
 func TestLoadConfig_FromEnv(t *testing.T) {
@@ -44,18 +44,18 @@ func TestLoadConfig_FromEnv(t *testing.T) {
 	defer clearEnv(t)
 
 	// Set all environment variables.
-	os.Setenv("PENFOLD_SERVICE_NAME", "my-service")
-	os.Setenv("PENFOLD_ENVIRONMENT", "staging")
-	os.Setenv("PENFOLD_LOG_LEVEL", "debug")
-	os.Setenv("PENFOLD_DB_HOST", "db.example.com")
-	os.Setenv("PENFOLD_DB_PORT", "5433")
-	os.Setenv("PENFOLD_DB_NAME", "mydb")
-	os.Setenv("PENFOLD_DB_USER", "myuser")
-	os.Setenv("PENFOLD_DB_PASSWORD", "mypass")
-	os.Setenv("PENFOLD_REDIS_HOST", "redis.example.com")
-	os.Setenv("PENFOLD_REDIS_PORT", "6380")
-	os.Setenv("PENFOLD_TEMPORAL_HOST", "temporal.example.com:7234")
-	os.Setenv("PENFOLD_TEMPORAL_NAMESPACE", "my-namespace")
+	_ = os.Setenv("PENFOLD_SERVICE_NAME", "my-service")
+	_ = os.Setenv("PENFOLD_ENVIRONMENT", "staging")
+	_ = os.Setenv("PENFOLD_LOG_LEVEL", "debug")
+	_ = os.Setenv("PENFOLD_DB_HOST", "db.example.com")
+	_ = os.Setenv("PENFOLD_DB_PORT", "5433")
+	_ = os.Setenv("PENFOLD_DB_NAME", "mydb")
+	_ = os.Setenv("PENFOLD_DB_USER", "myuser")
+	_ = os.Setenv("PENFOLD_DB_PASSWORD", "mypass")
+	_ = os.Setenv("PENFOLD_REDIS_HOST", "redis.example.com")
+	_ = os.Setenv("PENFOLD_REDIS_PORT", "6380")
+	_ = os.Setenv("PENFOLD_TEMPORAL_HOST", "temporal.example.com:7234")
+	_ = os.Setenv("PENFOLD_TEMPORAL_NAMESPACE", "my-namespace")
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -174,7 +174,7 @@ temporal:
 		t.Fatalf("Failed to write test config file: %v", err)
 	}
 
-	os.Setenv("PENFOLD_CONFIG_FILE", configPath)
+	_ = os.Setenv("PENFOLD_CONFIG_FILE", configPath)
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -227,11 +227,11 @@ temporal:
 		t.Fatalf("Failed to write test config file: %v", err)
 	}
 
-	os.Setenv("PENFOLD_CONFIG_FILE", configPath)
+	_ = os.Setenv("PENFOLD_CONFIG_FILE", configPath)
 	// Override specific values with environment variables.
-	os.Setenv("PENFOLD_SERVICE_NAME", "env-service")
-	os.Setenv("PENFOLD_ENVIRONMENT", "prod")
-	os.Setenv("PENFOLD_DB_HOST", "env-db.example.com")
+	_ = os.Setenv("PENFOLD_SERVICE_NAME", "env-service")
+	_ = os.Setenv("PENFOLD_ENVIRONMENT", "prod")
+	_ = os.Setenv("PENFOLD_DB_HOST", "env-db.example.com")
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -273,7 +273,7 @@ func TestLoadConfig_ValidationError_InvalidEnvironment(t *testing.T) {
 	defer clearEnv(t)
 
 	setMinimalEnv(t)
-	os.Setenv("PENFOLD_ENVIRONMENT", "invalid")
+	_ = os.Setenv("PENFOLD_ENVIRONMENT", "invalid")
 
 	_, err := LoadConfig()
 	if err == nil {
@@ -286,7 +286,7 @@ func TestLoadConfig_ValidationError_InvalidLogLevel(t *testing.T) {
 	defer clearEnv(t)
 
 	setMinimalEnv(t)
-	os.Setenv("PENFOLD_LOG_LEVEL", "invalid")
+	_ = os.Setenv("PENFOLD_LOG_LEVEL", "invalid")
 
 	_, err := LoadConfig()
 	if err == nil {
@@ -305,7 +305,7 @@ func TestLoadConfig_InvalidYAMLFile(t *testing.T) {
 		t.Fatalf("Failed to write test config file: %v", err)
 	}
 
-	os.Setenv("PENFOLD_CONFIG_FILE", configPath)
+	_ = os.Setenv("PENFOLD_CONFIG_FILE", configPath)
 
 	_, err := LoadConfig()
 	if err == nil {
@@ -317,7 +317,7 @@ func TestLoadConfig_MissingYAMLFile(t *testing.T) {
 	clearEnv(t)
 	defer clearEnv(t)
 
-	os.Setenv("PENFOLD_CONFIG_FILE", "/nonexistent/path/config.yaml")
+	_ = os.Setenv("PENFOLD_CONFIG_FILE", "/nonexistent/path/config.yaml")
 
 	_, err := LoadConfig()
 	if err == nil {
@@ -533,8 +533,8 @@ func TestLoadConfig_CaseInsensitiveEnv(t *testing.T) {
 	defer clearEnv(t)
 
 	setMinimalEnv(t)
-	os.Setenv("PENFOLD_ENVIRONMENT", "PROD")
-	os.Setenv("PENFOLD_LOG_LEVEL", "DEBUG")
+	_ = os.Setenv("PENFOLD_ENVIRONMENT", "PROD")
+	_ = os.Setenv("PENFOLD_LOG_LEVEL", "DEBUG")
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -677,10 +677,10 @@ func TestLoadConfig_SSLFromEnv(t *testing.T) {
 	defer clearEnv(t)
 
 	setMinimalEnv(t)
-	os.Setenv("PENFOLD_DB_SSL_MODE", "verify-full")
-	os.Setenv("PENFOLD_DB_SSL_CERT", "/path/to/client.crt")
-	os.Setenv("PENFOLD_DB_SSL_KEY", "/path/to/client.key")
-	os.Setenv("PENFOLD_DB_SSL_ROOT_CERT", "/path/to/root.crt")
+	_ = os.Setenv("PENFOLD_DB_SSL_MODE", "verify-full")
+	_ = os.Setenv("PENFOLD_DB_SSL_CERT", "/path/to/client.crt")
+	_ = os.Setenv("PENFOLD_DB_SSL_KEY", "/path/to/client.key")
+	_ = os.Setenv("PENFOLD_DB_SSL_ROOT_CERT", "/path/to/root.crt")
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -732,7 +732,7 @@ temporal:
 		t.Fatalf("Failed to write test config file: %v", err)
 	}
 
-	os.Setenv("PENFOLD_CONFIG_FILE", configPath)
+	_ = os.Setenv("PENFOLD_CONFIG_FILE", configPath)
 
 	cfg, err := LoadConfig()
 	if err != nil {

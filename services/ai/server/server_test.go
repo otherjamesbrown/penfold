@@ -900,15 +900,15 @@ func TestConcurrentRequests(t *testing.T) {
 			// Mix of different requests
 			switch id % 5 {
 			case 0:
-				server.GenerateEmbedding(ctx, &aiv1.EmbeddingRequest{Text: "test", TenantId: tenantID})
+				_, _ = server.GenerateEmbedding(ctx, &aiv1.EmbeddingRequest{Text: "test", TenantId: tenantID})
 			case 1:
-				server.GenerateSummary(ctx, &aiv1.SummaryRequest{Content: "test", TenantId: tenantID})
+				_, _ = server.GenerateSummary(ctx, &aiv1.SummaryRequest{Content: "test", TenantId: tenantID})
 			case 2:
-				server.ExtractAssertions(ctx, &aiv1.AssertionRequest{Content: "test", TenantId: tenantID})
+				_, _ = server.ExtractAssertions(ctx, &aiv1.AssertionRequest{Content: "test", TenantId: tenantID})
 			case 3:
-				server.ClassifyContent(ctx, &aiv1.ClassifyContentRequest{Content: "test", TenantId: tenantID, Categories: []string{"c1"}})
+				_, _ = server.ClassifyContent(ctx, &aiv1.ClassifyContentRequest{Content: "test", TenantId: tenantID, Categories: []string{"c1"}})
 			case 4:
-				server.GetModelStatus(ctx, &aiv1.GetModelStatusRequest{ModelType: modelTypePtr(aiv1.ModelType_MODEL_TYPE_LLM)})
+				_, _ = server.GetModelStatus(ctx, &aiv1.GetModelStatusRequest{ModelType: modelTypePtr(aiv1.ModelType_MODEL_TYPE_LLM)})
 			}
 
 			done <- true
@@ -938,7 +938,7 @@ func BenchmarkGenerateEmbedding(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		server.GenerateEmbedding(context.Background(), req)
+		_, _ = server.GenerateEmbedding(context.Background(), req)
 	}
 }
 
@@ -954,7 +954,7 @@ func BenchmarkGenerateSummary(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		server.GenerateSummary(context.Background(), req)
+		_, _ = server.GenerateSummary(context.Background(), req)
 	}
 }
 
@@ -969,7 +969,7 @@ func BenchmarkExtractAssertions(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		server.ExtractAssertions(context.Background(), req)
+		_, _ = server.ExtractAssertions(context.Background(), req)
 	}
 }
 
@@ -985,7 +985,7 @@ func BenchmarkClassifyContent(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		server.ClassifyContent(context.Background(), req)
+		_, _ = server.ClassifyContent(context.Background(), req)
 	}
 }
 
@@ -1000,7 +1000,7 @@ func BenchmarkGetModelStatus(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		server.GetModelStatus(context.Background(), req)
+		_, _ = server.GetModelStatus(context.Background(), req)
 	}
 }
 

@@ -122,7 +122,7 @@ func TestParseVTT_RealFile(t *testing.T) {
 
 	f, err := os.Open(testFile)
 	require.NoError(t, err)
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 
 	result, err := ParseVTT(f)
 	require.NoError(t, err)

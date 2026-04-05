@@ -1142,7 +1142,7 @@ func (r *Repository) MergeEntities(ctx context.Context, req MergeEntitiesRequest
 	if err != nil {
 		return nil, fmt.Errorf("begin transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck
 
 	// Transfer team memberships
 	result, err := tx.Exec(ctx, `

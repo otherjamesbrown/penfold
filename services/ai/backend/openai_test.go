@@ -508,7 +508,7 @@ func TestOpenAIBackend_CheckHealth(t *testing.T) {
 				t.Errorf("unexpected path: %s", r.URL.Path)
 			}
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"data": []map[string]string{
 					{"id": "gpt-4o"},
 				},
@@ -587,7 +587,7 @@ func TestOpenAIBackend_AzureConfig(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			receivedHeaders = r.Header
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]interface{}{"data": []interface{}{}})
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"data": []interface{}{}})
 		}))
 		defer server.Close()
 
@@ -615,7 +615,7 @@ func TestOpenAIBackend_OrganizationHeader(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedHeaders = r.Header
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{"data": []interface{}{}})
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"data": []interface{}{}})
 	}))
 	defer server.Close()
 

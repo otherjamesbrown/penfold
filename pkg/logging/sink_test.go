@@ -54,7 +54,7 @@ func TestDBSink_Batching(t *testing.T) {
 		BatchSize:     10,
 		FlushInterval: 100 * time.Millisecond,
 	})
-	defer sink.Close()
+	defer sink.Close() //nolint:errcheck
 
 	// Write 25 entries (should create 2 full batches of 10, leaving 5 buffered)
 	for i := 0; i < 25; i++ {
@@ -108,7 +108,7 @@ func TestDBSink_PeriodicFlush(t *testing.T) {
 		BatchSize:     100, // Large batch size so we don't trigger batch flush
 		FlushInterval: 200 * time.Millisecond,
 	})
-	defer sink.Close()
+	defer sink.Close() //nolint:errcheck
 
 	// Write a few entries
 	for i := 0; i < 5; i++ {
@@ -142,7 +142,7 @@ func TestDBSink_FullBuffer(t *testing.T) {
 		BatchSize:     100, // Large batch size
 		FlushInterval: 10 * time.Second,
 	})
-	defer sink.Close()
+	defer sink.Close() //nolint:errcheck
 
 	// Write more than buffer can hold
 	for i := 0; i < 20; i++ {
@@ -225,7 +225,7 @@ func TestDBSink_ConcurrentWrites(t *testing.T) {
 		BatchSize:     50,
 		FlushInterval: 100 * time.Millisecond,
 	})
-	defer sink.Close()
+	defer sink.Close() //nolint:errcheck
 
 	// Concurrent writes from multiple goroutines
 	const goroutines = 10
@@ -276,7 +276,7 @@ func TestDBSink_FieldsPreserved(t *testing.T) {
 		BatchSize:     10,
 		FlushInterval: 1 * time.Second,
 	})
-	defer sink.Close()
+	defer sink.Close() //nolint:errcheck
 
 	// Write entry with fields
 	testFields := map[string]string{

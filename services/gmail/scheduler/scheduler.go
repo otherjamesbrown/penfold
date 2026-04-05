@@ -378,7 +378,7 @@ func (s *IntelligentScheduler) Stop(ctx context.Context) error {
 	s.mu.Unlock()
 
 	// Stop accepting new tasks and wait for workers.
-	s.workerPool.Stop(ctx)
+	_ = s.workerPool.Stop(ctx)
 
 	// Wait for scheduler loop.
 	done := make(chan struct{})
@@ -707,7 +707,7 @@ func (s *IntelligentScheduler) processTask(ctx context.Context, workerID string)
 			SyncID:     task.ID,
 			ErrorCount: 1,
 		}
-		s.UpdateTaskResult(task.ID, result)
+		_ = s.UpdateTaskResult(task.ID, result)
 		return taskCtx.Err()
 	default:
 		// Task execution would happen here.

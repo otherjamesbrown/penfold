@@ -608,7 +608,7 @@ func (r *PostgresRepository) BatchCreateMentions(ctx context.Context, inputs []M
 	if err != nil {
 		return nil, fmt.Errorf("starting transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck
 
 	// Pre-allocate IDs from the sequence in a single query
 	// This allows us to use CopyFrom while still knowing the IDs
@@ -693,7 +693,7 @@ func (r *PostgresRepository) BatchResolveMentions(ctx context.Context, resolutio
 	if err != nil {
 		return nil, fmt.Errorf("starting transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck
 
 	for _, res := range resolutions {
 		query := `

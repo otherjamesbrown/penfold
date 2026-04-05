@@ -415,6 +415,6 @@ func (r *ComparisonRunner) createDivergenceSummary(decisions []ComparisonDecisio
 // generateComparisonID generates a unique comparison ID.
 func generateComparisonID() string {
 	b := make([]byte, 8)
-	rand.Read(b)
+	_, _ = rand.Read(b)
 	return "comp_" + hex.EncodeToString(b)
 }

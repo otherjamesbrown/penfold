@@ -525,19 +525,19 @@ func TestModelSelectionFlow_MultipleStages(t *testing.T) {
 	server := newTestServerWithEnvConfig(t, be)
 
 	// Call each handler
-	server.TriageContent(context.Background(), &aiv1.TriageContentRequest{
+	_, _ = server.TriageContent(context.Background(), &aiv1.TriageContentRequest{
 		Content:  "triage content",
 		TenantId: stringPtr("tenant-1"),
 	})
-	server.ExtractEntities(context.Background(), &aiv1.ExtractEntitiesRequest{
+	_, _ = server.ExtractEntities(context.Background(), &aiv1.ExtractEntitiesRequest{
 		Content:  "extract entities",
 		TenantId: stringPtr("tenant-1"),
 	})
-	server.ExtractAssertions(context.Background(), &aiv1.AssertionRequest{
+	_, _ = server.ExtractAssertions(context.Background(), &aiv1.AssertionRequest{
 		Content:  "extract assertions",
 		TenantId: stringPtr("tenant-1"),
 	})
-	server.GenerateEmbedding(context.Background(), &aiv1.EmbeddingRequest{
+	_, _ = server.GenerateEmbedding(context.Background(), &aiv1.EmbeddingRequest{
 		Text:     "embed this",
 		TenantId: stringPtr("tenant-1"),
 	})

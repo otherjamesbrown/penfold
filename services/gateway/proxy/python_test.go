@@ -332,7 +332,7 @@ func TestProxyRequest(t *testing.T) {
 		pythonServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]string{"source": "python"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"source": "python"})
 		}))
 		defer pythonServer.Close()
 
@@ -362,7 +362,7 @@ func TestProxyRequest(t *testing.T) {
 		}
 
 		var body map[string]string
-		json.Unmarshal(resp.Body, &body)
+		_ = json.Unmarshal(resp.Body, &body)
 		if body["source"] != "python" {
 			t.Errorf("expected source=python, got %s", body["source"])
 		}
@@ -373,7 +373,7 @@ func TestProxyRequest(t *testing.T) {
 		goServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]string{"source": "go"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"source": "go"})
 		}))
 		defer goServer.Close()
 
@@ -381,7 +381,7 @@ func TestProxyRequest(t *testing.T) {
 		pythonServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]string{"source": "python"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"source": "python"})
 		}))
 		defer pythonServer.Close()
 
@@ -416,7 +416,7 @@ func TestProxyRequest(t *testing.T) {
 		}
 
 		var body map[string]string
-		json.Unmarshal(resp.Body, &body)
+		_ = json.Unmarshal(resp.Body, &body)
 		if body["source"] != "go" {
 			t.Errorf("expected source=go, got %s", body["source"])
 		}
@@ -433,7 +433,7 @@ func TestProxyRequest(t *testing.T) {
 		pythonServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]string{"source": "python-fallback"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"source": "python-fallback"})
 		}))
 		defer pythonServer.Close()
 
@@ -568,7 +568,7 @@ func TestProxyRequestAsync(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"async": "response"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"async": "response"})
 	}))
 	defer server.Close()
 
@@ -608,7 +608,7 @@ func TestProxyHTTPHandler(t *testing.T) {
 			"received_method": r.Method,
 			"received_body":   string(body),
 		}
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer backendServer.Close()
 
@@ -650,7 +650,7 @@ func TestProxyHTTPHandler(t *testing.T) {
 		}
 
 		var resp map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &resp)
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
 
 		if resp["received_body"] != body {
 			t.Errorf("expected body to be forwarded, got %v", resp["received_body"])
@@ -699,7 +699,7 @@ func TestServiceDiscovery(t *testing.T) {
 	t.Run("deregister service", func(t *testing.T) {
 		sd := NewServiceDiscovery(logger)
 
-		sd.Register("temp-service", "http://localhost:9000")
+		_ = sd.Register("temp-service", "http://localhost:9000")
 		sd.Deregister("temp-service")
 
 		_, exists := sd.Get("temp-service")
@@ -711,9 +711,9 @@ func TestServiceDiscovery(t *testing.T) {
 	t.Run("get healthy services", func(t *testing.T) {
 		sd := NewServiceDiscovery(logger)
 
-		sd.Register("healthy-1", "http://localhost:8001")
-		sd.Register("healthy-2", "http://localhost:8002")
-		sd.Register("unhealthy", "http://localhost:8003")
+		_ = sd.Register("healthy-1", "http://localhost:8001")
+		_ = sd.Register("healthy-2", "http://localhost:8002")
+		_ = sd.Register("unhealthy", "http://localhost:8003")
 
 		sd.SetHealth("unhealthy", false)
 
@@ -726,8 +726,8 @@ func TestServiceDiscovery(t *testing.T) {
 	t.Run("list all services", func(t *testing.T) {
 		sd := NewServiceDiscovery(logger)
 
-		sd.Register("service-1", "http://localhost:8001")
-		sd.Register("service-2", "http://localhost:8002")
+		_ = sd.Register("service-1", "http://localhost:8001")
+		_ = sd.Register("service-2", "http://localhost:8002")
 
 		all := sd.List()
 		if len(all) != 2 {
@@ -738,7 +738,7 @@ func TestServiceDiscovery(t *testing.T) {
 	t.Run("set health updates timestamp", func(t *testing.T) {
 		sd := NewServiceDiscovery(logger)
 
-		sd.Register("test-health", "http://localhost:8000")
+		_ = sd.Register("test-health", "http://localhost:8000")
 
 		svc, _ := sd.Get("test-health")
 		originalTime := svc.LastCheck
@@ -772,7 +772,7 @@ func TestTransformResponse(t *testing.T) {
 		}
 
 		var output map[string]any
-		json.Unmarshal(result, &output)
+		_ = json.Unmarshal(result, &output)
 
 		if output["transformed"] != true {
 			t.Error("expected transformed=true")
@@ -791,7 +791,7 @@ func TestTransformResponse(t *testing.T) {
 		}
 
 		var output map[string]json.RawMessage
-		json.Unmarshal(result, &output)
+		_ = json.Unmarshal(result, &output)
 
 		if _, exists := output["response"]; !exists {
 			t.Error("expected response envelope")
@@ -807,7 +807,7 @@ func TestTransformResponse(t *testing.T) {
 		}
 
 		var output map[string]string
-		json.Unmarshal(result, &output)
+		_ = json.Unmarshal(result, &output)
 
 		if output["nested"] != "value" {
 			t.Errorf("expected nested=value, got %s", output["nested"])

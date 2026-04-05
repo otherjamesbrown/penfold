@@ -35,7 +35,7 @@ func TestNewAIBackedClient(t *testing.T) {
 		if client == nil {
 			t.Fatal("NewAIBackedClient() returned nil")
 		}
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 	})
 
 	t.Run("with nil config uses defaults", func(t *testing.T) {
@@ -46,7 +46,7 @@ func TestNewAIBackedClient(t *testing.T) {
 		if client == nil {
 			t.Fatal("NewAIBackedClient() returned nil")
 		}
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 	})
 
 	t.Run("with nil AIClient returns error", func(t *testing.T) {
@@ -75,7 +75,7 @@ func TestNewAIBackedClient(t *testing.T) {
 		if client == nil {
 			t.Fatal("NewAIBackedClient() returned nil")
 		}
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 	})
 }
 
@@ -84,7 +84,7 @@ func TestAIBackedClient_Embed_EmptyText(t *testing.T) {
 	mockAI := &MockAIClient{}
 	cfg := DefaultConfig()
 	client, _ := NewAIBackedClient(mockAI, cfg, logger, nil)
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	_, err := client.Embed(context.Background(), "")
 	if !errors.Is(err, ErrEmptyText) {
@@ -129,7 +129,7 @@ func TestAIBackedClient_Embed_WithMockAI(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewAIBackedClient() error = %v", err)
 		}
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 
 		result, err := client.Embed(context.Background(), "test text")
 		if err != nil {
@@ -161,7 +161,7 @@ func TestAIBackedClient_Embed_WithMockAI(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewAIBackedClient() error = %v", err)
 		}
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 
 		_, err = client.Embed(context.Background(), "test text")
 		if err == nil {
@@ -189,7 +189,7 @@ func TestAIBackedClient_Embed_WithMockAI(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewAIBackedClient() error = %v", err)
 		}
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 
 		_, err = client.Embed(context.Background(), "test text")
 		if err == nil {
@@ -220,7 +220,7 @@ func TestAIBackedClient_Embed_WithMockAI(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewAIBackedClient() error = %v", err)
 		}
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 
 		_, err = client.Embed(context.Background(), "test text")
 		if err == nil {
@@ -260,7 +260,7 @@ func TestAIBackedClient_Embed_WithCache(t *testing.T) {
 	}
 
 	client, _ := NewAIBackedClient(mockAI, cfg, logger, cache)
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	// First call - should hit AI service
 	_, err := client.Embed(context.Background(), "test text")
@@ -317,7 +317,7 @@ func TestAIBackedClient_Embed_ContextCanceled(t *testing.T) {
 	}
 
 	client, _ := NewAIBackedClient(mockAI, cfg, logger, nil)
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
@@ -355,7 +355,7 @@ func TestAIBackedClient_Embed_Retries(t *testing.T) {
 	}
 
 	client, _ := NewAIBackedClient(mockAI, cfg, logger, nil)
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	_, err := client.Embed(context.Background(), "test text")
 	if err != nil {
@@ -374,7 +374,7 @@ func TestAIBackedClient_BatchEmbed(t *testing.T) {
 	t.Run("empty batch", func(t *testing.T) {
 		cfg := DefaultConfig()
 		client, _ := NewAIBackedClient(mockAI, cfg, logger, nil)
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 
 		_, err := client.BatchEmbed(context.Background(), []string{})
 		if !errors.Is(err, ErrEmptyBatch) {
@@ -392,7 +392,7 @@ func TestAIBackedClient_BatchEmbed(t *testing.T) {
 			RetryDelay: DefaultRetryDelay,
 		}
 		client, _ := NewAIBackedClient(mockAI, cfg, logger, nil)
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 
 		_, err := client.BatchEmbed(context.Background(), []string{"a", "b", "c"})
 		if err == nil || !errors.Is(err, ErrBatchTooLarge) {
@@ -403,7 +403,7 @@ func TestAIBackedClient_BatchEmbed(t *testing.T) {
 	t.Run("empty text in batch", func(t *testing.T) {
 		cfg := DefaultConfig()
 		client, _ := NewAIBackedClient(mockAI, cfg, logger, nil)
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 
 		_, err := client.BatchEmbed(context.Background(), []string{"valid", "", "text"})
 		if err == nil {
@@ -437,7 +437,7 @@ func TestAIBackedClient_BatchEmbed(t *testing.T) {
 		}
 
 		client, _ := NewAIBackedClient(mockAI, cfg, logger, nil)
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 
 		results, err := client.BatchEmbed(context.Background(), []string{"text1", "text2"})
 		if err != nil {
@@ -457,7 +457,7 @@ func TestAIBackedClient_BatchEmbed(t *testing.T) {
 		}
 
 		// Pre-populate cache with one embedding
-		cache.Set(context.Background(), "cached text", embedding)
+		_ = cache.Set(context.Background(), "cached text", embedding)
 
 		var requestCount int64
 		mockAI := &MockAIClient{
@@ -481,7 +481,7 @@ func TestAIBackedClient_BatchEmbed(t *testing.T) {
 		}
 
 		client, _ := NewAIBackedClient(mockAI, cfg, logger, cache)
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 
 		results, err := client.BatchEmbed(context.Background(), []string{"cached text", "uncached text"})
 		if err != nil {
@@ -513,7 +513,7 @@ func TestAIBackedClient_Dimensions(t *testing.T) {
 	}
 
 	client, _ := NewAIBackedClient(mockAI, cfg, logger, nil)
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	if client.Dimensions() != 512 {
 		t.Errorf("Dimensions() = %d, want 512", client.Dimensions())
@@ -525,7 +525,7 @@ func TestAIBackedClient_ModelInfo(t *testing.T) {
 	mockAI := &MockAIClient{}
 	cfg := DefaultConfig()
 	client, _ := NewAIBackedClient(mockAI, cfg, logger, nil)
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	info := client.ModelInfo()
 	if info == nil {
@@ -566,11 +566,11 @@ func TestAIBackedClient_Stats(t *testing.T) {
 
 	cfg := DefaultConfig()
 	client, _ := NewAIBackedClient(mockAI, cfg, logger, nil)
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	// Make some requests
-	client.Embed(context.Background(), "text1")
-	client.Embed(context.Background(), "text2")
+	_, _ = client.Embed(context.Background(), "text1")
+	_, _ = client.Embed(context.Background(), "text2")
 
 	stats := client.Stats()
 	if stats.RequestsTotal != 2 {
@@ -581,7 +581,7 @@ func TestAIBackedClient_Stats(t *testing.T) {
 func TestMockClient(t *testing.T) {
 	t.Run("default behavior", func(t *testing.T) {
 		client := NewMockClient(512, nil)
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 
 		embedding, err := client.Embed(context.Background(), "test")
 		if err != nil {
@@ -601,7 +601,7 @@ func TestMockClient(t *testing.T) {
 		}
 
 		client := NewMockClient(3, customFunc)
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 
 		embedding, err := client.Embed(context.Background(), "test")
 		if err != nil {
@@ -619,7 +619,7 @@ func TestMockClient(t *testing.T) {
 
 	t.Run("batch embed", func(t *testing.T) {
 		client := NewMockClient(512, nil)
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 
 		embeddings, err := client.BatchEmbed(context.Background(), []string{"a", "b", "c"})
 		if err != nil {

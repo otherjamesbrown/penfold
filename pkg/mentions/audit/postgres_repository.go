@@ -88,7 +88,7 @@ func (r *PostgresRepository) GetTrace(ctx context.Context, id string) (*Trace, e
 	trace.ModelUsed = modelUsed.String
 	trace.TraceLevel = resolver.TraceLevel(traceLevel)
 	if configJSON != nil {
-		json.Unmarshal(configJSON, &trace.ConfigSnapshot)
+		_ = json.Unmarshal(configJSON, &trace.ConfigSnapshot)
 	}
 
 	return &trace, nil
@@ -269,10 +269,10 @@ func (r *PostgresRepository) GetStage(ctx context.Context, id int64) (*Stage, er
 	stage.ErrorMessage = errorMessage.String
 	stage.Status = resolver.StageStatus(status)
 	if inputJSON != nil {
-		json.Unmarshal(inputJSON, &stage.InputData)
+		_ = json.Unmarshal(inputJSON, &stage.InputData)
 	}
 	if outputJSON != nil {
-		json.Unmarshal(outputJSON, &stage.OutputData)
+		_ = json.Unmarshal(outputJSON, &stage.OutputData)
 	}
 
 	return &stage, nil
@@ -346,10 +346,10 @@ func (r *PostgresRepository) GetStagesForTrace(ctx context.Context, traceID stri
 		stage.ErrorMessage = errorMessage.String
 		stage.Status = resolver.StageStatus(status)
 		if inputJSON != nil {
-			json.Unmarshal(inputJSON, &stage.InputData)
+			_ = json.Unmarshal(inputJSON, &stage.InputData)
 		}
 		if outputJSON != nil {
-			json.Unmarshal(outputJSON, &stage.OutputData)
+			_ = json.Unmarshal(outputJSON, &stage.OutputData)
 		}
 
 		stages = append(stages, stage)
@@ -451,7 +451,7 @@ func (r *PostgresRepository) scanLLMCalls(rows interface{ Next() bool; Scan(dest
 		call.ResponseText = responseText.String
 		call.FallbackReason = fallbackReason.String
 		if parsedJSON != nil {
-			json.Unmarshal(parsedJSON, &call.ParsedOutput)
+			_ = json.Unmarshal(parsedJSON, &call.ParsedOutput)
 		}
 
 		calls = append(calls, call)
@@ -525,10 +525,10 @@ func (r *PostgresRepository) GetDecision(ctx context.Context, id int64) (*Decisi
 		decision.WasCorrect = &wasCorrect.Bool
 	}
 	if alternativesJSON != nil {
-		json.Unmarshal(alternativesJSON, &decision.Alternatives)
+		_ = json.Unmarshal(alternativesJSON, &decision.Alternatives)
 	}
 	if factorsJSON != nil {
-		json.Unmarshal(factorsJSON, &decision.Factors)
+		_ = json.Unmarshal(factorsJSON, &decision.Factors)
 	}
 
 	return &decision, nil
@@ -651,10 +651,10 @@ func (r *PostgresRepository) scanDecisions(rows interface{ Next() bool; Scan(des
 			decision.WasCorrect = &wasCorrect.Bool
 		}
 		if alternativesJSON != nil {
-			json.Unmarshal(alternativesJSON, &decision.Alternatives)
+			_ = json.Unmarshal(alternativesJSON, &decision.Alternatives)
 		}
 		if factorsJSON != nil {
-			json.Unmarshal(factorsJSON, &decision.Factors)
+			_ = json.Unmarshal(factorsJSON, &decision.Factors)
 		}
 
 		decisions = append(decisions, decision)
@@ -834,7 +834,7 @@ func (r *PostgresRepository) GetComparison(ctx context.Context, id string) (*Com
 	comp.UnanimousDecisions = int(unanimousDecisions.Int32)
 	comp.DivergentDecisions = int(divergentDecisions.Int32)
 	if divergenceJSON != nil {
-		json.Unmarshal(divergenceJSON, &comp.DivergenceSummary)
+		_ = json.Unmarshal(divergenceJSON, &comp.DivergenceSummary)
 	}
 
 	return &comp, nil
@@ -1031,7 +1031,7 @@ func (r *PostgresRepository) scanComparisonDecisions(rows interface{ Next() bool
 			d.GroundTruthEntityID = &groundTruthEntityID.Int64
 		}
 		if modelDecisionsJSON != nil {
-			json.Unmarshal(modelDecisionsJSON, &d.ModelDecisions)
+			_ = json.Unmarshal(modelDecisionsJSON, &d.ModelDecisions)
 		}
 
 		decisions = append(decisions, d)

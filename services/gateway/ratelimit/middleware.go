@@ -232,7 +232,7 @@ func UnaryServerInterceptorWithConfig(cfg *GRPCInterceptorConfig) grpc.UnaryServ
 				"x-ratelimit-limit", strconv.Itoa(limitInfo.Limit),
 				"x-ratelimit-remaining", strconv.Itoa(limitInfo.Remaining),
 			)
-			grpc.SetTrailer(ctx, trailer)
+			_ = grpc.SetTrailer(ctx, trailer)
 
 			return nil, status.Errorf(
 				codes.ResourceExhausted,
@@ -247,7 +247,7 @@ func UnaryServerInterceptorWithConfig(cfg *GRPCInterceptorConfig) grpc.UnaryServ
 				"x-ratelimit-limit", strconv.Itoa(limitInfo.Limit),
 				"x-ratelimit-remaining", strconv.Itoa(limitInfo.Remaining),
 			)
-			grpc.SetTrailer(ctx, trailer)
+			_ = grpc.SetTrailer(ctx, trailer)
 		}
 
 		return handler(ctx, req)

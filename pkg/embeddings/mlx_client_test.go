@@ -22,7 +22,7 @@ func TestNewMLXClient(t *testing.T) {
 		if client == nil {
 			t.Fatal("NewMLXClient() returned nil")
 		}
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 	})
 
 	t.Run("with nil config uses defaults", func(t *testing.T) {
@@ -33,7 +33,7 @@ func TestNewMLXClient(t *testing.T) {
 		if client == nil {
 			t.Fatal("NewMLXClient() returned nil")
 		}
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 	})
 
 	t.Run("with missing server URL returns error", func(t *testing.T) {
@@ -59,7 +59,7 @@ func TestNewMLXClient(t *testing.T) {
 		if client == nil {
 			t.Fatal("NewMLXClient() returned nil")
 		}
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 	})
 }
 
@@ -67,7 +67,7 @@ func TestMLXClient_Embed_EmptyText(t *testing.T) {
 	logger := newTestLogger()
 	cfg := DefaultConfig()
 	client, _ := NewMLXClient(cfg, logger, nil)
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	_, err := client.Embed(context.Background(), "")
 	if !errors.Is(err, ErrEmptyText) {
@@ -103,7 +103,7 @@ func TestMLXClient_Embed_WithMockServer(t *testing.T) {
 					Model: "mxbai-embed-large-v1",
 				}
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(resp)
+				_ = json.NewEncoder(w).Encode(resp)
 			}
 		}))
 		defer server.Close()
@@ -122,7 +122,7 @@ func TestMLXClient_Embed_WithMockServer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMLXClient() error = %v", err)
 		}
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 
 		result, err := client.Embed(context.Background(), "test text")
 		if err != nil {
@@ -151,7 +151,7 @@ func TestMLXClient_Embed_WithMockServer(t *testing.T) {
 					Model:     "mxbai-embed-large-v1",
 				}
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(resp)
+				_ = json.NewEncoder(w).Encode(resp)
 			}
 		}))
 		defer server.Close()
@@ -170,7 +170,7 @@ func TestMLXClient_Embed_WithMockServer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMLXClient() error = %v", err)
 		}
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 
 		result, err := client.Embed(context.Background(), "test text")
 		if err != nil {
@@ -185,7 +185,7 @@ func TestMLXClient_Embed_WithMockServer(t *testing.T) {
 	t.Run("server error", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("internal error"))
+			_, _ = w.Write([]byte("internal error"))
 		}))
 		defer server.Close()
 
@@ -203,7 +203,7 @@ func TestMLXClient_Embed_WithMockServer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMLXClient() error = %v", err)
 		}
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 
 		_, err = client.Embed(context.Background(), "test text")
 		if err == nil {
@@ -214,7 +214,7 @@ func TestMLXClient_Embed_WithMockServer(t *testing.T) {
 	t.Run("invalid response", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte("not valid json"))
+			_, _ = w.Write([]byte("not valid json"))
 		}))
 		defer server.Close()
 
@@ -232,7 +232,7 @@ func TestMLXClient_Embed_WithMockServer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMLXClient() error = %v", err)
 		}
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 
 		_, err = client.Embed(context.Background(), "test text")
 		if err == nil {
@@ -264,7 +264,7 @@ func TestMLXClient_Embed_WithCache(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -279,7 +279,7 @@ func TestMLXClient_Embed_WithCache(t *testing.T) {
 	}
 
 	client, _ := NewMLXClient(cfg, logger, cache)
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	// First call - should hit server
 	_, err := client.Embed(context.Background(), "test text")
@@ -329,7 +329,7 @@ func TestMLXClient_Embed_ContextCanceled(t *testing.T) {
 	}
 
 	client, _ := NewMLXClient(cfg, logger, nil)
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
@@ -346,7 +346,7 @@ func TestMLXClient_BatchEmbed(t *testing.T) {
 	t.Run("empty batch", func(t *testing.T) {
 		cfg := DefaultConfig()
 		client, _ := NewMLXClient(cfg, logger, nil)
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 
 		_, err := client.BatchEmbed(context.Background(), []string{})
 		if !errors.Is(err, ErrEmptyBatch) {
@@ -365,7 +365,7 @@ func TestMLXClient_BatchEmbed(t *testing.T) {
 			RetryDelay: DefaultRetryDelay,
 		}
 		client, _ := NewMLXClient(cfg, logger, nil)
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 
 		_, err := client.BatchEmbed(context.Background(), []string{"a", "b", "c"})
 		if err == nil || !errors.Is(err, ErrBatchTooLarge) {
@@ -376,7 +376,7 @@ func TestMLXClient_BatchEmbed(t *testing.T) {
 	t.Run("empty text in batch", func(t *testing.T) {
 		cfg := DefaultConfig()
 		client, _ := NewMLXClient(cfg, logger, nil)
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 
 		_, err := client.BatchEmbed(context.Background(), []string{"valid", "", "text"})
 		if err == nil {
@@ -406,7 +406,7 @@ func TestMLXClient_BatchEmbed(t *testing.T) {
 				},
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 		}))
 		defer server.Close()
 
@@ -421,7 +421,7 @@ func TestMLXClient_BatchEmbed(t *testing.T) {
 		}
 
 		client, _ := NewMLXClient(cfg, logger, nil)
-		defer client.Close()
+		defer client.Close() //nolint:errcheck
 
 		results, err := client.BatchEmbed(context.Background(), []string{"text1", "text2"})
 		if err != nil {
@@ -447,7 +447,7 @@ func TestMLXClient_Dimensions(t *testing.T) {
 	}
 
 	client, _ := NewMLXClient(cfg, logger, nil)
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	if client.Dimensions() != 512 {
 		t.Errorf("Dimensions() = %d, want 512", client.Dimensions())
@@ -458,7 +458,7 @@ func TestMLXClient_ModelInfo(t *testing.T) {
 	logger := newTestLogger()
 	cfg := DefaultConfig()
 	client, _ := NewMLXClient(cfg, logger, nil)
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	info := client.ModelInfo()
 	if info == nil {
@@ -523,7 +523,7 @@ func TestOllamaRequestFormats(t *testing.T) {
 		}
 
 		var parsed map[string]string
-		json.Unmarshal(data, &parsed)
+		_ = json.Unmarshal(data, &parsed)
 
 		if parsed["model"] != "test-model" {
 			t.Errorf("model = %q, want %q", parsed["model"], "test-model")
@@ -545,7 +545,7 @@ func TestOllamaRequestFormats(t *testing.T) {
 		}
 
 		var parsed map[string]interface{}
-		json.Unmarshal(data, &parsed)
+		_ = json.Unmarshal(data, &parsed)
 
 		if parsed["model"] != "test-model" {
 			t.Errorf("model = %v, want %q", parsed["model"], "test-model")

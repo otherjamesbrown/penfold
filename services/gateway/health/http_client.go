@@ -40,7 +40,7 @@ func (c *HTTPHealthClient) HealthCheck(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	// Read body to ensure connection is properly closed
 	_, _ = io.Copy(io.Discard, resp.Body)

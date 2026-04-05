@@ -61,7 +61,7 @@ func TestHTTPMiddleware(t *testing.T) {
 	// Create test handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	})
 
 	// Wrap with middleware

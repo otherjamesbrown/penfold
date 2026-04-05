@@ -418,7 +418,7 @@ func main() {
 			BatchSize:     100,
 			FlushInterval: 2 * time.Second,
 		})
-		defer dbSink.Close()
+		defer dbSink.Close() //nolint:errcheck
 
 		// Recreate logger with DB sink attached.
 		logCfg.Sinks = []logging.Sink{dbSink}
@@ -584,7 +584,7 @@ func main() {
 		if err != nil {
 			logger.Error("Failed to create gateway pipeline client", logging.Err(err))
 		} else {
-			defer gwConn.Close()
+			defer gwConn.Close() //nolint:errcheck
 			pipelineClient = pipelinev1.NewPipelineServiceClient(gwConn)
 			logger.Info("Gateway pipeline client created",
 				logging.F("gateway_addr", cfg.GatewayAddr),
@@ -1102,7 +1102,7 @@ func main() {
 		if err != nil {
 			return fmt.Errorf("embeddings service unreachable: %w", err)
 		}
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck
 		if resp.StatusCode != http.StatusOK {
 			return fmt.Errorf("embeddings service returned %d", resp.StatusCode)
 		}

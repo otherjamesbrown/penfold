@@ -274,7 +274,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
 }
 
 // verifyAuth verifies the request authentication.

@@ -145,7 +145,7 @@ func TestValidator_ValidateServices(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/health" {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"status":"healthy"}`))
+			_, _ = w.Write([]byte(`{"status":"healthy"}`))
 		}
 	}))
 	defer server.Close()
@@ -220,7 +220,7 @@ func TestValidator_ValidateServices_HTTPFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create listener: %v", err)
 	}
-	defer listener.Close()
+	defer listener.Close() //nolint:errcheck
 
 	// Accept connections in background (to pass TCP check)
 	go func() {
@@ -229,7 +229,7 @@ func TestValidator_ValidateServices_HTTPFails(t *testing.T) {
 			if err != nil {
 				return
 			}
-			conn.Close()
+			_ = conn.Close()
 		}
 	}()
 
@@ -363,7 +363,7 @@ func TestValidator_ValidateDatabase(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to create listener: %v", err)
 		}
-		defer listener.Close()
+		defer listener.Close() //nolint:errcheck
 
 		// Accept connections in background
 		go func() {
@@ -372,13 +372,13 @@ func TestValidator_ValidateDatabase(t *testing.T) {
 				if err != nil {
 					return
 				}
-				conn.Close()
+				_ = conn.Close()
 			}
 		}()
 
 		_, port, _ := net.SplitHostPort(listener.Addr().String())
 		portNum := 0
-		fmt.Sscanf(port, "%d", &portNum)
+		_, _ = fmt.Sscanf(port, "%d", &portNum)
 
 		v := NewValidator()
 		cfg := DatabaseValidationConfig{

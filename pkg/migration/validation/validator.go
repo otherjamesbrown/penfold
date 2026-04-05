@@ -188,7 +188,7 @@ func (v *Validator) validateService(ctx context.Context, svc ServiceInfo) Valida
 		result.Duration = time.Since(start)
 		return result
 	}
-	conn.Close()
+	_ = conn.Close()
 
 	// Check if HTTP health endpoint responds.
 	healthURL := fmt.Sprintf("http://%s/health", svc.HTTPAddr)
@@ -199,7 +199,7 @@ func (v *Validator) validateService(ctx context.Context, svc ServiceInfo) Valida
 		result.Duration = time.Since(start)
 		return result
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode >= 500 {
 		result.Status = StatusFail
@@ -279,7 +279,7 @@ func (v *Validator) validateEndpoint(ctx context.Context, svc ServiceInfo) Valid
 		result.Duration = time.Since(start)
 		return result
 	}
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 
 	// Use standard gRPC health check protocol.
 	healthClient := grpc_health_v1.NewHealthClient(conn)
@@ -376,7 +376,7 @@ func (v *Validator) validateDBConnection(ctx context.Context, cfg DatabaseValida
 		result.Duration = time.Since(start)
 		return result
 	}
-	conn.Close()
+	_ = conn.Close()
 
 	result.Status = StatusPass
 	result.Message = fmt.Sprintf("Database port reachable at %s", addr)
@@ -495,7 +495,7 @@ func (v *Validator) checkEndpointAvailable(ctx context.Context, name, endpoint s
 		result.Duration = time.Since(start)
 		return result
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	result.Status = StatusPass
 	result.Message = fmt.Sprintf("Endpoint available: %s", endpoint)

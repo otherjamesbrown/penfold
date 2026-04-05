@@ -43,8 +43,8 @@ func TestEnvOverrideAIRequestTimeout(t *testing.T) {
 	original := AIRequestTimeout
 	defer func() { AIRequestTimeout = original }()
 
-	os.Setenv("PENFOLD_AI_REQUEST_TIMEOUT", "30s")
-	defer os.Unsetenv("PENFOLD_AI_REQUEST_TIMEOUT")
+	_ = os.Setenv("PENFOLD_AI_REQUEST_TIMEOUT", "30s")
+	defer os.Unsetenv("PENFOLD_AI_REQUEST_TIMEOUT") //nolint:errcheck
 
 	// Re-apply init logic
 	if v := os.Getenv("PENFOLD_AI_REQUEST_TIMEOUT"); v != "" {
@@ -62,8 +62,8 @@ func TestEnvOverrideMLXTimeout(t *testing.T) {
 	original := MLXBackendTimeout
 	defer func() { MLXBackendTimeout = original }()
 
-	os.Setenv("PENFOLD_MLX_TIMEOUT", "2m")
-	defer os.Unsetenv("PENFOLD_MLX_TIMEOUT")
+	_ = os.Setenv("PENFOLD_MLX_TIMEOUT", "2m")
+	defer os.Unsetenv("PENFOLD_MLX_TIMEOUT") //nolint:errcheck
 
 	if v := os.Getenv("PENFOLD_MLX_TIMEOUT"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
@@ -80,8 +80,8 @@ func TestEnvOverrideInvalidDuration(t *testing.T) {
 	original := AIRequestTimeout
 	defer func() { AIRequestTimeout = original }()
 
-	os.Setenv("PENFOLD_AI_REQUEST_TIMEOUT", "not-a-duration")
-	defer os.Unsetenv("PENFOLD_AI_REQUEST_TIMEOUT")
+	_ = os.Setenv("PENFOLD_AI_REQUEST_TIMEOUT", "not-a-duration")
+	defer os.Unsetenv("PENFOLD_AI_REQUEST_TIMEOUT") //nolint:errcheck
 
 	if v := os.Getenv("PENFOLD_AI_REQUEST_TIMEOUT"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {

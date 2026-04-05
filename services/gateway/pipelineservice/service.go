@@ -560,7 +560,7 @@ func (s *Service) GetContentTrace(ctx context.Context, req *pipelinev1.GetConten
 		s.logger.Error("Error querying trace events", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to query trace events: %v", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var events []*pipelinev1.TraceEvent
 	for rows.Next() {
@@ -1134,7 +1134,7 @@ func (s *Service) GetTimeoutConfig(ctx context.Context, req *pipelinev1.GetTimeo
 		s.logger.Error("Error querying pipeline_operational_config", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to query timeout config: %v", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var entries []*pipelinev1.TimeoutEntry
 	for rows.Next() {
@@ -1717,7 +1717,7 @@ func (s *Service) ListPendingSources(ctx context.Context, req *pipelinev1.ListPe
 		s.logger.Error("Error querying pending sources", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to query pending sources: %v", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var sources []*pipelinev1.PendingSourceSummary
 	for rows.Next() {
@@ -2104,7 +2104,7 @@ func (s *Service) ListModels(ctx context.Context, req *pipelinev1.ListModelsRequ
 			// model_config table may not exist in older deployments — non-fatal.
 			s.logger.Debug("Could not query model_config for ListModels", logging.Err(err))
 		} else {
-			defer rows.Close()
+			defer rows.Close() //nolint:errcheck
 			for rows.Next() {
 				var configKey, modelName string
 				if err := rows.Scan(&configKey, &modelName); err != nil {
@@ -2433,7 +2433,7 @@ func (s *Service) queryClassificationRules(ctx context.Context, tenantID, name s
 	if err != nil {
 		return nil, fmt.Errorf("querying classification rules: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	// Group conditions by rule name
 	ruleMap := make(map[string]*pipelinev1.ClassificationRule)
@@ -2534,7 +2534,7 @@ func (s *Service) queryClassificationRulesRaw(ctx context.Context, tenantID stri
 	if err != nil {
 		return nil, fmt.Errorf("querying classification rules: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var rules []classRuleRaw
 	ruleIndex := map[string]int{}
@@ -2650,7 +2650,7 @@ func (s *Service) ListPipelineRoutes(ctx context.Context, req *pipelinev1.ListPi
 		s.logger.Error("Error listing pipeline routes", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to list pipeline routes: %v", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var routes []*pipelinev1.PipelineRoute
 	for rows.Next() {
@@ -2723,7 +2723,7 @@ func (s *Service) TestPipelineRoute(ctx context.Context, req *pipelinev1.TestPip
 		s.logger.Error("Error querying pipeline routes", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to query pipeline routes: %v", err)
 	}
-	defer routeRows.Close()
+	defer routeRows.Close() //nolint:errcheck
 
 	var matchedRoutes []*pipelinev1.MatchedRoute
 	for routeRows.Next() {

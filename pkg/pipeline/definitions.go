@@ -253,7 +253,7 @@ func (r *Repository) CreatePipeline(ctx context.Context, tenantID, name, fromPip
 	if err != nil {
 		return nil, fmt.Errorf("beginning transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck
 
 	// Check pipeline doesn't already exist.
 	var count int

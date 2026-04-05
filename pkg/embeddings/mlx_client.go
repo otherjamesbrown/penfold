@@ -245,7 +245,7 @@ func (c *MLXClient) doOpenAIEmbedRequest(ctx context.Context, text string) ([]fl
 		}
 		return nil, fmt.Errorf("%w: %v", ErrServiceUnavailable, err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	tracing.SetAttributes(span, tracing.AttrInt("http.status_code", resp.StatusCode))
 
@@ -324,7 +324,7 @@ func (c *MLXClient) doOllamaEmbedRequest(ctx context.Context, text string) ([]fl
 		}
 		return nil, fmt.Errorf("%w: %v", ErrServiceUnavailable, err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -547,7 +547,7 @@ func (c *MLXClient) doBatchEmbedRequest(ctx context.Context, texts []string) ([]
 		}
 		return nil, fmt.Errorf("%w: %v", ErrServiceUnavailable, err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

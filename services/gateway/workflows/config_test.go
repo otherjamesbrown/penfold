@@ -50,14 +50,14 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	savedEnv := make(map[string]string)
 	for _, key := range envVars {
 		savedEnv[key] = os.Getenv(key)
-		os.Unsetenv(key)
+		_ = os.Unsetenv(key)
 	}
 	defer func() {
 		for key, value := range savedEnv {
 			if value != "" {
-				os.Setenv(key, value)
+				_ = os.Setenv(key, value)
 			} else {
-				os.Unsetenv(key)
+				_ = os.Unsetenv(key)
 			}
 		}
 	}()
@@ -69,20 +69,20 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	})
 
 	t.Run("custom values from env", func(t *testing.T) {
-		os.Setenv("TEMPORAL_HOST_PORT", "temporal.example.com:7233")
-		os.Setenv("TEMPORAL_NAMESPACE", "custom-ns")
-		os.Setenv("WORKFLOW_DEFAULT_TASK_QUEUE", "custom-queue")
-		os.Setenv("WORKFLOW_INGESTION_TASK_QUEUE", "ingest-queue")
-		os.Setenv("WORKFLOW_SYNC_TASK_QUEUE", "sync-queue")
-		os.Setenv("WORKFLOW_REVIEW_TASK_QUEUE", "review-queue")
-		os.Setenv("WORKFLOW_ANALYSIS_TASK_QUEUE", "analysis-queue")
-		os.Setenv("WORKFLOW_START_TIMEOUT_SECONDS", "30")
-		os.Setenv("WORKFLOW_EXECUTION_TIMEOUT_HOURS", "48")
-		os.Setenv("WORKFLOW_TASK_TIMEOUT_MINUTES", "20")
-		os.Setenv("WORKFLOW_MAX_RETRY_ATTEMPTS", "5")
-		os.Setenv("WORKFLOW_RETRY_BACKOFF_SECONDS", "3")
-		os.Setenv("WORKFLOW_METRICS_ENABLED", "false")
-		os.Setenv("WORKFLOW_METRICS_PREFIX", "custom_prefix")
+		_ = os.Setenv("TEMPORAL_HOST_PORT", "temporal.example.com:7233")
+		_ = os.Setenv("TEMPORAL_NAMESPACE", "custom-ns")
+		_ = os.Setenv("WORKFLOW_DEFAULT_TASK_QUEUE", "custom-queue")
+		_ = os.Setenv("WORKFLOW_INGESTION_TASK_QUEUE", "ingest-queue")
+		_ = os.Setenv("WORKFLOW_SYNC_TASK_QUEUE", "sync-queue")
+		_ = os.Setenv("WORKFLOW_REVIEW_TASK_QUEUE", "review-queue")
+		_ = os.Setenv("WORKFLOW_ANALYSIS_TASK_QUEUE", "analysis-queue")
+		_ = os.Setenv("WORKFLOW_START_TIMEOUT_SECONDS", "30")
+		_ = os.Setenv("WORKFLOW_EXECUTION_TIMEOUT_HOURS", "48")
+		_ = os.Setenv("WORKFLOW_TASK_TIMEOUT_MINUTES", "20")
+		_ = os.Setenv("WORKFLOW_MAX_RETRY_ATTEMPTS", "5")
+		_ = os.Setenv("WORKFLOW_RETRY_BACKOFF_SECONDS", "3")
+		_ = os.Setenv("WORKFLOW_METRICS_ENABLED", "false")
+		_ = os.Setenv("WORKFLOW_METRICS_PREFIX", "custom_prefix")
 
 		cfg := LoadConfigFromEnv()
 

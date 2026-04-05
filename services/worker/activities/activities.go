@@ -75,7 +75,7 @@ func resolveTenantID(tenantID string) string {
 func safeRecordHeartbeat(ctx context.Context, details ...interface{}) {
 	defer func() {
 		// Recover from panic if not in activity context
-		recover()
+		_ = recover()
 	}()
 	activity.RecordHeartbeat(ctx, details...)
 }
@@ -307,7 +307,7 @@ func (a *Activities) GenerateEmbedding(ctx context.Context, input workflows.Gene
 	if err != nil {
 		return 0, fmt.Errorf("embedding service request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)

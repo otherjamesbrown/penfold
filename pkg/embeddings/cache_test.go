@@ -100,7 +100,7 @@ func TestMemoryCache_GetSet(t *testing.T) {
 
 	t.Run("returns copy not reference", func(t *testing.T) {
 		embedding := []float32{1.0, 2.0, 3.0}
-		cache.Set(ctx, "copy-test", embedding)
+		_ = cache.Set(ctx, "copy-test", embedding)
 
 		result, _ := cache.Get(ctx, "copy-test")
 		result[0] = 999.0 // Modify result
@@ -112,8 +112,8 @@ func TestMemoryCache_GetSet(t *testing.T) {
 	})
 
 	t.Run("update existing entry", func(t *testing.T) {
-		cache.Set(ctx, "update", []float32{1.0})
-		cache.Set(ctx, "update", []float32{2.0})
+		_ = cache.Set(ctx, "update", []float32{1.0})
+		_ = cache.Set(ctx, "update", []float32{2.0})
 
 		result, _ := cache.Get(ctx, "update")
 		if result[0] != 2.0 {
@@ -131,7 +131,7 @@ func TestMemoryCache_TTL(t *testing.T) {
 	ctx := context.Background()
 
 	embedding := []float32{1.0, 2.0, 3.0}
-	cache.Set(ctx, "expires", embedding)
+	_ = cache.Set(ctx, "expires", embedding)
 
 	// Should exist immediately
 	_, err := cache.Get(ctx, "expires")
@@ -158,15 +158,15 @@ func TestMemoryCache_LRU(t *testing.T) {
 	ctx := context.Background()
 
 	// Fill cache
-	cache.Set(ctx, "a", []float32{1.0})
-	cache.Set(ctx, "b", []float32{2.0})
-	cache.Set(ctx, "c", []float32{3.0})
+	_ = cache.Set(ctx, "a", []float32{1.0})
+	_ = cache.Set(ctx, "b", []float32{2.0})
+	_ = cache.Set(ctx, "c", []float32{3.0})
 
 	// Access "a" to make it recently used
-	cache.Get(ctx, "a")
+	_, _ = cache.Get(ctx, "a")
 
 	// Add new item - should evict "b" (least recently used)
-	cache.Set(ctx, "d", []float32{4.0})
+	_ = cache.Set(ctx, "d", []float32{4.0})
 
 	// "a" and "c" and "d" should exist
 	if _, err := cache.Get(ctx, "a"); err != nil {
@@ -189,7 +189,7 @@ func TestMemoryCache_Delete(t *testing.T) {
 	cache := NewMemoryCache(nil)
 	ctx := context.Background()
 
-	cache.Set(ctx, "delete-test", []float32{1.0})
+	_ = cache.Set(ctx, "delete-test", []float32{1.0})
 
 	err := cache.Delete(ctx, "delete-test")
 	if err != nil {
@@ -212,8 +212,8 @@ func TestMemoryCache_Clear(t *testing.T) {
 	cache := NewMemoryCache(nil)
 	ctx := context.Background()
 
-	cache.Set(ctx, "a", []float32{1.0})
-	cache.Set(ctx, "b", []float32{2.0})
+	_ = cache.Set(ctx, "a", []float32{1.0})
+	_ = cache.Set(ctx, "b", []float32{2.0})
 
 	err := cache.Clear(ctx)
 	if err != nil {
@@ -238,17 +238,17 @@ func TestMemoryCache_Size(t *testing.T) {
 		t.Errorf("Size() on new cache = %d, want 0", cache.Size())
 	}
 
-	cache.Set(ctx, "a", []float32{1.0})
+	_ = cache.Set(ctx, "a", []float32{1.0})
 	if cache.Size() != 1 {
 		t.Errorf("Size() after 1 Set() = %d, want 1", cache.Size())
 	}
 
-	cache.Set(ctx, "b", []float32{2.0})
+	_ = cache.Set(ctx, "b", []float32{2.0})
 	if cache.Size() != 2 {
 		t.Errorf("Size() after 2 Sets() = %d, want 2", cache.Size())
 	}
 
-	cache.Delete(ctx, "a")
+	_ = cache.Delete(ctx, "a")
 	if cache.Size() != 1 {
 		t.Errorf("Size() after Delete() = %d, want 1", cache.Size())
 	}
@@ -258,13 +258,13 @@ func TestMemoryCache_Stats(t *testing.T) {
 	cache := NewMemoryCache(&MemoryCacheConfig{MaxSize: 100, TTL: 0})
 	ctx := context.Background()
 
-	cache.Set(ctx, "test", []float32{1.0})
+	_ = cache.Set(ctx, "test", []float32{1.0})
 
 	// Cache hit
-	cache.Get(ctx, "test")
+	_, _ = cache.Get(ctx, "test")
 
 	// Cache miss
-	cache.Get(ctx, "nonexistent")
+	_, _ = cache.Get(ctx, "nonexistent")
 
 	stats := cache.Stats()
 
@@ -295,12 +295,12 @@ func TestMemoryCache_Concurrent(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			key := string(rune('a' + i%26))
-			cache.Set(ctx, key, []float32{float32(i)})
+			_ = cache.Set(ctx, key, []float32{float32(i)})
 		}(i)
 		go func(i int) {
 			defer wg.Done()
 			key := string(rune('a' + i%26))
-			cache.Get(ctx, key)
+			_, _ = cache.Get(ctx, key)
 		}(i)
 	}
 	wg.Wait()
@@ -434,7 +434,7 @@ func TestRedisCache_Delete(t *testing.T) {
 	cache, _ := NewRedisCache(nil, client)
 	ctx := context.Background()
 
-	cache.Set(ctx, "delete-test", []float32{1.0})
+	_ = cache.Set(ctx, "delete-test", []float32{1.0})
 
 	err := cache.Delete(ctx, "delete-test")
 	if err != nil {
@@ -452,8 +452,8 @@ func TestRedisCache_Clear(t *testing.T) {
 	cache, _ := NewRedisCache(nil, client)
 	ctx := context.Background()
 
-	cache.Set(ctx, "a", []float32{1.0})
-	cache.Set(ctx, "b", []float32{2.0})
+	_ = cache.Set(ctx, "a", []float32{1.0})
+	_ = cache.Set(ctx, "b", []float32{2.0})
 
 	err := cache.Clear(ctx)
 	if err != nil {
@@ -470,8 +470,8 @@ func TestRedisCache_Size(t *testing.T) {
 	cache, _ := NewRedisCache(nil, client)
 	ctx := context.Background()
 
-	cache.Set(ctx, "a", []float32{1.0})
-	cache.Set(ctx, "b", []float32{2.0})
+	_ = cache.Set(ctx, "a", []float32{1.0})
+	_ = cache.Set(ctx, "b", []float32{2.0})
 
 	size := cache.Size()
 	if size != 2 {

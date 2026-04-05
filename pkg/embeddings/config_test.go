@@ -42,16 +42,16 @@ func TestLoadFromEnv(t *testing.T) {
 	defer func() {
 		for k, v := range envVars {
 			if v == "" {
-				os.Unsetenv(k)
+				_ = os.Unsetenv(k)
 			} else {
-				os.Setenv(k, v)
+				_ = os.Setenv(k, v)
 			}
 		}
 	}()
 
 	// Clear all env vars first
 	for k := range envVars {
-		os.Unsetenv(k)
+		_ = os.Unsetenv(k)
 	}
 
 	t.Run("defaults when no env vars", func(t *testing.T) {
@@ -62,12 +62,12 @@ func TestLoadFromEnv(t *testing.T) {
 	})
 
 	t.Run("overrides from env vars", func(t *testing.T) {
-		os.Setenv(EnvServerURL, "http://custom:8080")
-		os.Setenv(EnvModel, "custom-model")
-		os.Setenv(EnvBatchSize, "64")
-		os.Setenv(EnvTimeout, "60")
-		os.Setenv(EnvDimensions, "512")
-		os.Setenv(EnvMaxRetries, "5")
+		_ = os.Setenv(EnvServerURL, "http://custom:8080")
+		_ = os.Setenv(EnvModel, "custom-model")
+		_ = os.Setenv(EnvBatchSize, "64")
+		_ = os.Setenv(EnvTimeout, "60")
+		_ = os.Setenv(EnvDimensions, "512")
+		_ = os.Setenv(EnvMaxRetries, "5")
 
 		cfg := LoadFromEnv()
 
@@ -92,10 +92,10 @@ func TestLoadFromEnv(t *testing.T) {
 	})
 
 	t.Run("ignores invalid values", func(t *testing.T) {
-		os.Setenv(EnvBatchSize, "invalid")
-		os.Setenv(EnvTimeout, "invalid")
-		os.Setenv(EnvDimensions, "-5")
-		os.Setenv(EnvMaxRetries, "-1")
+		_ = os.Setenv(EnvBatchSize, "invalid")
+		_ = os.Setenv(EnvTimeout, "invalid")
+		_ = os.Setenv(EnvDimensions, "-5")
+		_ = os.Setenv(EnvMaxRetries, "-1")
 
 		cfg := LoadFromEnv()
 

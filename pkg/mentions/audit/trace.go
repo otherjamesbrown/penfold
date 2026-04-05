@@ -200,7 +200,7 @@ func (t *Tracer) RecordDecision(
 		} else {
 			// Try JSON round-trip
 			data, _ := json.Marshal(factors)
-			json.Unmarshal(data, &factorsMap)
+			_ = json.Unmarshal(data, &factorsMap)
 		}
 	}
 
@@ -259,7 +259,7 @@ func (t *Tracer) FailTrace(traceID string, errorMsg string) error {
 // generateTraceID generates a unique trace ID.
 func generateTraceID() string {
 	b := make([]byte, 8)
-	rand.Read(b)
+	_, _ = rand.Read(b)
 	return "trace_" + hex.EncodeToString(b)
 }
 

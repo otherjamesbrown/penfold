@@ -361,7 +361,7 @@ func TestCreateScore_RequestFormat(t *testing.T) {
 			t.Errorf("expected value 1.0, got %f", req.Value)
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"id":"score-1"}`))
+		_, _ = w.Write([]byte(`{"id":"score-1"}`))
 	}))
 	defer server.Close()
 

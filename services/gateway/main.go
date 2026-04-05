@@ -230,7 +230,7 @@ func main() {
 		BatchSize:     100,
 		FlushInterval: 2 * time.Second,
 	})
-	defer dbSink.Close()
+	defer dbSink.Close() //nolint:errcheck
 
 	// Recreate logger with DB sink attached.
 	logCfg.Sinks = []logging.Sink{dbSink}

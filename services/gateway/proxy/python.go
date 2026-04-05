@@ -528,7 +528,7 @@ func (p *PythonProxy) doRequest(
 		p.recordDuration(backend, method, path, duration)
 		return nil, fmt.Errorf("executing request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	// Read response body.
 	respBody, err := io.ReadAll(resp.Body)
@@ -628,7 +628,7 @@ func (p *PythonProxy) ProxyHTTPHandler() http.Handler {
 			http.Error(w, "Failed to read request body", http.StatusBadRequest)
 			return
 		}
-		defer r.Body.Close()
+		defer r.Body.Close() //nolint:errcheck
 
 		// Extract headers.
 		headers := make(map[string]string)
@@ -659,7 +659,7 @@ func (p *PythonProxy) ProxyHTTPHandler() http.Handler {
 
 		// Write response.
 		w.WriteHeader(resp.StatusCode)
-		w.Write(resp.Body)
+		_, _ = w.Write(resp.Body)
 	})
 }
 
