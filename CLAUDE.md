@@ -6,6 +6,30 @@ This project uses [CoBuild](https://github.com/otherjamesbrown/cobuild) for pipe
 
 **Read `.cobuild/AGENTS.md` for full pipeline instructions, commands, and task completion protocol.**
 
+## Go toolchain — DO NOT FREESTYLE
+
+Penfold is a multi-module Go workspace. The Go version is **pinned** across all modules, `go.work`, and CI. Agents must not change it ad-hoc.
+
+- **Required Go directive:** `go 1.24.0` in every `go.mod` and in `go.work`
+- **CI runtime:** `GO_VERSION: "1.25"` in `.github/workflows/ci.yml` (GitHub runner toolchain; newer than the directive is fine, older is not)
+- **Linter:** `golangci-lint v2.8.0` via `golangci/golangci-lint-action@v7` — v1.x will fail typecheck on embedded generics
+
+**Rules:**
+
+1. Do not bump a single `go.mod` to a newer version in isolation — version drift between modules causes golangci-lint typecheck to fail on embedded fields (classic symptom: spurious `Next undefined` errors on Temporal interceptors). See pf-f4ffe2 post-mortem.
+2. If a new Go feature is genuinely required, bump **every** `go.mod`, `go.work`, **and** `GO_VERSION` in `ci.yml` in the same commit.
+3. Do not downgrade `golangci-lint-action` below `@v7` — earlier versions ship golangci-lint v1.x which can't typecheck the current SDK code.
+4. When generating a new module (`go mod init`), explicitly set `go 1.24.0` — don't let it pick up the local toolchain version.
+
+**Quick sanity check:**
+
+```bash
+# All go.mod files should report the same version
+for f in $(find . \( -name go.mod -o -name go.work \) -not -path "*/node_modules/*"); do
+  printf "%s\t%s\n" "$(grep '^go ' "$f" | awk '{print $2}')" "$f"
+done | sort -u
+```
+
 ## Building
 
 ```bash
