@@ -35,16 +35,21 @@ jobs:
       - name: golangci-lint (pkg)
         uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          version: v2.8.0
           working-directory: pkg
           args: --timeout=5m
 
       - name: golangci-lint (cmd/penf)
         uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          version: v2.8.0
           working-directory: cmd/penf
           args: --timeout=5m
+
+      - name: Install golangci-lint (for services step)
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.8.0
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
       - name: golangci-lint (services)
         run: |
