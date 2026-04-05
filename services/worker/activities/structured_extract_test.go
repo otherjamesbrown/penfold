@@ -242,6 +242,48 @@ func TestStructuredExtract_LangfuseMetadataPropagation(t *testing.T) {
 	phaseVals := md.Get("x-langfuse-phase-id")
 	require.Len(t, phaseVals, 1)
 	require.Equal(t, "phase-xyz-456", phaseVals[0])
+
+	stageVals := md.Get("x-langfuse-stage-name")
+	require.Len(t, stageVals, 1, "x-langfuse-stage-name must always be sent so the AI coordinator can name the generation")
+	require.Equal(t, "newsletter_extract", stageVals[0])
+}
+
+// TestStructuredExtract_StageNameSentWithoutTraceID verifies that x-langfuse-stage-name
+// is always sent even when LangfuseTraceID is empty. This ensures the AI coordinator
+// receives the stage name for generation naming even if Langfuse trace context is absent.
+func TestStructuredExtract_StageNameSentWithoutTraceID(t *testing.T) {
+	promptRepo := &mockPromptRepository{}
+
+	var capturedCtx context.Context
+	ai := &mockAIClient{
+		generateSummaryFn: func(ctx context.Context, req *aiv1.SummaryRequest) (*aiv1.SummaryResponse, error) {
+			capturedCtx = ctx
+			return &aiv1.SummaryResponse{Summary: `{}`, ModelUsed: "test-model"}, nil
+		},
+	}
+	a := newTestStructuredExtractActivities(ai, promptRepo)
+
+	_, err := a.StructuredExtract(context.Background(), StructuredExtractInput{
+		TenantID:        "tenant-1",
+		SourceID:        1,
+		StageName:       "newsletter_extract",
+		Content:         "some content",
+		LangfuseTraceID: "", // no trace ID
+		LangfusePhaseID: "",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, capturedCtx)
+
+	md, ok := metadata.FromOutgoingContext(capturedCtx)
+	require.True(t, ok, "gRPC outgoing metadata must be set — stage name is always sent")
+
+	stageVals := md.Get("x-langfuse-stage-name")
+	require.Len(t, stageVals, 1, "x-langfuse-stage-name must be sent even without trace ID")
+	require.Equal(t, "newsletter_extract", stageVals[0])
+
+	// When LangfuseTraceID is empty, trace-id and phase-id must NOT be sent.
+	traceVals := md.Get("x-langfuse-trace-id")
+	require.Empty(t, traceVals, "x-langfuse-trace-id must not be sent when LangfuseTraceID is empty")
 }
 
 // TestStructuredExtract_Success verifies the happy path returns the correct output fields.
