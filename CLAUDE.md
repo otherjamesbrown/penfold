@@ -25,7 +25,7 @@ Penfold is a multi-module Go workspace. The Go version is **pinned** across all 
 
 ```bash
 # All go.mod files should report the same version
-for f in $(find . -name go.mod -not -path "*/node_modules/*"); do
+for f in $(find . \( -name go.mod -o -name go.work \) -not -path "*/node_modules/*"); do
   printf "%s\t%s\n" "$(grep '^go ' "$f" | awk '{print $2}')" "$f"
 done | sort -u
 ```
