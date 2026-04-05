@@ -456,11 +456,14 @@ func TestRefresh_InvalidDuration(t *testing.T) {
 }
 
 func TestStartRefreshLoop(t *testing.T) {
+	var mu sync.Mutex
 	refreshCount := 0
 
 	db := &mockDB{
 		queryFunc: func(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+			mu.Lock()
 			refreshCount++
+			mu.Unlock()
 			data := [][]any{
 				{"timeout.ai_client.request", "150s"},
 			}
@@ -474,22 +477,38 @@ func TestStartRefreshLoop(t *testing.T) {
 	defer cancel()
 
 	// Start refresh loop with short interval
-	cfg.StartRefreshLoop(ctx, 10*time.Millisecond)
+	cfg.StartRefreshLoop(ctx, 20*time.Millisecond)
 
-	// Wait for a few refreshes
-	time.Sleep(50 * time.Millisecond)
-
-	if refreshCount < 2 {
-		t.Errorf("expected at least 2 refreshes, got %d", refreshCount)
+	// Poll for at least 2 refreshes with a generous timeout (handles loaded CI machines).
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		got := refreshCount
+		mu.Unlock()
+		if got >= 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
+
+	mu.Lock()
+	if refreshCount < 2 {
+		t.Errorf("expected at least 2 refreshes within 2s, got %d", refreshCount)
+	}
+	mu.Unlock()
 
 	// Cancel and ensure it stops
 	cancel()
-	time.Sleep(20 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
+	mu.Lock()
 	countAfterCancel := refreshCount
+	mu.Unlock()
 
-	time.Sleep(20 * time.Millisecond)
-	if refreshCount != countAfterCancel {
-		t.Error("expected refresh loop to stop after context cancellation")
+	time.Sleep(50 * time.Millisecond)
+	mu.Lock()
+	finalCount := refreshCount
+	mu.Unlock()
+	if finalCount != countAfterCancel {
+		t.Errorf("expected refresh loop to stop after context cancellation (was %d, now %d)", countAfterCancel, finalCount)
 	}
 }

@@ -2,6 +2,8 @@ package assertions
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -192,26 +194,38 @@ func TestRepository_GetAssertionSummary(t *testing.T) {
 func setupTestDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 
-	// Use DATABASE_URL from environment
 	dbURL := getTestDatabaseURL(t)
 
 	config, err := pgxpool.ParseConfig(dbURL)
 	require.NoError(t, err)
 
 	pool, err := pgxpool.NewWithConfig(context.Background(), config)
-	require.NoError(t, err)
+	if err != nil {
+		t.Skipf("Could not connect to test database: %v", err)
+		return nil
+	}
 
-	// Verify connection
-	err = pool.Ping(context.Background())
-	require.NoError(t, err)
+	if err := pool.Ping(context.Background()); err != nil {
+		pool.Close()
+		t.Skipf("Could not ping test database: %v", err)
+		return nil
+	}
 
 	return pool
 }
 
 // getTestDatabaseURL returns the database URL for testing.
+// Uses mTLS cert auth matching the dev02 pg_hba.conf configuration.
 func getTestDatabaseURL(t *testing.T) string {
 	t.Helper()
 
-	dbURL := "postgres://penfold:penfold123@dev02.brown.chat:5432/penfold?sslmode=disable"
-	return dbURL
+	if url := os.Getenv("DATABASE_URL"); url != "" {
+		return url
+	}
+
+	home, _ := os.UserHomeDir()
+	return fmt.Sprintf(
+		"postgres://penfold@dev02.brown.chat:5432/penfold?sslmode=verify-full&sslcert=%s/.postgresql/postgresql.crt&sslkey=%s/.postgresql/postgresql.key&sslrootcert=%s/.postgresql/root.crt",
+		home, home, home,
+	)
 }

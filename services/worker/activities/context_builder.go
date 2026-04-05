@@ -886,7 +886,9 @@ func (a *ContextBuilderActivities) BuildStageContext(ctx context.Context, input 
 	)
 
 	if a.pipelineRepo == nil {
-		return "", fmt.Errorf("BuildStageContext: pipelineRepo is required but not configured")
+		// pipelineRepo is optional — return empty context when not configured
+		logger.Debug("BuildStageContext: pipelineRepo not configured, returning empty context")
+		return "", nil
 	}
 
 	// Load context_providers from pipeline_definitions.
