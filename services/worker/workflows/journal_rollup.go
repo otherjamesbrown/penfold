@@ -78,23 +78,19 @@ type journalRollupOverviewOutput struct {
 
 // JournalRollupWorkflow orchestrates daily, weekly, and overview journal rollup for a tenant.
 // Each run:
-//   1. Gathers ledger entries + consolidations for reference_date.
-//   2. Generates (or updates) the daily journal summary.
-//   3. Conditionally generates the weekly summary when 7 daily summaries exist for the week.
-//   4. Updates the running overview summary.
-//   5. Records execution metadata.
+//  1. Gathers ledger entries + consolidations for reference_date.
+//  2. Generates (or updates) the daily journal summary.
+//  3. Conditionally generates the weekly summary when 7 daily summaries exist for the week.
+//  4. Updates the running overview summary.
+//  5. Records execution metadata.
 //
-// It accepts json.RawMessage because Temporal schedules pass workflow_params JSONB from the DB.
-func JournalRollupWorkflow(ctx workflow.Context, input json.RawMessage) (json.RawMessage, error) {
+// Temporal's data converter handles JSON serialisation of the typed input/output.
+func JournalRollupWorkflow(ctx workflow.Context, input pkgtemporal.JournalRollupInput) (*pkgtemporal.JournalRollupResult, error) {
 	logger := workflow.GetLogger(ctx)
 
-	// 1. Unmarshal input
-	var wfInput pkgtemporal.JournalRollupInput
-	if err := json.Unmarshal(input, &wfInput); err != nil {
-		return nil, fmt.Errorf("unmarshal journal rollup workflow input: %w", err)
-	}
+	wfInput := input
 
-	// 2. Default reference date to today
+	// 1. Default reference date to today
 	if wfInput.ReferenceDate == "" {
 		wfInput.ReferenceDate = workflow.Now(ctx).Format("2006-01-02")
 	}
@@ -182,15 +178,10 @@ func JournalRollupWorkflow(ctx workflow.Context, input json.RawMessage) (json.Ra
 	)
 
 	// 8. Build and return result
-	result := &pkgtemporal.JournalRollupResult{
+	return &pkgtemporal.JournalRollupResult{
 		DailyDigestID:    dailyOut.DigestID,
 		WeeklyDigestID:   weeklyOut.DigestID,
 		OverviewDigestID: overviewOut.DigestID,
 		Status:           "completed",
-	}
-	resultJSON, err := json.Marshal(result)
-	if err != nil {
-		return nil, fmt.Errorf("marshal journal rollup result: %w", err)
-	}
-	return resultJSON, nil
+	}, nil
 }

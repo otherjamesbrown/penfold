@@ -3,6 +3,7 @@ package workflows
 
 import (
 	"fmt"
+	"sort"
 
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/workflow"
@@ -103,11 +104,13 @@ func BatchPipelineWorkflow(ctx workflow.Context, input BatchPipelineInput) (*Bat
 	activeItems := make(map[int64]workflow.ChildWorkflowFuture, maxConcurrent)
 
 	// Helper: build the active items list for the progress snapshot.
+	// Keys are sorted for deterministic output (map iteration is non-deterministic).
 	activeItemsList := func() []int64 {
 		ids := make([]int64, 0, len(activeItems))
 		for id := range activeItems {
 			ids = append(ids, id)
 		}
+		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 		return ids
 	}
 
@@ -175,10 +178,15 @@ func BatchPipelineWorkflow(ctx workflow.Context, input BatchPipelineInput) (*Bat
 	for len(activeItems) > 0 {
 		selector := workflow.NewSelector(ctx)
 
-		// Add all active child futures.
-		for srcID, fut := range activeItems {
+		// Add all active child futures in sorted order for deterministic replay.
+		sortedKeys := make([]int64, 0, len(activeItems))
+		for id := range activeItems {
+			sortedKeys = append(sortedKeys, id)
+		}
+		sort.Slice(sortedKeys, func(i, j int) bool { return sortedKeys[i] < sortedKeys[j] })
+		for _, srcID := range sortedKeys {
 			srcID := srcID // capture for closure
-			fut := fut     // capture for closure
+			fut := activeItems[srcID]
 			selector.AddFuture(fut, func(f workflow.Future) {
 				var result PipelineResult
 				err := f.Get(ctx, &result)

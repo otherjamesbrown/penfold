@@ -1052,6 +1052,9 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// stageConfigMap is populated after FetchPipelineDefinition completes.
 	// It's declared here so the stageOpts closure can capture it.
 	var stageConfigMap map[string]PipelineStageConfig
+	// stageConfigSlice is the deterministically-ordered companion to stageConfigMap.
+	// Use this for any iteration in the workflow body — map iteration is non-deterministic.
+	var stageConfigSlice []PipelineStageConfig
 
 	// Per-stage timeout helper: returns activity options using per-stage config if available,
 	// falling back to the provided category defaults.
@@ -1456,6 +1459,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		} else if defOut.Found {
 			earlyPipelineDef = &defOut
 			stageConfigMap = buildStageConfigMap(earlyPipelineDef)
+			stageConfigSlice = buildStageConfigOrdered(earlyPipelineDef)
 			logger.Info("Early pipeline definition loaded for triage prompt overrides",
 				"pipeline", earlyPipelineName,
 				"stage_count", len(defOut.Stages),
@@ -1793,8 +1797,9 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			"pipeline", pipelineName,
 			"stage_count", len(defOut.Stages),
 		)
-		// Rebuild stageConfigMap with the resolved pipeline definition.
+		// Rebuild stageConfigMap and companion slice with the resolved pipeline definition.
 		stageConfigMap = buildStageConfigMap(pipelineDef)
+		stageConfigSlice = buildStageConfigOrdered(pipelineDef)
 	}
 
 	// Fail if the definition has no enabled stages — a misconfigured pipeline
@@ -1950,7 +1955,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		}
 
 		var skippedStages []SkippedStage
-		for _, sc := range orderedStages(stageConfigMap) {
+		for _, sc := range orderedStages(stageConfigSlice) {
 			if shouldGateStage(sc.Stage) {
 				logger.Info("pipeline stage skipped",
 					"source_id", input.SourceID,
@@ -2234,7 +2239,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// Runs before Stage 2 (NER/semantic) and any structured_extract stages.
 	var extractionContext string
 	hasActiveStructuredExtract := false
-	for _, sc := range stageConfigMap {
+	for _, sc := range stageConfigSlice {
 		if sc.StageKind == "structured_extract" && sc.Enabled && !shouldGateStage(sc.Stage) {
 			hasActiveStructuredExtract = true
 			break
@@ -2551,8 +2556,8 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	// Stages 2.5+: Structured Extract (generic loop)
 	// Runs for any pipeline stage where stage_kind == "structured_extract".
 	// Replaces bespoke newsletter_extract and notification_extract dispatch.
-	if stageConfigMap != nil {
-		for _, stage := range orderedStages(stageConfigMap) {
+	if stageConfigSlice != nil {
+		for _, stage := range orderedStages(stageConfigSlice) {
 			if stage.StageKind != "structured_extract" || !stage.Enabled {
 				continue
 			}
@@ -3088,8 +3093,9 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	var embeddingID int64
 
 	// Build []pkgtemporal.PipelineStageConfig filtered to embedding stage_kind.
+	// Iterate stageConfigSlice (sorted) so the result is deterministic — map iteration is not.
 	var embeddingStages []pkgtemporal.PipelineStageConfig
-	for _, sc := range stageConfigMap {
+	for _, sc := range stageConfigSlice {
 		if sc.StageKind == "embedding" {
 			embeddingStages = append(embeddingStages, pkgtemporal.PipelineStageConfig{
 				Stage:          sc.Stage,
@@ -3106,7 +3112,6 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			})
 		}
 	}
-	embeddingStages = pkgtemporal.OrderedPipelineStages(embeddingStages)
 
 	dispatchReg := pkgtemporal.NewExecutorRegistry(&pkgtemporal.NoOpLangfuseReporter{})
 	dispatchReg.Register("embedding", &pkgtemporal.EmbeddingExecutor{})
@@ -3137,12 +3142,13 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		// overwrote err on success; we replicate that here explicitly.
 		err = nil
 		// Extract embeddingID from the output of any succeeded embedding stage.
-		for _, out := range dispatchOutputs {
-			if out.Success && out.RawData != nil {
-				var result pkgtemporal.EmbeddingResult
-				if jsonErr := json.Unmarshal(out.RawData, &result); jsonErr == nil && result.EmbeddingID != 0 {
-					embeddingID = result.EmbeddingID
-				}
+		// Iterate embeddingStages (sorted slice) and look up in dispatchOutputs —
+		// ranging over the map directly would be non-deterministic.
+		// EmbeddingExecutor sets StageOutput.EmbeddingID directly to avoid json.Unmarshal
+		// in the workflow body (which workflowcheck flags as non-deterministic).
+		for _, stage := range embeddingStages {
+			if out, ok := dispatchOutputs[stage.Stage]; ok && out.Success && out.EmbeddingID != 0 {
+				embeddingID = out.EmbeddingID
 			}
 		}
 	}
@@ -3221,7 +3227,7 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 	})
 
 	completedSteps := 0
-	for _, s := range stageConfigMap {
+	for _, s := range stageConfigSlice {
 		if s.Enabled && !shouldGateStage(s.Stage) {
 			completedSteps++
 		}
@@ -3630,9 +3636,10 @@ func buildStageConfigMap(def *FetchPipelineDefinitionOutput) map[string]Pipeline
 	return m
 }
 
-// stageConfigMapKeys returns the stage names from a stageConfigMap as a slice.
+// stageConfigMapKeys returns the stage names from a stageConfigMap as a sorted slice.
 // Returns nil when the map is nil (no pipeline definition loaded), which signals
 // the extraction activity to record all stages for backward compatibility.
+// Keys are sorted for deterministic output — map iteration order is not stable.
 func stageConfigMapKeys(m map[string]PipelineStageConfig) []string {
 	if m == nil {
 		return nil
@@ -3641,6 +3648,7 @@ func stageConfigMapKeys(m map[string]PipelineStageConfig) []string {
 	for k := range m {
 		keys = append(keys, k)
 	}
+	sort.Strings(keys)
 	return keys
 }
 
@@ -3671,15 +3679,34 @@ func promptOverrideForStage(stageConfigMap map[string]PipelineStageConfig, stage
 	return cfg.PromptOverride
 }
 
-// orderedStages returns pipeline stages sorted by StageOrder ascending.
-// Used by the generic structured_extract loop to process stages in definition order.
-func orderedStages(m map[string]PipelineStageConfig) []PipelineStageConfig {
-	stages := make([]PipelineStageConfig, 0, len(m))
-	for _, s := range m {
-		stages = append(stages, s)
+// orderedStages returns a copy of stages sorted by StageOrder ascending, with Stage name
+// as a tiebreaker for full determinism. Accepts a slice (not a map) so the workflow body
+// can call it without triggering a workflowcheck map-iteration violation.
+func orderedStages(stages []PipelineStageConfig) []PipelineStageConfig {
+	sorted := make([]PipelineStageConfig, len(stages))
+	copy(sorted, stages)
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].StageOrder != sorted[j].StageOrder {
+			return sorted[i].StageOrder < sorted[j].StageOrder
+		}
+		return sorted[i].Stage < sorted[j].Stage
+	})
+	return sorted
+}
+
+// buildStageConfigOrdered returns pipeline stages sorted deterministically by (StageOrder, Stage).
+// Use this alongside buildStageConfigMap so the workflow has a stable slice for iteration.
+func buildStageConfigOrdered(def *FetchPipelineDefinitionOutput) []PipelineStageConfig {
+	if def == nil || !def.Found || len(def.Stages) == 0 {
+		return nil
 	}
+	stages := make([]PipelineStageConfig, len(def.Stages))
+	copy(stages, def.Stages)
 	sort.Slice(stages, func(i, j int) bool {
-		return stages[i].StageOrder < stages[j].StageOrder
+		if stages[i].StageOrder != stages[j].StageOrder {
+			return stages[i].StageOrder < stages[j].StageOrder
+		}
+		return stages[i].Stage < stages[j].Stage
 	})
 	return stages
 }

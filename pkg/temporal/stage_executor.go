@@ -89,6 +89,9 @@ type StageOutput struct {
 	StageName string `json:"stage_name,omitempty"`
 	// StageKind identifies the executor kind (e.g. "llm", "embedding").
 	StageKind string `json:"stage_kind,omitempty"`
+	// EmbeddingID is set by EmbeddingExecutor so the workflow can read the result
+	// without a json.Unmarshal call in the workflow body (which workflowcheck flags).
+	EmbeddingID int64 `json:"embedding_id,omitempty"`
 }
 
 // StageExecutor is implemented by all generic executor types (EmbeddingExecutor,

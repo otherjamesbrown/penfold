@@ -90,17 +90,13 @@ type rollupRecordMetadataInput struct {
 
 // DigestRollupWorkflow orchestrates content gathering, LLM summarisation, delivery, and
 // execution history recording for a tenant-configured digest rollup schedule.
-// It accepts json.RawMessage because Temporal schedules pass workflow_params JSONB from the DB.
-func DigestRollupWorkflow(ctx workflow.Context, input json.RawMessage) (json.RawMessage, error) {
+// Temporal's data converter handles JSON serialisation of the typed input/output.
+func DigestRollupWorkflow(ctx workflow.Context, input pkgtemporal.DigestRollupInput) (*pkgtemporal.DigestRollupResult, error) {
 	logger := workflow.GetLogger(ctx)
 
-	// 1. Unmarshal input
-	var wfInput pkgtemporal.DigestRollupInput
-	if err := json.Unmarshal(input, &wfInput); err != nil {
-		return nil, fmt.Errorf("unmarshal digest rollup workflow input: %w", err)
-	}
+	wfInput := input
 
-	// 2. Default reference date to today
+	// 1. Default reference date to today
 	if wfInput.ReferenceDate == "" {
 		wfInput.ReferenceDate = workflow.Now(ctx).Format("2006-01-02")
 	}
@@ -198,7 +194,7 @@ func DigestRollupWorkflow(ctx workflow.Context, input json.RawMessage) (json.Raw
 	)
 
 	// 8. Build and return result
-	result := &pkgtemporal.DigestRollupResult{
+	return &pkgtemporal.DigestRollupResult{
 		ItemsGathered:   gatherOut.Count,
 		ItemsSummarized: generateOut.ItemCount,
 		WindowFrom:      gatherOut.WindowFrom,
@@ -208,12 +204,7 @@ func DigestRollupWorkflow(ctx workflow.Context, input json.RawMessage) (json.Raw
 		ModelUsed:       generateOut.ModelUsed,
 		InputTokens:     generateOut.InputTokenCount,
 		OutputTokens:    generateOut.OutputTokenCount,
-	}
-	resultJSON, err := json.Marshal(result)
-	if err != nil {
-		return nil, fmt.Errorf("marshal digest rollup result: %w", err)
-	}
-	return resultJSON, nil
+	}, nil
 }
 
 // digestRollupTraceName returns a Langfuse-style trace name for a digest rollup run.

@@ -62,17 +62,13 @@ type weeklyThemeUpdateInput struct {
 // It gathers daily digests for the week, the previous weekly rollup, and active project themes,
 // calls the LLM to produce a structured weekly narrative, persists the result, and updates
 // theme running contexts from the generated output.
-// It accepts json.RawMessage as input because Temporal schedules pass workflow_params JSONB from the DB.
-func WeeklyDigestWorkflow(ctx workflow.Context, input json.RawMessage) (json.RawMessage, error) {
+// Temporal's data converter handles JSON serialisation of the typed input/output.
+func WeeklyDigestWorkflow(ctx workflow.Context, input WeeklyDigestWorkflowInput) (*DigestWorkflowOutput, error) {
 	logger := workflow.GetLogger(ctx)
 
-	// 1. Unmarshal input
-	var wfInput WeeklyDigestWorkflowInput
-	if err := json.Unmarshal(input, &wfInput); err != nil {
-		return nil, fmt.Errorf("unmarshal weekly digest workflow input: %w", err)
-	}
+	wfInput := input
 
-	// 2. Default empty date to last Monday (for scheduled runs that don't pass a date)
+	// 1. Default empty date to last Monday (for scheduled runs that don't pass a date)
 	if wfInput.Date == "" {
 		now := workflow.Now(ctx)
 		weekday := now.Weekday()
@@ -126,35 +122,25 @@ func WeeklyDigestWorkflow(ctx workflow.Context, input json.RawMessage) (json.Raw
 
 	// 4. Skip if weekly digest already exists
 	if gatherOut.AlreadyExists {
-		result := &DigestWorkflowOutput{
-			DigestID: gatherOut.ExistingDigestID,
-			Skipped:  true,
-			Reason:   "weekly digest already exists",
-		}
-		resultJSON, err := json.Marshal(result)
-		if err != nil {
-			return nil, fmt.Errorf("marshal skipped result: %w", err)
-		}
 		logger.Info("Weekly digest already exists, skipping",
 			"existing_digest_id", gatherOut.ExistingDigestID,
 		)
-		return resultJSON, nil
+		return &DigestWorkflowOutput{
+			DigestID: gatherOut.ExistingDigestID,
+			Skipped:  true,
+			Reason:   "weekly digest already exists",
+		}, nil
 	}
 
 	// 5. Skip if no daily digests exist for the week
 	if !gatherOut.HasContent {
-		result := &DigestWorkflowOutput{
-			Skipped: true,
-			Reason:  "no daily digests for week",
-		}
-		resultJSON, err := json.Marshal(result)
-		if err != nil {
-			return nil, fmt.Errorf("marshal skipped result: %w", err)
-		}
 		logger.Info("No daily digests for week, skipping weekly digest generation",
 			"week_start", weekStart.Format("2006-01-02"),
 		)
-		return resultJSON, nil
+		return &DigestWorkflowOutput{
+			Skipped: true,
+			Reason:  "no daily digests for week",
+		}, nil
 	}
 
 	// 6. Generate weekly narrative via LLM
@@ -208,13 +194,8 @@ func WeeklyDigestWorkflow(ctx workflow.Context, input json.RawMessage) (json.Raw
 	}
 
 	// 9. Return result
-	result := &DigestWorkflowOutput{
+	return &DigestWorkflowOutput{
 		DigestID: saveOut.DigestID,
 		Skipped:  false,
-	}
-	resultJSON, err := json.Marshal(result)
-	if err != nil {
-		return nil, fmt.Errorf("marshal weekly digest result: %w", err)
-	}
-	return resultJSON, nil
+	}, nil
 }

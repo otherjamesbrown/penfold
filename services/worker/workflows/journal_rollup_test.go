@@ -80,8 +80,6 @@ func TestJournalRollupWorkflow_DailyOnly(t *testing.T) {
 		ScheduleID:    "sched-journal-001",
 		ReferenceDate: "2026-03-06",
 	}
-	inputJSON, err := json.Marshal(wfInput)
-	require.NoError(t, err)
 
 	gatherOut := &journalRollupGatherOutput{
 		LedgerEntries:     json.RawMessage(`[{"id":1,"category":"work","content":"Wrote tests","source":"manual"}]`),
@@ -129,16 +127,13 @@ func TestJournalRollupWorkflow_DailyOnly(t *testing.T) {
 		return in.TenantID == "tenant-abc" && in.WorkflowType == "journal_rollup"
 	})).Return(nil)
 
-	env.ExecuteWorkflow(JournalRollupWorkflow, json.RawMessage(inputJSON))
+	env.ExecuteWorkflow(JournalRollupWorkflow, wfInput)
 
 	require.True(t, env.IsWorkflowCompleted())
 	require.NoError(t, env.GetWorkflowError())
 
-	var resultJSON json.RawMessage
-	require.NoError(t, env.GetWorkflowResult(&resultJSON))
-
 	var result pkgtemporal.JournalRollupResult
-	require.NoError(t, json.Unmarshal(resultJSON, &result))
+	require.NoError(t, env.GetWorkflowResult(&result))
 	require.Equal(t, "daily-2026-03-06", result.DailyDigestID)
 	require.Equal(t, "", result.WeeklyDigestID, "weekly digest ID must be empty when skipped")
 	require.Equal(t, "overview-current", result.OverviewDigestID)
@@ -157,8 +152,6 @@ func TestJournalRollupWorkflow_FullPath(t *testing.T) {
 		ScheduleID:    "sched-journal-001",
 		ReferenceDate: "2026-03-06",
 	}
-	inputJSON, err := json.Marshal(wfInput)
-	require.NoError(t, err)
 
 	gatherOut := &journalRollupGatherOutput{
 		LedgerEntries:     json.RawMessage(`[{"id":1,"category":"work","content":"Week done","source":"manual"}]`),
@@ -204,16 +197,13 @@ func TestJournalRollupWorkflow_FullPath(t *testing.T) {
 
 	acts.On("RecordExecutionMetadataJournal", mock.Anything, mock.Anything).Return(nil)
 
-	env.ExecuteWorkflow(JournalRollupWorkflow, json.RawMessage(inputJSON))
+	env.ExecuteWorkflow(JournalRollupWorkflow, wfInput)
 
 	require.True(t, env.IsWorkflowCompleted())
 	require.NoError(t, env.GetWorkflowError())
 
-	var resultJSON json.RawMessage
-	require.NoError(t, env.GetWorkflowResult(&resultJSON))
-
 	var result pkgtemporal.JournalRollupResult
-	require.NoError(t, json.Unmarshal(resultJSON, &result))
+	require.NoError(t, env.GetWorkflowResult(&result))
 	require.Equal(t, "daily-2026-03-06", result.DailyDigestID)
 	require.Equal(t, "weekly-2026-w09", result.WeeklyDigestID)
 	require.Equal(t, "overview-current", result.OverviewDigestID)
@@ -232,8 +222,6 @@ func TestJournalRollupWorkflow_DefaultsReferenceDate(t *testing.T) {
 		TenantID:   "tenant-abc",
 		ScheduleID: "sched-journal-001",
 	}
-	inputJSON, err := json.Marshal(wfInput)
-	require.NoError(t, err)
 
 	gatherOut := &journalRollupGatherOutput{
 		LedgerEntries:     json.RawMessage(`[]`),
@@ -261,7 +249,7 @@ func TestJournalRollupWorkflow_DefaultsReferenceDate(t *testing.T) {
 	acts.On("GenerateOverviewSummary", mock.Anything, mock.Anything).Return(overviewOut, nil)
 	acts.On("RecordExecutionMetadataJournal", mock.Anything, mock.Anything).Return(nil)
 
-	env.ExecuteWorkflow(JournalRollupWorkflow, json.RawMessage(inputJSON))
+	env.ExecuteWorkflow(JournalRollupWorkflow, wfInput)
 
 	require.True(t, env.IsWorkflowCompleted())
 	require.NoError(t, env.GetWorkflowError())
@@ -279,13 +267,11 @@ func TestJournalRollupWorkflow_GatherActivityError(t *testing.T) {
 		ScheduleID:    "sched-journal-001",
 		ReferenceDate: "2026-03-06",
 	}
-	inputJSON, err := json.Marshal(wfInput)
-	require.NoError(t, err)
 
 	acts.On("GatherDailyLedgerEntries", mock.Anything, mock.Anything).
 		Return((*journalRollupGatherOutput)(nil), rollupTestError("ledger query failed"))
 
-	env.ExecuteWorkflow(JournalRollupWorkflow, json.RawMessage(inputJSON))
+	env.ExecuteWorkflow(JournalRollupWorkflow, wfInput)
 
 	require.True(t, env.IsWorkflowCompleted())
 	require.Error(t, env.GetWorkflowError())

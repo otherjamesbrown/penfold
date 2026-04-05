@@ -108,9 +108,10 @@ func (e *EmbeddingExecutor) Execute(ctx context.Context, stage PipelineStageConf
 	}
 
 	return StageOutput{
-		Success:   true,
-		RawData:   raw,
-		StageName: stage.Stage,
-		StageKind: stage.StageKind,
+		Success:     true,
+		RawData:     raw,
+		EmbeddingID: embeddingID,
+		StageName:   stage.Stage,
+		StageKind:   stage.StageKind,
 	}, nil
 }

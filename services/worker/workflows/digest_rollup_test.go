@@ -66,18 +66,15 @@ func setupDigestRollupEnv(t *testing.T) (*testsuite.TestWorkflowEnvironment, *di
 func TestDigestRollupWorkflow_Success(t *testing.T) {
 	env, acts := setupDigestRollupEnv(t)
 
-	sourceFilter := json.RawMessage(`{"subtypes":["NOTIFICATION"],"sources":["aha"]}`)
 	wfInput := pkgtemporal.DigestRollupInput{
 		TenantID:     "tenant-abc",
 		ScheduleID:   "sched-001",
 		Name:         "aha-notifications",
 		Window:       "7d",
-		SourceFilter: sourceFilter,
+		SourceFilter: json.RawMessage(`{"subtypes":["NOTIFICATION"],"sources":["aha"]}`),
 		Delivery:     []string{"store"},
 		MaxItems:     25,
 	}
-	inputJSON, err := json.Marshal(wfInput)
-	require.NoError(t, err)
 
 	gatherOut := &digestRollupGatherOutput{
 		Items:      json.RawMessage(`[{"source_id":1,"subject":"AHA update"}]`),
@@ -115,16 +112,13 @@ func TestDigestRollupWorkflow_Success(t *testing.T) {
 		return in.TenantID == "tenant-abc" && in.WorkflowType == "digest_rollup" && in.DigestID == "digest-xyz"
 	})).Return(nil)
 
-	env.ExecuteWorkflow(DigestRollupWorkflow, json.RawMessage(inputJSON))
+	env.ExecuteWorkflow(DigestRollupWorkflow, wfInput)
 
 	require.True(t, env.IsWorkflowCompleted())
 	require.NoError(t, env.GetWorkflowError())
 
-	var resultJSON json.RawMessage
-	require.NoError(t, env.GetWorkflowResult(&resultJSON))
-
 	var result pkgtemporal.DigestRollupResult
-	require.NoError(t, json.Unmarshal(resultJSON, &result))
+	require.NoError(t, env.GetWorkflowResult(&result))
 	require.Equal(t, "digest-xyz", result.DigestID)
 	require.Equal(t, 1, result.ItemsGathered)
 	require.Equal(t, 1, result.ItemsSummarized)
@@ -152,13 +146,11 @@ func TestDigestRollupWorkflow_GatherActivityError(t *testing.T) {
 		Delivery:     []string{"store"},
 		MaxItems:     10,
 	}
-	inputJSON, err := json.Marshal(wfInput)
-	require.NoError(t, err)
 
 	acts.On("GatherRollupContent", mock.Anything, mock.Anything).
 		Return((*digestRollupGatherOutput)(nil), rollupTestError("db connection failed"))
 
-	env.ExecuteWorkflow(DigestRollupWorkflow, json.RawMessage(inputJSON))
+	env.ExecuteWorkflow(DigestRollupWorkflow, wfInput)
 
 	require.True(t, env.IsWorkflowCompleted())
 	require.Error(t, env.GetWorkflowError())
@@ -178,8 +170,6 @@ func TestDigestRollupWorkflow_MetadataFailureNonFatal(t *testing.T) {
 		Delivery:     []string{"store"},
 		MaxItems:     10,
 	}
-	inputJSON, err := json.Marshal(wfInput)
-	require.NoError(t, err)
 
 	gatherOut := &digestRollupGatherOutput{
 		Items:      json.RawMessage(`[]`),
@@ -203,7 +193,7 @@ func TestDigestRollupWorkflow_MetadataFailureNonFatal(t *testing.T) {
 	// RecordExecutionMetadata fails — should not propagate
 	acts.On("RecordExecutionMetadata", mock.Anything, mock.Anything).Return(rollupTestError("metadata store down"))
 
-	env.ExecuteWorkflow(DigestRollupWorkflow, json.RawMessage(inputJSON))
+	env.ExecuteWorkflow(DigestRollupWorkflow, wfInput)
 
 	require.True(t, env.IsWorkflowCompleted())
 	require.NoError(t, env.GetWorkflowError(), "metadata failure must not fail the workflow")
