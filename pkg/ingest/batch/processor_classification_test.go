@@ -297,7 +297,7 @@ c3QgTWVldGluZwpFTkQ6VkVWRU5UCkVORDpWQ0FMRU5EQVI=
 	t.Run("attachments array exists", func(t *testing.T) {
 		attachmentsIface, ok := metadata["attachments"]
 		if !ok {
-			t.Error("EXPECTED FAILURE: metadata[\"attachments\"] not present")
+			t.Error("metadata[\"attachments\"] not present")
 			return
 		}
 

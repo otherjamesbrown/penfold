@@ -344,6 +344,30 @@ func (p *Parser) parseMultipart(body io.Reader, boundary string, email *ParsedEm
 						email.BodyText = summary
 					}
 				}
+				// Also register as attachment if it has attachment disposition
+				isCalAttachment := disposition == "attachment" ||
+					(disposition == "inline" && dispParams["filename"] != "") ||
+					dispParams["filename"] != ""
+				if isCalAttachment {
+					filename := dispParams["filename"]
+					if filename == "" {
+						filename = "meeting.ics"
+					}
+					filename = decodeRFC2047(filename)
+					transferEncoding := strings.ToLower(part.Header.Get("Content-Transfer-Encoding"))
+					decoded, _ := decodeTransferEncoding(icsContent, transferEncoding)
+					attachment := Attachment{
+						Filename:  filename,
+						MimeType:  mediaType,
+						ContentID: strings.Trim(part.Header.Get("Content-ID"), "<>"),
+						IsInline:  strings.HasPrefix(disposition, "inline"),
+						Size:      len(decoded),
+					}
+					if opts.IncludeAttachmentContent {
+						attachment.ContentData = decoded
+					}
+					email.Attachments = append(email.Attachments, attachment)
+				}
 			}
 			continue
 		}
