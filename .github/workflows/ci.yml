@@ -11,7 +11,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: "1.22"
+  # Must be >= the highest `go` directive across all modules. services/worker
+  # requires 1.25; other modules require 1.24. Using 1.25 covers all.
+  # Mismatch with go.mod causes golangci-lint typecheck to fail resolving
+  # embedded fields (e.g. Temporal interceptor Next). See pf-f4ffe2.
+  GO_VERSION: "1.25"
 
 jobs:
   # Fast lint check - runs in parallel with tests
@@ -29,18 +33,23 @@ jobs:
           cache-dependency-path: "**/go.sum"
 
       - name: golangci-lint (pkg)
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@v7
         with:
-          version: latest
+          version: v2.8.0
           working-directory: pkg
           args: --timeout=5m
 
       - name: golangci-lint (cmd/penf)
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@v7
         with:
-          version: latest
+          version: v2.8.0
           working-directory: cmd/penf
           args: --timeout=5m
+
+      - name: Install golangci-lint (for services step)
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.8.0
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
       - name: golangci-lint (services)
         run: |
