@@ -1,7 +1,6 @@
 package workflows
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -11,15 +10,11 @@ import (
 )
 
 // HeartbeatWorkflow orchestrates heartbeat checks, evaluates urgency, and updates schedule status.
-// It accepts json.RawMessage as input because Temporal schedules pass workflow_params JSONB from the DB.
-func HeartbeatWorkflow(ctx workflow.Context, input json.RawMessage) (json.RawMessage, error) {
+// Temporal's data converter handles JSON serialisation of the typed input/output.
+func HeartbeatWorkflow(ctx workflow.Context, input pkgtemporal.HeartbeatInput) (*pkgtemporal.HeartbeatResult, error) {
 	logger := workflow.GetLogger(ctx)
 
-	// 1. Parse input
-	var hbInput pkgtemporal.HeartbeatInput
-	if err := json.Unmarshal(input, &hbInput); err != nil {
-		return nil, fmt.Errorf("unmarshal heartbeat input: %w", err)
-	}
+	hbInput := input
 
 	logger.Info("Starting heartbeat workflow",
 		"tenant_id", hbInput.TenantID,
@@ -28,12 +23,10 @@ func HeartbeatWorkflow(ctx workflow.Context, input json.RawMessage) (json.RawMes
 	)
 
 	if len(hbInput.Checks) == 0 {
-		result := &pkgtemporal.HeartbeatResult{
+		return &pkgtemporal.HeartbeatResult{
 			Status:  pkgtemporal.HeartbeatStatusSkipped,
 			Summary: "no checks configured",
-		}
-		resultJSON, _ := json.Marshal(result)
-		return resultJSON, nil
+		}, nil
 	}
 
 	// Apply defaults for configurable thresholds
@@ -117,12 +110,8 @@ func HeartbeatWorkflow(ctx workflow.Context, input json.RawMessage) (json.RawMes
 		// Non-fatal — the heartbeat result is still valid
 	}
 
-	// 8. Return result as JSON
-	resultJSON, err := json.Marshal(result)
-	if err != nil {
-		return nil, fmt.Errorf("marshal heartbeat result: %w", err)
-	}
-	return resultJSON, nil
+	// 8. Return result
+	return result, nil
 }
 
 // buildHeartbeatSummary constructs a human-readable summary from check results.

@@ -52,14 +52,11 @@ type journalGenerateInput struct {
 // Unlike daily/weekly digests, journals are NOT idempotent — each trigger creates a new entry.
 // Journals synthesise from existing daily digests and attributed content, optionally
 // directed by a user-provided focus question.
-func JournalDigestWorkflow(ctx workflow.Context, input json.RawMessage) (json.RawMessage, error) {
+// Temporal's data converter handles JSON serialisation of the typed input/output.
+func JournalDigestWorkflow(ctx workflow.Context, input JournalDigestWorkflowInput) (*DigestWorkflowOutput, error) {
 	logger := workflow.GetLogger(ctx)
 
-	// 1. Unmarshal input
-	var wfInput JournalDigestWorkflowInput
-	if err := json.Unmarshal(input, &wfInput); err != nil {
-		return nil, fmt.Errorf("unmarshal journal digest workflow input: %w", err)
-	}
+	wfInput := input
 
 	logger.Info("Starting journal digest workflow",
 		"tenant_id", wfInput.TenantID,
@@ -89,16 +86,11 @@ func JournalDigestWorkflow(ctx workflow.Context, input json.RawMessage) (json.Ra
 
 	// 4. Skip if no content
 	if !gatherOut.HasContent {
-		result := &DigestWorkflowOutput{
+		logger.Info("No content for journal, skipping")
+		return &DigestWorkflowOutput{
 			Skipped: true,
 			Reason:  "no content for journal",
-		}
-		resultJSON, err := json.Marshal(result)
-		if err != nil {
-			return nil, fmt.Errorf("marshal skipped result: %w", err)
-		}
-		logger.Info("No content for journal, skipping")
-		return resultJSON, nil
+		}, nil
 	}
 
 	// 5. Generate journal narrative via LLM (pass focus)
@@ -143,13 +135,8 @@ func JournalDigestWorkflow(ctx workflow.Context, input json.RawMessage) (json.Ra
 	)
 
 	// 7. Return result
-	result := &DigestWorkflowOutput{
+	return &DigestWorkflowOutput{
 		DigestID: saveOut.DigestID,
 		Skipped:  false,
-	}
-	resultJSON, err := json.Marshal(result)
-	if err != nil {
-		return nil, fmt.Errorf("marshal journal digest result: %w", err)
-	}
-	return resultJSON, nil
+	}, nil
 }

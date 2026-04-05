@@ -90,17 +90,14 @@ type digestSaveOutput struct {
 // DigestWorkflow orchestrates daily digest generation for a project.
 // It gathers attributed content, assertions, instruction matches, and ledger entries,
 // calls the LLM to produce a structured narrative, and persists the result.
-// It accepts json.RawMessage as input because Temporal schedules pass workflow_params JSONB from the DB.
-func DigestWorkflow(ctx workflow.Context, input json.RawMessage) (json.RawMessage, error) {
+// Temporal's data converter handles JSON serialisation of the typed input/output.
+func DigestWorkflow(ctx workflow.Context, input DigestWorkflowInput) (*DigestWorkflowOutput, error) {
 	logger := workflow.GetLogger(ctx)
 
-	// 1. Unmarshal input
-	var wfInput DigestWorkflowInput
-	if err := json.Unmarshal(input, &wfInput); err != nil {
-		return nil, fmt.Errorf("unmarshal digest workflow input: %w", err)
-	}
+	// Use a local copy so we can mutate without side-effects on the caller.
+	wfInput := input
 
-	// 2. Default empty date to yesterday (for scheduled runs that don't pass a date)
+	// 1. Default empty date to yesterday (for scheduled runs that don't pass a date)
 	if wfInput.Date == "" {
 		wfInput.Date = workflow.Now(ctx).AddDate(0, 0, -1).Format("2006-01-02")
 	}
@@ -132,35 +129,25 @@ func DigestWorkflow(ctx workflow.Context, input json.RawMessage) (json.RawMessag
 
 	// 4. Skip if digest already exists
 	if gatherOut.AlreadyExists {
-		result := &DigestWorkflowOutput{
-			DigestID: gatherOut.ExistingDigestID,
-			Skipped:  true,
-			Reason:   "digest already exists",
-		}
-		resultJSON, err := json.Marshal(result)
-		if err != nil {
-			return nil, fmt.Errorf("marshal skipped result: %w", err)
-		}
 		logger.Info("Digest already exists, skipping",
 			"existing_digest_id", gatherOut.ExistingDigestID,
 		)
-		return resultJSON, nil
+		return &DigestWorkflowOutput{
+			DigestID: gatherOut.ExistingDigestID,
+			Skipped:  true,
+			Reason:   "digest already exists",
+		}, nil
 	}
 
 	// 5. Skip if no content for the date
 	if !gatherOut.HasContent {
-		result := &DigestWorkflowOutput{
-			Skipped: true,
-			Reason:  "no content for date",
-		}
-		resultJSON, err := json.Marshal(result)
-		if err != nil {
-			return nil, fmt.Errorf("marshal skipped result: %w", err)
-		}
 		logger.Info("No content for date, skipping",
 			"date", wfInput.Date,
 		)
-		return resultJSON, nil
+		return &DigestWorkflowOutput{
+			Skipped: true,
+			Reason:  "no content for date",
+		}, nil
 	}
 
 	// 6. Generate digest narrative via LLM
@@ -204,13 +191,8 @@ func DigestWorkflow(ctx workflow.Context, input json.RawMessage) (json.RawMessag
 	)
 
 	// 8. Return result
-	result := &DigestWorkflowOutput{
+	return &DigestWorkflowOutput{
 		DigestID: saveOut.DigestID,
 		Skipped:  false,
-	}
-	resultJSON, err := json.Marshal(result)
-	if err != nil {
-		return nil, fmt.Errorf("marshal digest result: %w", err)
-	}
-	return resultJSON, nil
+	}, nil
 }
