@@ -3142,10 +3142,12 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		// overwrote err on success; we replicate that here explicitly.
 		err = nil
 		// Extract embeddingID from the output of any succeeded embedding stage.
+		// Iterate embeddingStages (sorted slice) and look up in dispatchOutputs —
+		// ranging over the map directly would be non-deterministic.
 		// EmbeddingExecutor sets StageOutput.EmbeddingID directly to avoid json.Unmarshal
 		// in the workflow body (which workflowcheck flags as non-deterministic).
-		for _, out := range dispatchOutputs {
-			if out.Success && out.EmbeddingID != 0 {
+		for _, stage := range embeddingStages {
+			if out, ok := dispatchOutputs[stage.Stage]; ok && out.Success && out.EmbeddingID != 0 {
 				embeddingID = out.EmbeddingID
 			}
 		}
