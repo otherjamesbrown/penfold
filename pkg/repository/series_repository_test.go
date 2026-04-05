@@ -33,7 +33,7 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 	host := getEnvOrDefault("PENFOLD_DB_HOST", "dev02.brown.chat")
 	port := getEnvOrDefault("PENFOLD_DB_PORT", "5432")
 	user := getEnvOrDefault("PENFOLD_DB_USER", "penfold")
-	dbName := getEnvOrDefault("PENFOLD_DB_NAME", "penfold_test")
+	dbName := getEnvOrDefault("PENFOLD_DB_NAME", "penfold")
 
 	// Build connection string with SSL verify-full (standard for dev02)
 	connString := fmt.Sprintf(

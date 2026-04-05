@@ -51,7 +51,7 @@ func SetupTestDB(t *testing.T) *TestDB {
 	host := getEnvOrDefault("PENFOLD_DB_HOST", "dev02.brown.chat")
 	port := getEnvOrDefault("PENFOLD_DB_PORT", "5432")
 	user := getEnvOrDefault("PENFOLD_DB_USER", "penfold")
-	dbName := getEnvOrDefault("PENFOLD_DB_NAME", "penfold_test") // Use test DB
+	dbName := getEnvOrDefault("PENFOLD_DB_NAME", "penfold")
 
 	// Build connection string with SSL cert auth
 	// Certs are expected in ~/.postgresql/ (standard libpq location)

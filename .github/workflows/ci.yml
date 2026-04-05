@@ -158,34 +158,18 @@ jobs:
           cd pkg
           go test -v ./testfixtures/... -run TestYAML
 
-  # Integration tests - requires database
+  # Integration tests - requires self-hosted runner with mTLS certs for dev02
   integration-tests:
     name: Integration Tests
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macos, ARM64]
     needs: [unit-tests, lint]
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
 
-    services:
-      postgres:
-        image: pgvector/pgvector:pg16
-        env:
-          POSTGRES_USER: penfold
-          POSTGRES_PASSWORD: penfold_test_password
-          POSTGRES_DB: penfold_test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-
     env:
-      PENFOLD_DB_HOST: localhost
+      PENFOLD_DB_HOST: dev02.brown.chat
       PENFOLD_DB_PORT: 5432
       PENFOLD_DB_USER: penfold
-      PENFOLD_DB_PASSWORD: penfold_test_password
-      PENFOLD_DB_NAME: penfold_test
+      PENFOLD_DB_NAME: penfold
 
     steps:
       - uses: actions/checkout@v4
@@ -196,25 +180,6 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
           cache-dependency-path: "**/go.sum"
-
-      - name: Install PostgreSQL client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
-
-      - name: Wait for PostgreSQL
-        run: |
-          until pg_isready -h localhost -p 5432 -U penfold; do
-            echo "Waiting for PostgreSQL..."
-            sleep 2
-          done
-
-      - name: Create pgvector extension
-        run: |
-          PGPASSWORD=penfold_test_password psql -h localhost -U penfold -d penfold_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
-
-      - name: Run database migrations
-        run: |
-          cd cmd/penf
-          go run . migrate up
 
       - name: Run integration tests
         run: |
@@ -237,11 +202,10 @@ jobs:
     if: github.ref == 'refs/heads/main'
 
     env:
-      PENFOLD_DB_HOST: home-01.brown.chat
+      PENFOLD_DB_HOST: dev02.brown.chat
       PENFOLD_DB_PORT: 5432
       PENFOLD_DB_USER: penfold
-      PENFOLD_DB_PASSWORD: ${{ secrets.PENFOLD_DB_PASSWORD }}
-      PENFOLD_DB_NAME: penfold_test_e2e
+      PENFOLD_DB_NAME: penfold
       LLM_URL: http://localhost:8080
 
     steps:

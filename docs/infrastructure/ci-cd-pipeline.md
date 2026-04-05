@@ -83,31 +83,18 @@ jobs:
   # Integration tests require database but no LLM
   integration-tests:
     name: Integration Tests
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, macos, ARM64]
     needs: unit-tests
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
 
-    services:
-      postgres:
-        image: pgvector/pgvector:pg16
-        env:
-          POSTGRES_USER: penfold
-          POSTGRES_PASSWORD: penfold_test_password
-          POSTGRES_DB: penfold_test_integration
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-
+    # Uses live penfold DB on dev02 with mTLS cert auth (sslmode=verify-full).
+    # No local Postgres container — tests run against the real DB using tenant isolation.
+    # Test tenant: 00000000-0000-0000-0000-000000000003 (quality_test)
     env:
-      PENFOLD_DB_HOST: localhost
+      PENFOLD_DB_HOST: dev02.brown.chat
       PENFOLD_DB_PORT: 5432
       PENFOLD_DB_USER: penfold
-      PENFOLD_DB_PASSWORD: penfold_test_password
-      PENFOLD_DB_NAME: penfold_test_integration
+      PENFOLD_DB_NAME: penfold
 
     steps:
       - uses: actions/checkout@v4
@@ -118,22 +105,6 @@ jobs:
           go-version: "1.24"
           cache: true
           cache-dependency-path: "**/go.sum"
-
-      - name: Wait for PostgreSQL
-        run: |
-          until pg_isready -h localhost -p 5432 -U penfold; do
-            echo "Waiting for PostgreSQL..."
-            sleep 2
-          done
-
-      - name: Create pgvector extension
-        run: |
-          PGPASSWORD=penfold_test_password psql -h localhost -U penfold -d penfold_test_integration -c "CREATE EXTENSION IF NOT EXISTS vector;"
-
-      - name: Run database migrations
-        run: |
-          cd cmd/penf
-          go run . migrate up
 
       - name: Run integration tests
         run: |
@@ -151,8 +122,7 @@ jobs:
       PENFOLD_DB_HOST: dev02.brown.chat
       PENFOLD_DB_PORT: 5432
       PENFOLD_DB_USER: penfold
-      PENFOLD_DB_PASSWORD: ${{ secrets.PENFOLD_DB_PASSWORD }}
-      PENFOLD_DB_NAME: penfold_test_e2e
+      PENFOLD_DB_NAME: penfold
       LLM_URL: http://localhost:8080
 
     steps:

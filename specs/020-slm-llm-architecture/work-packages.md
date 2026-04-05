@@ -539,7 +539,7 @@ True end-to-end tests that send real content through the full SLM/LLM pipeline w
 
 ```
 Services required:
-  - PostgreSQL on dev02 (penfold_test_e2e database)
+  - PostgreSQL on dev02 (penfold database, e2e tenant 00000000-0000-0000-0000-000000000001)
   - Temporal server (docker-compose or dev01)
   - AI service with local SLM (Qwen 7B or similar)
   - Gateway service (proxies AI RPCs)

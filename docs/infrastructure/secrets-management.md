@@ -417,21 +417,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    # Integration tests run on self-hosted runner with mTLS cert auth.
+    # No local Postgres container — uses live penfold DB with tenant isolation.
     services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: penfold
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: penfold_test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-
       redis:
         image: redis:7
         ports:
@@ -440,10 +428,9 @@ jobs:
     env:
       PENFOLD_ENVIRONMENT: dev
       PENFOLD_SERVICE_NAME: test
-      PENFOLD_DB_HOST: localhost
+      PENFOLD_DB_HOST: dev02.brown.chat
       PENFOLD_DB_USER: penfold
-      PENFOLD_DB_PASSWORD: test
-      PENFOLD_DB_NAME: penfold_test
+      PENFOLD_DB_NAME: penfold
       PENFOLD_REDIS_HOST: localhost
 
     steps:
