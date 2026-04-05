@@ -33,14 +33,14 @@ jobs:
           cache-dependency-path: "**/go.sum"
 
       - name: golangci-lint (pkg)
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@v6
         with:
           version: latest
           working-directory: pkg
           args: --timeout=5m
 
       - name: golangci-lint (cmd/penf)
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@v6
         with:
           version: latest
           working-directory: cmd/penf
