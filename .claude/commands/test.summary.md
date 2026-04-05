@@ -41,11 +41,10 @@ go test -short -json ./pkg/... 2>&1 | tee /tmp/test-unit.json
 go test -short -json ./pkg/... 2>&1 | tee /tmp/test-unit.json
 
 # Integration + E2E tests (if system is healthy)
+# Use the live `penfold` database with tenant isolation (see pf-21779f).
 if [ "$SYSTEM_HEALTHY" = true ]; then
-    export PENFOLD_DB_NAME=penfold_test_integration
+    export PENFOLD_DB_NAME=penfold
     go test -tags=integration -json ./tests/integration/... 2>&1 | tee /tmp/test-integration.json
-
-    export PENFOLD_DB_NAME=penfold_test_e2e
     go test -tags=e2e -json -timeout 5m ./tests/e2e/... 2>&1 | tee /tmp/test-e2e.json
 fi
 ```

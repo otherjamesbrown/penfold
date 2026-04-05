@@ -12,7 +12,7 @@ If not provided, runs all integration tests.
 Integration tests require:
 - PostgreSQL SSL certs in `~/.postgresql/` (postgresql.crt, postgresql.key, root.crt)
 - PostgreSQL accessible at dev02.brown.chat
-- Test database `penfold_test_integration` with migrations applied
+- Test database `penfold` with migrations applied
 
 To set up SSL certs, copy from dev01:
 ```bash
@@ -50,7 +50,7 @@ else
 fi
 
 # Run tests (uses SSL cert auth configured in helpers.go)
-PENFOLD_DB_NAME=penfold_test_integration go test -tags=integration -json $RUN_FLAG ./tests/integration/... 2>&1 | tee /tmp/test-integration.json
+PENFOLD_DB_NAME=penfold go test -tags=integration -json $RUN_FLAG ./tests/integration/... 2>&1 | tee /tmp/test-integration.json
 ```
 
 ### Step 2: Parse and Categorize Results
@@ -71,7 +71,7 @@ Parse JSON output (same format as unit tests):
 | ❌ Failed | Y |
 | ⏭️ Skipped | Z |
 
-**Database**: penfold_test_integration @ dev02.brown.chat
+**Database**: penfold @ dev02.brown.chat
 **Duration**: X.XXs
 ```
 
@@ -115,10 +115,10 @@ If tests fail, provide diagnostic commands:
 ### 🔧 Diagnostics
 
 Check database connection:
-  psql -h dev02.brown.chat -U penfold -d penfold_test_integration -c "SELECT 1"
+  psql -h dev02.brown.chat -U penfold -d penfold -c "SELECT 1"
 
 Check database schema:
-  psql -h dev02.brown.chat -U penfold -d penfold_test_integration -c "\dt"
+  psql -h dev02.brown.chat -U penfold -d penfold -c "\dt"
 
 Re-run with verbose output:
   go test -tags=integration -v ./tests/integration/... -run TestName
