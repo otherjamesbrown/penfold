@@ -11,7 +11,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: "1.22"
+  # Must be >= the highest `go` directive across all modules. services/worker
+  # requires 1.25; other modules require 1.24. Using 1.25 covers all.
+  # Mismatch with go.mod causes golangci-lint typecheck to fail resolving
+  # embedded fields (e.g. Temporal interceptor Next). See pf-f4ffe2.
+  GO_VERSION: "1.25"
 
 jobs:
   # Fast lint check - runs in parallel with tests
