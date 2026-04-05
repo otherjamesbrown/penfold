@@ -19,7 +19,7 @@ func TestNewMLXBackend(t *testing.T) {
 		if be == nil {
 			t.Fatal("expected non-nil backend")
 		}
-		if be.defaultEmbeddingModel != "mxbai-embed-large-v1" {
+		if be.defaultEmbeddingModel != "mxbai-embed-large" {
 			t.Errorf("expected default embedding model, got %s", be.defaultEmbeddingModel)
 		}
 		if be.defaultLLMModel != "mlx-community/Qwen2.5-7B-Instruct-4bit" {
@@ -235,7 +235,7 @@ func TestMLXBackend_ChatCompletion(t *testing.T) {
 func TestMLXBackend_CheckHealth(t *testing.T) {
 	t.Run("embeddings health check success", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path != "/health" {
+			if r.URL.Path != "/" {
 				t.Errorf("unexpected path: %s", r.URL.Path)
 			}
 			w.WriteHeader(http.StatusOK)

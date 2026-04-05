@@ -511,14 +511,15 @@ func createTestMeeting(t *testing.T, pool *pgxpool.Pool, title string) string {
 	t.Helper()
 	ctx := context.Background()
 
+	testTenantID := "00000000-0000-0000-0000-000000000001"
 	query := `
-		INSERT INTO meetings (title, meeting_date, platform, created_at, updated_at)
-		VALUES ($1, $2, $3, NOW(), NOW())
+		INSERT INTO meetings (tenant_id, title, meeting_date, platform, created_at, updated_at)
+		VALUES ($1::uuid, $2, $3, $4, NOW(), NOW())
 		RETURNING id
 	`
 
 	var id int64
-	err := pool.QueryRow(ctx, query, title, time.Now(), "test").Scan(&id)
+	err := pool.QueryRow(ctx, query, testTenantID, title, time.Now(), "test").Scan(&id)
 	if err != nil {
 		t.Fatalf("Failed to create test meeting: %v", err)
 	}

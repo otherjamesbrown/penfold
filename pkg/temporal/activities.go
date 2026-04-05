@@ -233,8 +233,6 @@ func AllMainQueueActivities() []string {
 		ActivityNotificationExtract,
 		// Generic structured extraction activity (replaces bespoke newsletter/notification extract)
 		ActivityStructuredExtract,
-		// Newsletter context builder (enriches extraction context for newsletter_extract stages).
-		ActivityBuildNewsletterContext,
 		// BuildStageContext — config-driven context assembly for any pipeline stage.
 		ActivityBuildStageContext,
 		// Graph API activities (Outlook + Teams sync + Transcript sync)

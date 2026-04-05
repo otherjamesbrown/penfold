@@ -438,9 +438,10 @@ func TestGenerateMultiLevelEmbeddings_ValidationErrors(t *testing.T) {
 	}
 
 	output, err := activities.GenerateMultiLevelEmbeddings(context.Background(), input)
-	require.Error(t, err)
-	require.Nil(t, output)
-	require.Contains(t, err.Error(), "content is empty")
+	require.NoError(t, err, "empty content should be skipped gracefully, not error")
+	require.NotNil(t, output)
+	require.Empty(t, output.SourceEmbeddingIDs)
+	require.Empty(t, output.AssertionEmbeddingIDs)
 
 	// Test nil analysis
 	input2 := GenerateMultiLevelInput{

@@ -88,13 +88,13 @@ func TestBuildStageContext_NilPipelineRepo(t *testing.T) {
 	logger := logging.NewNopLogger()
 	a := newMinimalContextBuilderActivities(logger, nil)
 
-	_, err := a.BuildStageContext(context.Background(), workflows.BuildStageContextInput{
+	result, err := a.BuildStageContext(context.Background(), workflows.BuildStageContextInput{
 		TenantID: "t1",
 		Pipeline: "standard",
 		Stage:    "deep_analyze",
 	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "pipelineRepo is required")
+	require.NoError(t, err)
+	assert.Empty(t, result, "should return empty context when pipelineRepo is nil")
 }
 
 func TestBuildStageContext_DBError(t *testing.T) {
