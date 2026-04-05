@@ -1183,10 +1183,10 @@ func (s *Service) UpdateTimeoutConfig(ctx context.Context, req *pipelinev1.Updat
 		return nil, status.Error(codes.InvalidArgument, "value is required")
 	}
 	if req.UpdatedBy == "" {
-		req.UpdatedBy = "cli"
+		return nil, status.Error(codes.InvalidArgument, "updated_by is required")
 	}
 	if req.Reason == "" {
-		req.Reason = "config update"
+		return nil, status.Error(codes.InvalidArgument, "reason is required")
 	}
 
 	if s.db == nil {
