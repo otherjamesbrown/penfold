@@ -9,16 +9,17 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	// IntegrationTestTenantID is the tenant ID for integration tests.
-	IntegrationTestTenantID = "00000000-0000-0000-0000-000000000002"
-)
+// testRunTenantID is generated once per test binary execution.
+// Using a per-run UUID prevents data collisions when multiple developers or
+// CI pipelines run integration tests concurrently against the shared live database.
+var testRunTenantID = uuid.New().String()
 
 // TestStoreAssertions_Duplicates_Integration reproduces bug pf-ab90cb:
 // StoreAssertions uses INSERT with ON CONFLICT DO NOTHING but no unique constraint
@@ -40,7 +41,7 @@ func TestStoreAssertions_Duplicates_Integration(t *testing.T) {
 	pool := setupTestDB(t)
 	defer pool.Close()
 
-	tenantID := IntegrationTestTenantID
+	tenantID := testRunTenantID
 	logger := logging.MustGlobal()
 
 	// Create repository

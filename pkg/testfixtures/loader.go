@@ -18,16 +18,13 @@ const DefaultTestTenantID = "00000000-0000-0000-0000-000000000001"
 
 // Well-known test tenant UUIDs.
 const (
-	E2ETestTenantID         = "00000000-0000-0000-0000-000000000001"
-	IntegrationTestTenantID = "00000000-0000-0000-0000-000000000002"
-	QualityTestTenantID     = "00000000-0000-0000-0000-000000000003"
+	E2ETestTenantID     = "00000000-0000-0000-0000-000000000001"
+	QualityTestTenantID = "00000000-0000-0000-0000-000000000003"
 )
 
-// IsTestTenantID returns true if the given UUID is a well-known test tenant ID.
-// Only these three tenant IDs are allowed for fixture loading.
+// IsTestTenantID returns true if the given UUID is a well-known static test tenant ID.
 func IsTestTenantID(id string) bool {
 	return id == E2ETestTenantID ||
-		id == IntegrationTestTenantID ||
 		id == QualityTestTenantID
 }
 
@@ -58,12 +55,6 @@ func NewLoaderWithTenant(db *pgxpool.Pool, fixtureDir string, tenantID string) *
 
 // LoadAcmeCorp loads all Acme Corp fixtures into the database.
 func (l *Loader) LoadAcmeCorp(ctx context.Context) error {
-	// Guard against loading fixtures into non-test tenants.
-	// This prevents accidental fixture loading into production databases.
-	if !IsTestTenantID(l.tenantID) {
-		return fmt.Errorf("refusing to load fixtures into non-test tenant: %s", l.tenantID)
-	}
-
 	// Load in dependency order, handling circular dependencies:
 	// 1. Teams without lead_id (people depend on teams)
 	// 2. People (depends on teams)

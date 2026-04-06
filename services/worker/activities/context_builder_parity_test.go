@@ -155,7 +155,7 @@ func TestContextBuilderParity(t *testing.T) {
 	pool := setupTestDBForBuildStageContext(t)
 	defer pool.Close()
 
-	tenantID := IntegrationTestTenantID
+	tenantID := testRunTenantID
 
 	// Check migration 149 is applied (context_providers column must exist).
 	pipelineRepo := NewPipelineRepository(pool)

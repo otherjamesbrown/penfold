@@ -30,7 +30,7 @@ func TestStoreAssertions_PreventsDuplicates_ExactMatch(t *testing.T) {
 	pool := setupTestDB(t)
 	defer pool.Close()
 
-	tenantID := IntegrationTestTenantID
+	tenantID := testRunTenantID
 	logger := logging.MustGlobal()
 
 	// Create repository
@@ -131,7 +131,7 @@ func TestStoreAssertions_DifferentTypeAllowed(t *testing.T) {
 	pool := setupTestDB(t)
 	defer pool.Close()
 
-	tenantID := IntegrationTestTenantID
+	tenantID := testRunTenantID
 	logger := logging.MustGlobal()
 
 	// Create repository
@@ -230,7 +230,7 @@ func TestStoreAssertions_DifferentQuoteAllowed(t *testing.T) {
 	pool := setupTestDB(t)
 	defer pool.Close()
 
-	tenantID := IntegrationTestTenantID
+	tenantID := testRunTenantID
 	logger := logging.MustGlobal()
 
 	// Create repository
@@ -327,7 +327,7 @@ func TestStoreAssertions_FirstTimeCreates(t *testing.T) {
 	pool := setupTestDB(t)
 	defer pool.Close()
 
-	tenantID := IntegrationTestTenantID
+	tenantID := testRunTenantID
 	logger := logging.MustGlobal()
 
 	// Create repository
@@ -426,7 +426,7 @@ func TestStoreAssertions_MultipleReprocessing(t *testing.T) {
 	pool := setupTestDB(t)
 	defer pool.Close()
 
-	tenantID := IntegrationTestTenantID
+	tenantID := testRunTenantID
 	logger := logging.MustGlobal()
 
 	// Create repository
@@ -497,7 +497,7 @@ func TestStoreAssertions_DifferentSourcesAllowed(t *testing.T) {
 	pool := setupTestDB(t)
 	defer pool.Close()
 
-	tenantID := IntegrationTestTenantID
+	tenantID := testRunTenantID
 	logger := logging.MustGlobal()
 
 	// Create repository

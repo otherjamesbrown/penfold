@@ -36,7 +36,7 @@ func TestStoreAssertions_SameDescription_DifferentQuote_BugRepro(t *testing.T) {
 	pool := setupTestDB(t)
 	defer pool.Close()
 
-	tenantID := IntegrationTestTenantID
+	tenantID := testRunTenantID
 	logger := logging.MustGlobal()
 
 	// Create repository
@@ -171,7 +171,7 @@ func TestStoreAssertions_RealWorldScenario_EmPgUz3mLM(t *testing.T) {
 	pool := setupTestDB(t)
 	defer pool.Close()
 
-	tenantID := IntegrationTestTenantID
+	tenantID := testRunTenantID
 	logger := logging.MustGlobal()
 
 	// Create repository

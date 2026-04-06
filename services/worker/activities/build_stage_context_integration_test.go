@@ -27,7 +27,7 @@ func TestContextProviders_PipelineDefinitions_Integration(t *testing.T) {
 	pool := setupTestDBForBuildStageContext(t)
 	defer pool.Close()
 
-	tenantID := IntegrationTestTenantID
+	tenantID := testRunTenantID
 	pipelineRepo := NewPipelineRepository(pool)
 
 	cases := []struct {
@@ -81,7 +81,7 @@ func TestBuildStageContext_Integration(t *testing.T) {
 	pool := setupTestDBForBuildStageContext(t)
 	defer pool.Close()
 
-	tenantID := IntegrationTestTenantID
+	tenantID := testRunTenantID
 	logger := logging.MustGlobal()
 
 	pipelineRepo := NewPipelineRepository(pool)
@@ -137,7 +137,7 @@ func TestBuildStageContext_StandardAnalyze_Integration(t *testing.T) {
 	pool := setupTestDBForBuildStageContext(t)
 	defer pool.Close()
 
-	tenantID := IntegrationTestTenantID
+	tenantID := testRunTenantID
 	logger := logging.MustGlobal()
 
 	pipelineRepo := NewPipelineRepository(pool)
@@ -187,7 +187,7 @@ func TestBuildStageContext_UnknownStage_Integration(t *testing.T) {
 	pool := setupTestDBForBuildStageContext(t)
 	defer pool.Close()
 
-	tenantID := IntegrationTestTenantID
+	tenantID := testRunTenantID
 	logger := logging.MustGlobal()
 
 	pipelineRepo := NewPipelineRepository(pool)
@@ -219,7 +219,7 @@ func TestBuildStageContext_Parity_Newsletter_Integration(t *testing.T) {
 	pool := setupTestDBForBuildStageContext(t)
 	defer pool.Close()
 
-	tenantID := IntegrationTestTenantID
+	tenantID := testRunTenantID
 	logger := logging.MustGlobal()
 
 	pipelineRepo := NewPipelineRepository(pool)
@@ -290,7 +290,7 @@ func TestBuildStageContext_CustomPipeline_Integration(t *testing.T) {
 	pool := setupTestDBForBuildStageContext(t)
 	defer pool.Close()
 
-	tenantID := IntegrationTestTenantID
+	tenantID := testRunTenantID
 	logger := logging.MustGlobal()
 
 	// Insert a test-only pipeline definition with a single provider.
@@ -365,7 +365,7 @@ func TestBuildContextPackage_EntityResolution_Integration(t *testing.T) {
 	pool := setupTestDBForBuildStageContext(t)
 	defer pool.Close()
 
-	tenantID := IntegrationTestTenantID
+	tenantID := testRunTenantID
 	logger := logging.MustGlobal()
 
 	pipelineRepo := NewPipelineRepository(pool)
@@ -432,7 +432,7 @@ func TestBuildStageContext_ProviderFailure_NonBlocking_Integration(t *testing.T)
 	pool := setupTestDBForBuildStageContext(t)
 	defer pool.Close()
 
-	tenantID := IntegrationTestTenantID
+	tenantID := testRunTenantID
 	logger := logging.MustGlobal()
 
 	// Insert a test pipeline with a failing provider followed by a real one.

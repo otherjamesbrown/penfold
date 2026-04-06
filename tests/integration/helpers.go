@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/otherjamesbrown/penfold/pkg/db"
 	"github.com/otherjamesbrown/penfold/pkg/testfixtures"
@@ -23,9 +24,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// IntegrationTestTenantID is the tenant ID for integration tests.
-// Different from E2E tests to allow both to run without conflicts.
-const IntegrationTestTenantID = "00000000-0000-0000-0000-000000000002"
+// testRunTenantID is generated once per test binary execution.
+// Using a per-run UUID prevents data collisions when multiple developers or
+// CI pipelines run integration tests concurrently against the shared live database.
+var testRunTenantID = uuid.New().String()
 
 // DefaultTestTenantID is the database default tenant used by repositories
 // that don't explicitly specify tenant_id. This matches the schema default.
@@ -120,7 +122,7 @@ func SetupTestDB(t *testing.T) *TestDB {
 	testDB := &TestDB{
 		Pool:     pool,
 		Name:     dbName,
-		TenantID: IntegrationTestTenantID,
+		TenantID: testRunTenantID,
 	}
 
 	// Register cleanup
@@ -133,7 +135,7 @@ func SetupTestDB(t *testing.T) *TestDB {
 
 
 // CleanupTestTenant deletes all test data from all tenant-scoped tables.
-// Deletes data for both IntegrationTestTenantID and DefaultTestTenantID.
+// Deletes data for the per-run tenant ID and DefaultTestTenantID.
 // This preserves production tenants' data in the shared database.
 func (db *TestDB) CleanupTestTenant(t *testing.T) {
 	t.Helper()
@@ -162,9 +164,9 @@ func (db *TestDB) CleanupTestTenant(t *testing.T) {
 		tables = append(tables, tableName)
 	}
 
-	// Clean both test tenants: the explicit integration test tenant and
+	// Clean both test tenants: the per-run tenant and
 	// the default tenant used by repositories without explicit tenant_id.
-	tenantIDs := []string{IntegrationTestTenantID, DefaultTestTenantID}
+	tenantIDs := []string{db.TenantID, DefaultTestTenantID}
 
 	// Delete test tenant's data from each table
 	for _, table := range tables {
@@ -186,16 +188,16 @@ func (db *TestDB) TruncateAllTables(t *testing.T) {
 }
 
 // CleanupTables deletes test data from specific tables.
-// Deletes data for both IntegrationTestTenantID and DefaultTestTenantID.
+// Deletes data for the per-run tenant ID and DefaultTestTenantID.
 // Tables that don't exist or don't have tenant_id are silently skipped.
 func (db *TestDB) CleanupTables(t *testing.T, tables ...string) {
 	t.Helper()
 
 	ctx := context.Background()
 
-	// Clean both test tenants: the explicit integration test tenant and
+	// Clean both test tenants: the per-run tenant and
 	// the default tenant used by repositories without explicit tenant_id.
-	tenantIDs := []string{IntegrationTestTenantID, DefaultTestTenantID}
+	tenantIDs := []string{db.TenantID, DefaultTestTenantID}
 
 	for _, table := range tables {
 		// Check if table has tenant_id column
@@ -281,15 +283,18 @@ func RequireEnv(t *testing.T, key string) string {
 }
 
 // EnsureTenantExists creates the integration test tenant if it doesn't exist.
+// The slug is derived from the per-run tenant ID to avoid unique constraint
+// conflicts when multiple test runs execute concurrently.
 func (db *TestDB) EnsureTenantExists(t *testing.T) {
 	t.Helper()
 
 	ctx := context.Background()
+	slug := fmt.Sprintf("itest-%s", db.TenantID[:8])
 	_, err := db.Pool.Exec(ctx, `
 		INSERT INTO tenants (id, name, display_name, slug, owner_email, created_at, updated_at)
-		VALUES ($1, 'integration_test', 'Integration Test Tenant', 'integration-test', 'integration-test@example.com', NOW(), NOW())
+		VALUES ($1, $2, 'Integration Test Tenant', $3, 'integration-test@example.com', NOW(), NOW())
 		ON CONFLICT (id) DO NOTHING
-	`, db.TenantID)
+	`, db.TenantID, slug, slug)
 	require.NoError(t, err, "failed to ensure tenant exists")
 }
 
