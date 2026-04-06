@@ -13,7 +13,7 @@ import (
 // TestMigration147_RegisterNewsletterVariantFunctionExists verifies that the
 // register_newsletter_variant() function was created by migration 147.
 func TestMigration147_RegisterNewsletterVariantFunctionExists(t *testing.T) {
-	db := SetupTestDBNoMigrations(t)
+	db := SetupTestDB(t)
 	ctx := context.Background()
 
 	var exists bool
@@ -32,7 +32,7 @@ func TestMigration147_RegisterNewsletterVariantFunctionExists(t *testing.T) {
 // TestMigration147_NewsletterVariantOverviewViewExists verifies that the
 // newsletter_variant_overview view was created by migration 147.
 func TestMigration147_NewsletterVariantOverviewViewExists(t *testing.T) {
-	db := SetupTestDBNoMigrations(t)
+	db := SetupTestDB(t)
 	ctx := context.Background()
 
 	var exists bool
@@ -50,7 +50,7 @@ func TestMigration147_NewsletterVariantOverviewViewExists(t *testing.T) {
 // TestMigration147_NewsletterVariantOverviewColumns verifies that the view exposes
 // the expected columns operators need to inspect newsletter variants.
 func TestMigration147_NewsletterVariantOverviewColumns(t *testing.T) {
-	db := SetupTestDBNoMigrations(t)
+	db := SetupTestDB(t)
 	ctx := context.Background()
 
 	expectedColumns := []string{
@@ -82,7 +82,7 @@ func TestMigration147_NewsletterVariantOverviewColumns(t *testing.T) {
 // function, then verifies it appears in the newsletter_variant_overview view.
 // Self-contained — does not depend on migration 146 data being present.
 func TestMigration147_RegisterAndQueryVariant(t *testing.T) {
-	db := SetupTestDBNoMigrations(t)
+	db := SetupTestDB(t)
 	ctx := context.Background()
 
 	// Names must fit varchar(20) and start with NEWSLETTER to match the view filter
@@ -159,7 +159,7 @@ func TestMigration147_RegisterAndQueryVariant(t *testing.T) {
 // TestMigration147_RegisterNewsletterVariantIsIdempotent verifies that calling
 // register_newsletter_variant() twice for the same variant does not error.
 func TestMigration147_RegisterNewsletterVariantIsIdempotent(t *testing.T) {
-	db := SetupTestDBNoMigrations(t)
+	db := SetupTestDB(t)
 	ctx := context.Background()
 
 	// Names must fit varchar(20) and start with NEWSLETTER to match view filter

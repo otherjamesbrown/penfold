@@ -141,7 +141,7 @@ func TestDeployHistory_TableExists(t *testing.T) {
 // have the expected prompt_override values. pf-c4682e: summarize and extract_semantic
 // must have prompt_override=2 (notification-tailored), which migration 142 sets.
 func TestNotificationPipelinePromptOverrides(t *testing.T) {
-	db := SetupTestDBNoMigrations(t)
+	db := SetupTestDB(t)
 	ctx := context.Background()
 
 	// Expected prompt_override for each notification pipeline stage.

@@ -111,7 +111,7 @@ func setupRoleFilterTestData(t *testing.T, db *TestDB) (int64, int64, int64, int
 }
 
 func TestSearchRoleFilter_FromByEmail(t *testing.T) {
-	db := SetupTestDBNoMigrations(t)
+	db := SetupTestDB(t)
 	aliceID, _, sourceAID, _, _ := setupRoleFilterTestData(t, db)
 	_ = aliceID
 
@@ -145,7 +145,7 @@ func TestSearchRoleFilter_FromByEmail(t *testing.T) {
 }
 
 func TestSearchRoleFilter_FromByEntityID(t *testing.T) {
-	db := SetupTestDBNoMigrations(t)
+	db := SetupTestDB(t)
 	_, bobID, _, sourceBID, _ := setupRoleFilterTestData(t, db)
 
 	ctx := context.Background()
@@ -177,7 +177,7 @@ func TestSearchRoleFilter_FromByEntityID(t *testing.T) {
 }
 
 func TestSearchRoleFilter_ToStrict(t *testing.T) {
-	db := SetupTestDBNoMigrations(t)
+	db := SetupTestDB(t)
 	setupRoleFilterTestData(t, db)
 
 	ctx := context.Background()
@@ -213,7 +213,7 @@ func TestSearchRoleFilter_ToStrict(t *testing.T) {
 }
 
 func TestSearchRoleFilter_RecipientBroad(t *testing.T) {
-	db := SetupTestDBNoMigrations(t)
+	db := SetupTestDB(t)
 	setupRoleFilterTestData(t, db)
 
 	ctx := context.Background()
@@ -247,7 +247,7 @@ func TestSearchRoleFilter_RecipientBroad(t *testing.T) {
 }
 
 func TestSearchRoleFilter_EntityNotFound(t *testing.T) {
-	db := SetupTestDBNoMigrations(t)
+	db := SetupTestDB(t)
 	setupRoleFilterTestData(t, db)
 
 	ctx := context.Background()
@@ -274,7 +274,7 @@ func TestSearchRoleFilter_EntityNotFound(t *testing.T) {
 }
 
 func TestSearchRoleFilter_AnyRoleForEntity(t *testing.T) {
-	db := SetupTestDBNoMigrations(t)
+	db := SetupTestDB(t)
 	setupRoleFilterTestData(t, db)
 
 	ctx := context.Background()
@@ -302,7 +302,7 @@ func TestSearchRoleFilter_AnyRoleForEntity(t *testing.T) {
 }
 
 func TestSearchRoleFilter_MultipleFiltersANDed(t *testing.T) {
-	db := SetupTestDBNoMigrations(t)
+	db := SetupTestDB(t)
 	setupRoleFilterTestData(t, db)
 
 	ctx := context.Background()
@@ -337,7 +337,7 @@ func TestSearchRoleFilter_MultipleFiltersANDed(t *testing.T) {
 }
 
 func TestSearchRoleFilter_NoFilterUnchanged(t *testing.T) {
-	db := SetupTestDBNoMigrations(t)
+	db := SetupTestDB(t)
 	setupRoleFilterTestData(t, db)
 
 	ctx := context.Background()
@@ -356,7 +356,7 @@ func TestSearchRoleFilter_NoFilterUnchanged(t *testing.T) {
 }
 
 func TestSearchRoleFilter_ContentTypeFilter(t *testing.T) {
-	db := SetupTestDBNoMigrations(t)
+	db := SetupTestDB(t)
 	setupRoleFilterTestData(t, db)
 
 	ctx := context.Background()
@@ -390,7 +390,7 @@ func TestSearchRoleFilter_ContentTypeFilter(t *testing.T) {
 }
 
 func TestSearchRoleFilter_ByEntityName(t *testing.T) {
-	db := SetupTestDBNoMigrations(t)
+	db := SetupTestDB(t)
 	setupRoleFilterTestData(t, db)
 
 	ctx := context.Background()

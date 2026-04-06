@@ -15,7 +15,7 @@ import (
 // it appears in the newsletter_variant_overview view with the correct attributes.
 // Uses test-safe names to avoid conflict with production data.
 func TestMigration148_RegisterAndQueryDigestVariant(t *testing.T) {
-	db := SetupTestDBNoMigrations(t)
+	db := SetupTestDB(t)
 	ctx := context.Background()
 
 	// Names must fit varchar(20) and start with NEWSLETTER to match view filter
@@ -92,7 +92,7 @@ func TestMigration148_RegisterAndQueryDigestVariant(t *testing.T) {
 // TestNewsletterVariantDigest_IsIdempotent verifies that calling register_newsletter_variant()
 // twice for the Dynamic Signal parameter set does not error and does not produce duplicate rows.
 func TestNewsletterVariantDigest_IsIdempotent(t *testing.T) {
-	db := SetupTestDBNoMigrations(t)
+	db := SetupTestDB(t)
 	ctx := context.Background()
 
 	variantName := "newsletter_t_dgidem"

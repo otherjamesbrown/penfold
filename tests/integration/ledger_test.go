@@ -15,7 +15,7 @@ import (
 
 func setupLedgerRepo(t *testing.T) (*ledger.Repository, *TestDB) {
 	t.Helper()
-	db := SetupTestDBNoMigrations(t)
+	db := SetupTestDB(t)
 	db.EnsureTenantExists(t)
 
 	// Clean up ledger entries for the test tenant.
