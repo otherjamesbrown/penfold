@@ -13,51 +13,35 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/otherjamesbrown/penfold/pkg/db"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TestMigrations_AllApplied verifies that all available migrations have been applied.
-// This catches the case where migrations exist but weren't run on the target database.
+// TestMigrations_AllApplied verifies that the shared DB has no pending migrations.
+// This is the canonical pre-test migration sanity check: if the DB is behind,
+// the test fails immediately with an actionable error rather than letting tests
+// run against stale schema and produce confusing failures.
 func TestMigrations_AllApplied(t *testing.T) {
-	db := SetupTestDB(t)
-	ctx := context.Background()
+	testDB := SetupTestDB(t)
+	migrationsDir := findMigrationsDir(t)
 
-	// Get available migrations from filesystem
-	available := getAvailableMigrations(t)
-	require.NotEmpty(t, available, "should have migration files")
+	pending, err := db.GetPendingMigrations(context.Background(), testDB.Pool, migrationsDir)
+	require.NoError(t, err, "failed to check migration status")
 
-	// Get applied migrations from database
-	applied := getAppliedMigrations(t, db.Pool, ctx)
-
-	// If no migration tracking table exists (test DB may apply migrations differently),
-	// skip version tracking check but still verify schema in other tests
-	if applied == nil {
-		t.Skip("No migration tracking table found - schema verified by other tests")
-	}
-
-	// Check each available migration is applied
-	var missing []string
-	for _, m := range available {
-		found := false
-		for _, a := range applied {
-			if a == m.Version {
-				found = true
-				break
-			}
+	if len(pending) > 0 {
+		var names []string
+		for _, m := range pending {
+			names = append(names, m.Name)
 		}
-		if !found {
-			missing = append(missing, fmt.Sprintf("%03d_%s", m.Version, m.Name))
-		}
+		t.Fatalf(
+			"DB has %d pending migration(s) — apply them before running tests:\n\n"+
+				"  penf migrate up\n\nPending:\n  %s",
+			len(pending), strings.Join(names, "\n  "),
+		)
 	}
 
-	if len(missing) > 0 {
-		t.Fatalf("Migrations not applied to database:\n  %s\n\nRun: penf migrate up",
-			strings.Join(missing, "\n  "))
-	}
-
-	t.Logf("All %d migrations applied", len(available))
+	t.Logf("All migrations applied — DB schema is up to date")
 }
 
 // TestMigrations_VersionSequence verifies migration versions are sequential with no gaps.
@@ -268,63 +252,6 @@ func getAvailableMigrations(t *testing.T) []Migration {
 	}
 
 	return migrations
-}
-
-// getAppliedMigrations queries the database for applied migrations
-func getAppliedMigrations(t *testing.T, pool *pgxpool.Pool, ctx context.Context) []int {
-	t.Helper()
-
-	// Check if goose migrations table exists
-	var tableExists bool
-	err := pool.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1 FROM information_schema.tables
-			WHERE table_name = 'goose_db_version'
-		)
-	`).Scan(&tableExists)
-	require.NoError(t, err)
-
-	if !tableExists {
-		t.Log("goose_db_version table not found - checking schema_migrations")
-
-		// Try schema_migrations (golang-migrate format)
-		err = pool.QueryRow(ctx, `
-			SELECT EXISTS (
-				SELECT 1 FROM information_schema.tables
-				WHERE table_name = 'schema_migrations'
-			)
-		`).Scan(&tableExists)
-		require.NoError(t, err)
-
-		if !tableExists {
-			t.Log("No migration tracking table found")
-			return nil
-		}
-	}
-
-	// Query applied migrations
-	// For goose format
-	rows, err := pool.Query(ctx, `
-		SELECT version_id FROM goose_db_version
-		WHERE is_applied = true
-		ORDER BY version_id
-	`)
-	if err != nil {
-		// Table might not exist or different format
-		t.Logf("Could not query goose_db_version: %v", err)
-		return nil
-	}
-	defer rows.Close()
-
-	var versions []int
-	for rows.Next() {
-		var v int64
-		if err := rows.Scan(&v); err == nil {
-			versions = append(versions, int(v))
-		}
-	}
-
-	return versions
 }
 
 // findMigrationsDir locates the migrations directory

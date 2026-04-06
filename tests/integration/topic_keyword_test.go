@@ -16,7 +16,7 @@ import (
 // matches topics by keyword containment in candidate names, not just exact name match.
 // Bug: pf-8700ec — "Oslo NLB Workflow" should match topic "Oslo" via keyword "oslo".
 func TestTopicRepository_ListForContext_KeywordMatch(t *testing.T) {
-	db := SetupTestDBNoMigrations(t)
+	db := SetupTestDB(t)
 	db.CleanupTables(t, "topics")
 
 	repo := topics.NewRepository(db.Pool, logging.NewNopLogger())
