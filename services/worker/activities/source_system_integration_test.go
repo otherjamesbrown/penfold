@@ -56,7 +56,7 @@ func TestUpdateSourceStatus_SourceSystemNotPersisted_Integration(t *testing.T) {
 	pool := setupTestDBForSourceSystem(t)
 	defer pool.Close()
 
-	tenantID := IntegrationTestTenantID
+	tenantID := testRunTenantID
 	logger := logging.MustGlobal()
 
 	// Create Activities instance with real database connection
@@ -125,7 +125,7 @@ func TestUpdateSourceStatus_SourceSystemWithOtherFields_Integration(t *testing.T
 	pool := setupTestDBForSourceSystem(t)
 	defer pool.Close()
 
-	tenantID := IntegrationTestTenantID
+	tenantID := testRunTenantID
 	logger := logging.MustGlobal()
 
 	// Create Activities instance with real database connection

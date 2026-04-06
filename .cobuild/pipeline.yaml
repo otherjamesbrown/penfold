@@ -1,0 +1,39 @@
+# penfold — repo-specific pipeline config
+# Shared config (phases, workflows, review, connectors, storage) is in ~/.cobuild/pipeline.yaml
+
+github:
+    owner_repo: otherjamesbrown/penfold
+
+build:
+    - make build
+
+test:
+    - make test
+    - make vet
+
+deploy:
+    services:
+        - name: gateway
+          trigger_paths: [services/gateway/**, pkg/**]
+          command: penf deploy gateway
+        - name: worker
+          trigger_paths: [services/worker/**, pkg/**]
+          command: penf deploy worker
+        - name: ai
+          trigger_paths: [services/ai/**]
+          command: penf deploy ai
+
+context:
+    layers:
+        - name: architecture
+          source: file:ARCHITECTURE.md
+          when: always
+        - name: principles
+          source: work-item:pf-eeb256
+          when: always
+        - name: task-prompt
+          source: dispatch-prompt
+          when: dispatch
+        - name: design-context
+          source: parent-design
+          when: dispatch

@@ -22,8 +22,8 @@ func TestGlossaryRepository_ListTenantIsolation(t *testing.T) {
 	ctx := context.Background()
 
 	// Use well-known tenant IDs from helpers.go
-	tenantA := IntegrationTestTenantID // 00000000-0000-0000-0000-000000000002
-	tenantB := DefaultTestTenantID      // 00000001-0000-0000-0000-000000000001
+	tenantA := db.TenantID
+	tenantB := DefaultTestTenantID
 
 	// Create terms for tenant A
 	_, err := db.Pool.Exec(ctx, `
@@ -78,7 +78,7 @@ func TestGlossaryRepository_ListLinkedTenantIsolation(t *testing.T) {
 
 	ctx := context.Background()
 
-	tenantA := IntegrationTestTenantID
+	tenantA := db.TenantID
 	tenantB := DefaultTestTenantID
 
 	// Create linked term for tenant A using unique test-specific names
@@ -129,7 +129,7 @@ func TestGlossaryRepository_ListForContextTenantIsolation(t *testing.T) {
 	repo := glossary.NewRepository(db.Pool)
 	ctx := context.Background()
 
-	tenantA := IntegrationTestTenantID
+	tenantA := db.TenantID
 	tenantB := DefaultTestTenantID
 
 	// Create term for tenant A
@@ -165,7 +165,7 @@ func TestGlossaryRepository_GetByTermTenantIsolation(t *testing.T) {
 	repo := glossary.NewRepository(db.Pool)
 	ctx := context.Background()
 
-	tenantA := IntegrationTestTenantID
+	tenantA := db.TenantID
 	tenantB := DefaultTestTenantID
 
 	// Create same term name for BOTH tenants
@@ -208,7 +208,7 @@ func TestGlossaryRepository_LookupTermTenantIsolation(t *testing.T) {
 	repo := glossary.NewRepository(db.Pool)
 	ctx := context.Background()
 
-	tenantA := IntegrationTestTenantID
+	tenantA := db.TenantID
 	tenantB := DefaultTestTenantID
 
 	// Create same term for both tenants with different aliases
@@ -253,7 +253,7 @@ func TestReviewQueue_ListTenantIsolation(t *testing.T) {
 	repo := reviewqueue.NewRepository(db.Pool)
 	ctx := context.Background()
 
-	tenantA := IntegrationTestTenantID
+	tenantA := db.TenantID
 	tenantB := DefaultTestTenantID
 
 	// Create review item for tenant A
@@ -309,7 +309,7 @@ func TestReviewQueue_GetStatsTenantIsolation(t *testing.T) {
 	repo := reviewqueue.NewRepository(db.Pool)
 	ctx := context.Background()
 
-	tenantA := IntegrationTestTenantID
+	tenantA := db.TenantID
 	tenantB := DefaultTestTenantID
 
 	// Create 2 items for tenant A

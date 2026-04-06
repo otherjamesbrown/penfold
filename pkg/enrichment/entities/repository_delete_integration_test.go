@@ -39,7 +39,7 @@ func TestDeleteEntity_WithContentMentions_Integration(t *testing.T) {
 
 	// Setup database connection
 	pool := setupTestDBForDelete(t)
-	tenantID := IntegrationTestTenantID
+	tenantID := testRunTenantID
 	logger := logging.MustGlobal()
 
 	// Create repository

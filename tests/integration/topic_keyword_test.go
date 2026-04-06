@@ -21,7 +21,7 @@ func TestTopicRepository_ListForContext_KeywordMatch(t *testing.T) {
 
 	repo := topics.NewRepository(db.Pool, logging.NewNopLogger())
 	ctx := context.Background()
-	tenantID := IntegrationTestTenantID
+	tenantID := db.TenantID
 
 	// Create topics with keywords
 	oslo := &topics.Topic{

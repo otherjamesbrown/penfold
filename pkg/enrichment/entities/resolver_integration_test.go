@@ -9,14 +9,15 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 )
 
-const (
-	// IntegrationTestTenantID is the tenant ID for integration tests.
-	IntegrationTestTenantID = "00000000-0000-0000-0000-000000000002"
-)
+// testRunTenantID is generated once per test binary execution.
+// Using a per-run UUID prevents data collisions when multiple developers or
+// CI pipelines run integration tests concurrently against the shared live database.
+var testRunTenantID = uuid.New().String()
 
 // TestResolveOrCreate_StaleAccountType_Integration is an integration test that reproduces
 // bug pf-276070: ResolveOrCreate returns existing entities without updating stale account_type.
@@ -33,7 +34,7 @@ func TestResolveOrCreate_StaleAccountType_Integration(t *testing.T) {
 
 	// Setup database connection
 	pool := setupTestDB(t)
-	tenantID := IntegrationTestTenantID
+	tenantID := testRunTenantID
 	logger := logging.MustGlobal()
 
 	// Create repository and resolver
@@ -206,7 +207,7 @@ func TestResolveOrCreate_CanonicalNameUpdate_Integration(t *testing.T) {
 
 	// Setup database connection
 	pool := setupTestDB(t)
-	tenantID := IntegrationTestTenantID
+	tenantID := testRunTenantID
 	logger := logging.MustGlobal()
 
 	// Create repository and resolver
@@ -318,7 +319,7 @@ func TestResolveOrCreate_CanonicalNameNoOverwrite_Integration(t *testing.T) {
 
 	// Setup database connection
 	pool := setupTestDB(t)
-	tenantID := IntegrationTestTenantID
+	tenantID := testRunTenantID
 	logger := logging.MustGlobal()
 
 	// Create repository and resolver
@@ -427,7 +428,7 @@ func TestResolveOrCreate_CaseInsensitiveEmail_Integration(t *testing.T) {
 	ctx := context.Background()
 
 	pool := setupTestDB(t)
-	tenantID := IntegrationTestTenantID
+	tenantID := testRunTenantID
 	logger := logging.MustGlobal()
 
 	repo := NewRepository(pool, logger)
@@ -488,7 +489,7 @@ func TestCreatePerson_UpsertOnConflict_Integration(t *testing.T) {
 	ctx := context.Background()
 
 	pool := setupTestDB(t)
-	tenantID := IntegrationTestTenantID
+	tenantID := testRunTenantID
 	logger := logging.MustGlobal()
 
 	repo := NewRepository(pool, logger)
