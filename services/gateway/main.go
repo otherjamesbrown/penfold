@@ -341,11 +341,6 @@ func main() {
 	questionsv1.RegisterQuestionsServiceServer(grpcServer, questionsSvc)
 	logger.Info("Registered QuestionsService")
 
-	// Register ReviewService for review sessions and item management.
-	reviewSvc := reviewservice.NewService(questionsRepo, logger)
-	reviewv1.RegisterReviewServiceServer(grpcServer, reviewSvc)
-	logger.Info("Registered ReviewService")
-
 	// Register MentionsService.
 	mentionsRepo := mentions.NewPostgresRepository(dbPool)
 	mentionsSvc := mentionsservice.NewService(mentionsRepo, logger)
@@ -368,6 +363,11 @@ func main() {
 	// Note: tenantRepo is created here to allow tenant resolution in EntityService and later services.
 	tenantRepo := tenant.NewRepository(dbPool)
 	entityRepo := entities.NewRepository(dbPool, logger)
+
+	// Register ReviewService for review sessions and item management.
+	reviewSvc := reviewservice.NewService(questionsRepo, entityRepo, logger)
+	reviewv1.RegisterReviewServiceServer(grpcServer, reviewSvc)
+	logger.Info("Registered ReviewService")
 	productRepo := products.NewRepository(dbPool, logger)
 	entitySvc := entityservice.NewService(entityRepo, productRepo, logger)
 	entityv1.RegisterEntityServiceServer(grpcServer, entitySvc)
