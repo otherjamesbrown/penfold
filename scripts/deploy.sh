@@ -58,6 +58,16 @@ cmd_status() {
     else
         log_warn "MCP Server ${mcp_active}"
     fi
+    echo ""
+
+    echo "Gmail Connector (dev02 / systemd):"
+    local gmail_health=$(curl -s -o /dev/null -w "%{http_code}" "http://dev02.brown.chat:8083/health" 2>/dev/null || echo "000")
+    local gmail_commit=$(get_deployed_commit "http://dev02.brown.chat:8083")
+    if [[ "$gmail_health" == "200" ]]; then
+        log_success "Gmail Connector healthy (commit: ${gmail_commit})"
+    else
+        log_warn "Gmail Connector HTTP ${gmail_health}"
+    fi
 }
 
 cmd_rollback() {
@@ -91,9 +101,14 @@ cmd_rollback() {
             systemd_restart "dev02" "penfold-mcp" 30
             log_deploy "penfold-mcp" "rollback" "" "manual-rollback"
             ;;
+        gmail)
+            rollback_binary "dev02" "/opt/penfold/bin/penfold-gmail"
+            systemd_restart "dev02" "penfold-gmail" 30
+            log_deploy "penfold-gmail" "rollback" "" "manual-rollback"
+            ;;
         *)
             log_error "Unknown service: ${service}"
-            echo "Valid services: worker, gateway, ai, mcp"
+            echo "Valid services: worker, gateway, ai, mcp, gmail"
             exit 1
             ;;
     esac
@@ -124,6 +139,10 @@ cmd_deploy_all() {
     "${SCRIPT_DIR}/deploy-mcp.sh"
     echo ""
 
+    log_info "Deploying Gmail connector..."
+    "${SCRIPT_DIR}/deploy-gmail.sh"
+    echo ""
+
     echo "${GREEN}=== All Services Deployed ===${NC}"
 }
 
@@ -135,9 +154,10 @@ usage() {
     echo "  gateway         Deploy gateway to dev02 (systemd)"
     echo "  ai              Deploy AI coordinator to dev02 (systemd)"
     echo "  mcp             Deploy MCP server to dev02 (systemd)"
+    echo "  gmail           Deploy Gmail connector to dev02 (systemd)"
     echo "  all             Deploy all services in dependency order"
     echo "  status          Check health of all services"
-    echo "  rollback <svc>  Rollback a service (worker|gateway|ai|mcp)"
+    echo "  rollback <svc>  Rollback a service (worker|gateway|ai|mcp|gmail)"
     echo ""
     echo "Examples:"
     echo "  $0 worker                # Full worker deploy"
@@ -157,6 +177,9 @@ case "${1:-}" in
         ;;
     mcp)
         "${SCRIPT_DIR}/deploy-mcp.sh"
+        ;;
+    gmail)
+        "${SCRIPT_DIR}/deploy-gmail.sh"
         ;;
     all)
         cmd_deploy_all
