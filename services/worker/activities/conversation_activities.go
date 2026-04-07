@@ -415,7 +415,13 @@ func (a *ConversationActivities) generateSummaryAndState(ctx context.Context, te
 		JsonMode: &jsonMode,
 	}
 
-	resp, err := a.aiClient.GenerateSummary(ctx, req)
+	// Use a detached context for the AI call so that Temporal's activity timeout
+	// (30s fastOpts) does not cancel it. Summary failure is non-blocking — the
+	// conversation still links successfully if this times out.
+	summaryCtx, summaryCancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer summaryCancel()
+
+	resp, err := a.aiClient.GenerateSummary(summaryCtx, req)
 	if err != nil {
 		logger.Warn("failed to generate summary via LLM",
 			logging.F("error", err.Error()),
@@ -430,7 +436,7 @@ func (a *ConversationActivities) generateSummaryAndState(ctx context.Context, te
 	newVersion := conversation.SummaryVersion + 1
 
 	// Persist summary
-	err = a.convRepo.UpdateSummary(ctx, conversationID, summary, newVersion)
+	err = a.convRepo.UpdateSummary(summaryCtx, conversationID, summary, newVersion)
 	if err != nil {
 		logger.Warn("failed to persist summary",
 			logging.F("error", err.Error()),
@@ -439,7 +445,7 @@ func (a *ConversationActivities) generateSummaryAndState(ctx context.Context, te
 	}
 
 	// Persist state + reason
-	err = a.convRepo.UpdateState(ctx, conversationID, state, reason)
+	err = a.convRepo.UpdateState(summaryCtx, conversationID, state, reason)
 	if err != nil {
 		logger.Warn("failed to persist conversation state",
 			logging.F("error", err.Error()),
