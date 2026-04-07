@@ -13,7 +13,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	aiv1 "github.com/otherjamesbrown/penfold/api/proto/ai/v1"
+	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	contentv1 "github.com/otherjamesbrown/penfold/api/proto/content/v1"
 	gmailv1 "github.com/otherjamesbrown/penfold/api/proto/gmail/v1"
 	relationshipv1 "github.com/otherjamesbrown/penfold/api/proto/relationship/v1"

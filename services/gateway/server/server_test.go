@@ -20,7 +20,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	aiv1 "github.com/otherjamesbrown/penfold/api/proto/ai/v1"
+	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	contentv1 "github.com/otherjamesbrown/penfold/api/proto/content/v1"
 	gatewaypb "github.com/otherjamesbrown/penfold/api/proto/core/v1/gatewaypb"
 	gmailv1 "github.com/otherjamesbrown/penfold/api/proto/gmail/v1"
