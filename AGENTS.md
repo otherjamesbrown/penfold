@@ -39,7 +39,7 @@ bd sync               # Sync with git
 - If push fails, resolve and retry until it succeeds
 
 
-<!-- BEGIN COBUILD INTEGRATION v:1 hash:ded8da55 -->
+<!-- BEGIN COBUILD INTEGRATION v:1 hash:42ddc9af -->
 # CoBuild Pipeline Instructions
 
 This project uses CoBuild for pipeline automation. If you are an agent working on a task dispatched by CoBuild, follow these instructions.
@@ -49,10 +49,10 @@ This project uses CoBuild for pipeline automation. If you are an agent working o
 - **Name:** penfold
 - **Prefix:** pf-
 - **Workflows:**
-  - design: design → decompose → implement → review → done
-  - bug: investigate → implement → review → done
   - bug-complex: investigate → implement → review → done
   - task: implement → review → done
+  - design: design → decompose → implement → review → done
+  - bug: investigate → implement → review → done
 
 ## Commands
 
