@@ -54,6 +54,8 @@ import (
 	instructionv1 "github.com/otherjamesbrown/penfold/api/proto/instruction/v1"
 	graphconnectorpb "github.com/otherjamesbrown/penfold/api/proto/connectors/v1/graphpb"
 	gatewaypb "github.com/otherjamesbrown/penfold/api/proto/core/v1/gatewaypb"
+	gmailv1 "github.com/otherjamesbrown/penfold/api/proto/gmail/v1"
+	"github.com/otherjamesbrown/penfold/services/gateway/gmailproxyservice"
 	"github.com/otherjamesbrown/penfold/services/gateway/router"
 	"github.com/otherjamesbrown/penfold/pkg/ai"
 	"github.com/otherjamesbrown/penfold/pkg/assertions"
@@ -627,6 +629,11 @@ func main() {
 		}
 	}
 	ingestSvc.SetGmailRouter(gmailRouter)
+
+	// Register GmailConnectorService proxy so CLI can call SyncEmails via the gateway.
+	gmailProxySvc := gmailproxyservice.NewService(gmailRouter, logger)
+	gmailv1.RegisterGmailConnectorServiceServer(grpcServer, gmailProxySvc)
+	logger.Info("Registered GmailConnectorService proxy")
 
 	// Set Temporal client on IngestService for automatic workflow starting
 	if temporalClient != nil {

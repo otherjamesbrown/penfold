@@ -17,13 +17,16 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	gmailv1 "github.com/otherjamesbrown/penfold/api/proto/gmail/v1"
 	"github.com/otherjamesbrown/penfold/pkg/health"
+	storage "github.com/otherjamesbrown/penfold/pkg/ingest/storage"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/metrics"
+	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 	"github.com/otherjamesbrown/penfold/services/gmail/config"
 	"github.com/otherjamesbrown/penfold/services/gmail/oauth"
 	"github.com/otherjamesbrown/penfold/services/gmail/privacy"
 	"github.com/otherjamesbrown/penfold/services/gmail/server"
 	gSync "github.com/otherjamesbrown/penfold/services/gmail/sync"
+	"go.temporal.io/sdk/client"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
@@ -167,10 +170,35 @@ func buildServerDeps(ctx context.Context, cfg *config.Config, logger logging.Log
 		return nil, fmt.Errorf("creating sync engine: %w", err)
 	}
 
+	// Create source repository for pipeline ingestion.
+	sourceRepo := storage.NewRepository(dbPool, logger)
+
+	var temporalCli client.Client
+	temporalHostPort := os.Getenv("TEMPORAL_HOST_PORT")
+	if temporalHostPort != "" {
+		temporalCfg := &pkgtemporal.Config{
+			HostPort:  temporalHostPort,
+			Namespace: cfg.Base.Temporal.Namespace,
+		}
+		var err error
+		temporalCli, err = pkgtemporal.NewClient(temporalCfg, pkgtemporal.WithLogger(logger))
+		if err != nil {
+			logger.Warn("failed to create Temporal client, workflow start disabled",
+				logging.Err(err),
+			)
+		} else {
+			logger.Info("Temporal client configured")
+		}
+	} else {
+		logger.Info("TEMPORAL_HOST_PORT not set, workflow start disabled")
+	}
+
 	return &server.ServerDeps{
-		Engine:       engine,
-		OAuthManager: oauthManager,
-		StateStorage: stateStorage,
+		Engine:         engine,
+		OAuthManager:   oauthManager,
+		StateStorage:   stateStorage,
+		SourceRepo:     sourceRepo,
+		TemporalClient: temporalCli,
 	}, nil
 }
 
