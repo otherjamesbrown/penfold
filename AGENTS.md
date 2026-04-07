@@ -39,7 +39,7 @@ bd sync               # Sync with git
 - If push fails, resolve and retry until it succeeds
 
 
-<!-- BEGIN COBUILD INTEGRATION v:1 hash:74299764 -->
+<!-- BEGIN COBUILD INTEGRATION v:1 hash:ded8da55 -->
 # CoBuild Pipeline Instructions
 
 This project uses CoBuild for pipeline automation. If you are an agent working on a task dispatched by CoBuild, follow these instructions.
@@ -51,6 +51,7 @@ This project uses CoBuild for pipeline automation. If you are an agent working o
 - **Workflows:**
   - design: design → decompose → implement → review → done
   - bug: investigate → implement → review → done
+  - bug-complex: investigate → implement → review → done
   - task: implement → review → done
 
 ## Commands
@@ -72,6 +73,8 @@ This project uses CoBuild for pipeline automation. If you are an agent working o
 | `cobuild retro <design-id>` | Run retrospective |
 | `cobuild status` | Show all active pipelines |
 | `cobuild audit <id>` | View gate history |
+| `cobuild scan` | Refresh project anatomy (file index for agents) |
+| `cobuild explain` | Show pipeline in human-readable form |
 
 ### Work Items
 
@@ -84,14 +87,44 @@ This project uses CoBuild for pipeline automation. If you are an agent working o
 | `cobuild wi append <id> --body "..."` | Append content |
 | `cobuild wi create --type <type> --title "..."` | Create work item |
 
-## How to Run Pipelines (Manual Mode)
+## How to Run Pipelines
 
-**There is no automatic poller.** You must step through each phase manually using `cobuild dispatch` and `cobuild wait`. Do not assume work will happen automatically.
+There are two ways to advance each phase:
 
-Every phase transition requires:
-1. **Dispatch** — `cobuild dispatch <id>` spawns an agent in tmux for the current phase
-2. **Wait** — `cobuild wait <id>` blocks until the agent completes
-3. **Next** — dispatch the next phase or the next wave of tasks
+### Option A: You already did the work (interactive session)
+
+If you've already reviewed the design, decomposed into tasks, or done investigation
+in the current session with the developer, just record the gate verdict:
+
+```bash
+cobuild review <id> --verdict pass --readiness 5 --body "<findings>"   # record design review
+cobuild decompose <id> --verdict pass --body "<task summary>"          # record decomposition
+cobuild investigate <id> --verdict pass --body "<root cause>"           # record investigation
+```
+
+The gate command records the verdict and advances the phase. No dispatch needed.
+
+### Option B: Delegate to a separate agent (dispatch)
+
+If you want a fresh agent to handle a phase in its own context:
+
+```bash
+cobuild dispatch <id>   # spawns agent in tmux for the current phase
+cobuild wait <id>       # blocks until the agent completes
+```
+
+`cobuild dispatch` is phase-aware — it generates the right prompt automatically.
+Use this for implementation (agents write code) and when you want a clean context.
+
+### Which to use?
+
+| Situation | Use |
+|-----------|-----|
+| You just reviewed the design with the developer | Option A — record the gate |
+| You need an agent to write code | Option B — dispatch |
+| You decomposed tasks in conversation | Option A — record the gate |
+| You want investigation in a clean context | Option B — dispatch |
+| Phase needs multiple file reads/edits | Option B — saves your context |
 
 ### Design Workflow
 
@@ -114,7 +147,38 @@ cobuild retro <design-id>                    # run retrospective
 
 ### Bug Workflow
 
+**Default (most bugs):** single `fix` session — agent investigates and fixes together.
+
+**Escalation path:** if the bug is complex, label it `needs-investigation` first — it routes to a read-only investigation phase that produces a fix spec before any code is changed.
+
+#### When to add `needs-investigation`
+
+Apply the label if **any** of these are true:
+
+1. Root cause unknown (symptom visible, mechanism unclear)
+2. Bug spans multiple services, modules, or repos
+3. Data or security implications — need blast radius assessment before fixing
+4. This area has broken before, or the fix might have unintended side effects
+5. Reproduces inconsistently — needs investigation to find the trigger
+6. Fix shape is non-obvious (can't describe it in 1-2 sentences)
+7. Investigation produces options that require a stakeholder decision
+
+If none apply → omit the label. The fix agent will investigate as it fixes.
+
+#### Default bug flow
+
 ```bash
+cobuild init <bug-id>                        # enters fix phase
+cobuild dispatch <bug-id>                    # spawns fix agent (investigate + implement)
+cobuild wait <bug-id>                        # wait for fix
+cobuild merge <bug-id>                       # merge the fix PR
+cobuild deploy <bug-id>                      # deploy if needed
+```
+
+#### Complex bug flow (needs-investigation label)
+
+```bash
+cobuild wi label add <bug-id> needs-investigation
 cobuild init <bug-id>                        # enters investigate phase
 cobuild dispatch <bug-id>                    # spawns investigation agent (READ-ONLY)
 cobuild wait <bug-id>                        # wait for investigation
@@ -144,7 +208,24 @@ When you have completed your implementation:
 2. Build: `make build`
 3. **Run `cobuild complete <task-id>`**
 
-**Do this as your LAST action. Do not skip it.**
+The Stop hook will run `cobuild complete` automatically when you finish.
+If it fails, run it manually as your last action.
+
+## Orchestrator Protocol
+
+If you are the orchestrating agent (dispatching tasks, not implementing them),
+**follow through the full lifecycle. Do not stop after dispatch.**
+
+After dispatching tasks:
+
+1. **Monitor** — use `cobuild audit <id>` or `cobuild status` for instant checks (do NOT use `cobuild wait` as a background task — it's a 2-hour blocking command)
+2. **Review** — when tasks reach `review` phase (PRs created), check Gemini review findings via `gh api repos/<owner>/<repo>/pulls/<pr>/comments`
+3. **Address blockers** — send HIGH findings back to the agent (via tmux send-keys) or fix directly
+4. **Merge** — `cobuild merge <task-id>` (or `gh pr merge <pr> --admin --squash` if cobuild merge fails)
+5. **Close** — update work item status to closed
+6. **Report** — tell the user what shipped, not "want me to review?"
+
+Only pause for user input if there is an actual blocker: merge conflict, critical Gemini finding you can't resolve, or a design decision needed.
 
 ## What CoBuild manages vs what you do directly
 
@@ -159,7 +240,7 @@ Be explicit when reporting status. State clearly whether an action is:
 |-----------|--------|---------|
 | `design/` | gate-readiness-review, implementability | Design evaluation |
 | `decompose/` | decompose-design | Break designs into tasks |
-| `investigate/` | bug-investigation | Root cause analysis for bugs |
+| `investigate/` | bug-investigation | Root cause analysis for needs-investigation bugs |
 | `implement/` | dispatch-task, stall-check | Task dispatch and monitoring |
 | `review/` | gate-process-review, gate-review-pr, merge-and-verify | Code review |
 | `done/` | gate-retrospective | Post-delivery retrospective |
