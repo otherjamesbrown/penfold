@@ -39,7 +39,7 @@ bd sync               # Sync with git
 - If push fails, resolve and retry until it succeeds
 
 
-<!-- BEGIN COBUILD INTEGRATION v:1 hash:286698af -->
+<!-- BEGIN COBUILD INTEGRATION v:1 hash:6f81a513 -->
 # CoBuild Pipeline Instructions
 
 This project uses CoBuild for pipeline automation. If you are an agent working on a task dispatched by CoBuild, follow these instructions.
@@ -49,10 +49,10 @@ This project uses CoBuild for pipeline automation. If you are an agent working o
 - **Name:** penfold
 - **Prefix:** pf-
 - **Workflows:**
-  - bug: investigate → implement → review → done
-  - bug-complex: investigate → implement → review → done
   - task: implement → review → done
   - design: design → decompose → implement → review → done
+  - bug: investigate → implement → review → done
+  - bug-complex: investigate → implement → review → done
 
 ## Commands
 
@@ -219,9 +219,9 @@ If you are the orchestrating agent (dispatching tasks, not implementing them),
 After dispatching tasks:
 
 1. **Monitor** — use `cobuild audit <id>` or `cobuild status` for instant checks (do NOT use `cobuild wait` as a background task — it's a 2-hour blocking command)
-2. **Review** — when tasks reach `review` phase (PRs created), check Gemini review findings via `gh api repos/<owner>/<repo>/pulls/<pr>/comments`
-3. **Address blockers** — send HIGH findings back to the agent (via tmux send-keys) or fix directly
-4. **Merge** — `cobuild merge <task-id>` (or `gh pr merge <pr> --admin --squash` if cobuild merge fails)
+2. **Wait for Gemini review** — check `gh api repos/<owner>/<repo>/pulls/<pr>/reviews` for at least 1 review. If 0 reviews, **wait** (trigger with `/gemini review` comment if needed). Do NOT treat 0 comments as "clean" — it means Gemini hasn't reviewed yet.
+3. **Address findings** — read inline comments via `gh api repos/<owner>/<repo>/pulls/<pr>/comments`. Send HIGH/CRITICAL findings back to the agent or fix directly. MEDIUM findings: use judgement.
+4. **Merge** — only after Gemini has reviewed and HIGH findings are addressed. `cobuild merge <task-id>` (or `gh pr merge <pr> --admin --squash` if cobuild merge fails)
 5. **Close** — update work item status to closed
 6. **Report** — tell the user what shipped, not "want me to review?"
 7. **Deploy** — do NOT deploy automatically. Run `cobuild deploy <id> --dry-run` to show which services would be affected, then **ask the user** for approval. On approval, run `cobuild deploy <id>` (triggers deploy commands from pipeline config with smoke tests and auto-rollback). Deploy touches production and is always a human decision.
