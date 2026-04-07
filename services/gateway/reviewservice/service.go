@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	reviewv1 "github.com/otherjamesbrown/penfold/api/proto/review/v1"
+	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/reviewqueue"
 )
@@ -18,15 +19,17 @@ import (
 // Service implements the ReviewService gRPC server.
 type Service struct {
 	reviewv1.UnimplementedReviewServiceServer
-	repo   *reviewqueue.Repository
-	logger logging.Logger
+	repo       *reviewqueue.Repository
+	entityRepo *entities.Repository
+	logger     logging.Logger
 }
 
 // NewService creates a new review service.
-func NewService(repo *reviewqueue.Repository, logger logging.Logger) *Service {
+func NewService(repo *reviewqueue.Repository, entityRepo *entities.Repository, logger logging.Logger) *Service {
 	return &Service{
-		repo:   repo,
-		logger: logger,
+		repo:       repo,
+		entityRepo: entityRepo,
+		logger:     logger,
 	}
 }
 
@@ -492,6 +495,13 @@ func (s *Service) ApproveItem(ctx context.Context, req *reviewv1.ApproveItemRequ
 
 	// Get updated item
 	item, _ := s.repo.Get(ctx, id)
+
+	// If this is a person review item, mark the person as reviewed (best-effort).
+	if s.entityRepo != nil && item != nil && item.SourceType != nil && *item.SourceType == "person" && item.SourceID != nil {
+		if err := s.entityRepo.MarkPersonReviewed(ctx, *item.SourceID, "review-approved"); err != nil {
+			s.logger.Warn("Failed to mark person reviewed", logging.F("person_id", *item.SourceID), logging.Err(err))
+		}
+	}
 
 	return &reviewv1.ApproveItemResponse{
 		Item: reviewItemToProto(item),

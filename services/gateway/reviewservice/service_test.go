@@ -13,7 +13,7 @@ import (
 func TestSessionRPCsReturnResponses(t *testing.T) {
 	// Create service with nil repo to simulate missing table
 	logger := logging.NewNopLogger()
-	svc := NewService(nil, logger)
+	svc := NewService(nil, nil, logger)
 
 	ctx := context.Background()
 
@@ -127,7 +127,7 @@ func TestListReviewItemsReturnsResponse(t *testing.T) {
 	logger := logging.NewNopLogger()
 
 	// Use nil repo to test graceful degradation
-	svc := NewService(nil, logger)
+	svc := NewService(nil, nil, logger)
 
 	ctx := context.Background()
 
