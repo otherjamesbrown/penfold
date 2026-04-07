@@ -3,23 +3,38 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"strings"
+	"time"
 
 	gmailv1 "github.com/otherjamesbrown/penfold/api/proto/gmail/v1"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	storage "github.com/otherjamesbrown/penfold/pkg/ingest/storage"
+	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 	"github.com/otherjamesbrown/penfold/services/gmail/config"
 	"github.com/otherjamesbrown/penfold/services/gmail/oauth"
 	gSync "github.com/otherjamesbrown/penfold/services/gmail/sync"
+	temporalclient "go.temporal.io/sdk/client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// SourceIngestRepo defines the minimal storage interface needed by the MessageHandler.
+type SourceIngestRepo interface {
+	CheckDuplicate(ctx context.Context, tenantID, messageID, contentHash string) (bool, int64, string, error)
+	CreateSource(ctx context.Context, source *storage.EmailSource) (*storage.CreatedSource, error)
+}
+
 // ServerDeps holds the dependencies injected into GmailServer.
 type ServerDeps struct {
-	Engine       *gSync.Engine
-	OAuthManager *oauth.OAuth2Manager
-	StateStorage gSync.StateStorage
+	Engine         *gSync.Engine
+	OAuthManager   *oauth.OAuth2Manager
+	StateStorage   gSync.StateStorage
+	SourceRepo     SourceIngestRepo
+	TemporalClient temporalclient.Client
 }
 
 // GmailServer implements the GmailConnectorServiceServer interface.
@@ -42,6 +57,12 @@ type GmailServer struct {
 
 	// stateStorage persists sync state.
 	stateStorage gSync.StateStorage
+
+	// sourceRepo is used to create and check source records for pipeline ingestion.
+	sourceRepo SourceIngestRepo
+
+	// temporalClient is used to start SLM pipeline workflows after ingestion.
+	temporalClient temporalclient.Client
 }
 
 // NewGmailServer creates a new GmailServer with the given configuration and dependencies.
@@ -54,6 +75,8 @@ func NewGmailServer(cfg *config.Config, logger logging.Logger, deps *ServerDeps)
 		s.engine = deps.Engine
 		s.oauthManager = deps.OAuthManager
 		s.stateStorage = deps.StateStorage
+		s.sourceRepo = deps.SourceRepo
+		s.temporalClient = deps.TemporalClient
 	}
 	return s
 }
@@ -99,11 +122,154 @@ func (s *GmailServer) SyncEmails(ctx context.Context, req *gmailv1.SyncEmailsReq
 		IncludeSpamTrash: req.GetIncludeSpamTrash(),
 		ForceFullSync:    req.GetForceFullSync(),
 		MessageHandler: func(ctx context.Context, msg *gSync.Message) error {
-			s.logger.Debug("message synced",
+			parsed := gSync.ParseMessage(msg)
+
+			// Pick best body content
+			body := parsed.PlainText
+			if body == "" {
+				body = parsed.HTML
+			}
+
+			// Compute content hash: sha256(subject + body + from)
+			h := sha256.New()
+			h.Write([]byte(parsed.Subject))
+			h.Write([]byte(body))
+			h.Write([]byte(parsed.From))
+			contentHash := hex.EncodeToString(h.Sum(nil))
+
+			// Collect participant emails
+			participants := make([]string, 0)
+			participantSeen := make(map[string]bool)
+			addParticipant := func(email string) {
+				if email == "" || participantSeen[email] {
+					return
+				}
+				participantSeen[email] = true
+				participants = append(participants, email)
+			}
+			// Extract from address from "Name <email>" format
+			fromAddr := parsed.From
+			if idx := strings.Index(fromAddr, "<"); idx >= 0 {
+				fromAddr = strings.TrimSuffix(strings.TrimSpace(fromAddr[idx+1:]), ">")
+			}
+			addParticipant(fromAddr)
+			for _, addr := range parsed.To {
+				if idx := strings.Index(addr, "<"); idx >= 0 {
+					addr = strings.TrimSuffix(strings.TrimSpace(addr[idx+1:]), ">")
+				}
+				addParticipant(addr)
+			}
+			for _, addr := range parsed.CC {
+				if idx := strings.Index(addr, "<"); idx >= 0 {
+					addr = strings.TrimSuffix(strings.TrimSpace(addr[idx+1:]), ">")
+				}
+				addParticipant(addr)
+			}
+
+			if s.sourceRepo == nil {
+				s.logger.Debug("source repo not configured, skipping ingest",
+					logging.F("message_id", msg.ID),
+				)
+				return nil
+			}
+
+			// Check for duplicate
+			isDup, _, _, err := s.sourceRepo.CheckDuplicate(ctx, tenantID, msg.ID, contentHash)
+			if err != nil {
+				s.logger.Warn("duplicate check failed, skipping message",
+					logging.F("message_id", msg.ID),
+					logging.Err(err),
+				)
+				return nil
+			}
+			if isDup {
+				s.logger.Debug("duplicate message skipped",
+					logging.F("message_id", msg.ID),
+				)
+				return nil
+			}
+
+			// Build metadata
+			metadata := map[string]interface{}{
+				"subject":          parsed.Subject,
+				"from":             parsed.From,
+				"thread_id":        parsed.ThreadID,
+				"labels":           parsed.Labels,
+				"gmail_message_id": msg.ID,
+			}
+
+			// Determine source timestamp
+			sourceTS := parsed.Date
+			if sourceTS.IsZero() {
+				sourceTS = time.Now()
+			}
+
+			// Use plain text body; fall back to HTML
+			rawContent := body
+
+			emailSource := &storage.EmailSource{
+				TenantID:          tenantID,
+				SourceSystem:      storage.SourceSystemGmail,
+				ExternalID:        msg.ID,
+				ContentHash:       contentHash,
+				RawContent:        rawContent,
+				ContentType:       "message/rfc822",
+				ContentSize:       int32(len(rawContent)),
+				Metadata:          metadata,
+				SourceTimestamp:   sourceTS,
+				ParticipantEmails: participants,
+			}
+
+			createdSource, err := s.sourceRepo.CreateSource(ctx, emailSource)
+			if err != nil {
+				s.logger.Error("failed to create source",
+					logging.F("message_id", msg.ID),
+					logging.Err(err),
+				)
+				return fmt.Errorf("creating source for message %s: %w", msg.ID, err)
+			}
+
+			s.logger.Info("Gmail message ingested",
 				logging.F("message_id", msg.ID),
+				logging.F("source_id", createdSource.ID),
 				logging.F("tenant_id", tenantID),
 			)
-			// TODO(phase3): ingest into SLM pipeline via Temporal workflow
+
+			// Start SLMPipelineWorkflow if Temporal client is configured
+			if s.temporalClient == nil {
+				s.logger.Debug("temporal client not configured, skipping workflow start",
+					logging.F("source_id", createdSource.ID),
+				)
+				return nil
+			}
+
+			workflowID := pkgtemporal.GenerateIngestWorkflowID(tenantID, storage.SourceSystemGmail, msg.ID)
+			input := pkgtemporal.SLMPipelineInput{
+				TenantID:    tenantID,
+				SourceID:    createdSource.ID,
+				ContentID:   createdSource.ContentID,
+				ContentHash: contentHash,
+				JobID:       workflowID,
+			}
+			opts := temporalclient.StartWorkflowOptions{
+				ID:        workflowID,
+				TaskQueue: "penfold-main",
+			}
+			_, wfErr := s.temporalClient.ExecuteWorkflow(ctx, opts, "SLMPipelineWorkflow", input)
+			if wfErr != nil {
+				s.logger.Warn("failed to start SLMPipelineWorkflow",
+					logging.F("source_id", createdSource.ID),
+					logging.F("workflow_id", workflowID),
+					logging.Err(wfErr),
+				)
+				// Don't fail the message handler — source is created, workflow can be kicked via pipeline service
+			} else {
+				s.logger.Info("started SLMPipelineWorkflow",
+					logging.F("workflow_id", workflowID),
+					logging.F("source_id", createdSource.ID),
+				)
+			}
+
 			return nil
 		},
 	}

@@ -7,6 +7,7 @@ require (
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/otherjamesbrown/penfold/pkg v0.0.0
 	github.com/prometheus/client_golang v1.23.2
+	go.temporal.io/sdk v1.39.0
 	google.golang.org/grpc v1.78.0
 )
 
