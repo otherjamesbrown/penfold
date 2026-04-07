@@ -293,6 +293,112 @@ func TestResolveOrCreate_FilterRuleBlocks(t *testing.T) {
 	})
 }
 
+// TestBoostedConfidence tests the confidence tier logic based on message count.
+func TestBoostedConfidence(t *testing.T) {
+	tests := []struct {
+		name          string
+		sentCount     int
+		receivedCount int
+		isInternal    bool
+		currentConf   float32
+		want          float32
+	}{
+		{
+			name:        "default — seen once, external",
+			sentCount:   0, receivedCount: 1,
+			isInternal: false, currentConf: 0.6,
+			want: 0.6,
+		},
+		{
+			name:        "internal domain bumps to 0.7",
+			sentCount:   0, receivedCount: 1,
+			isInternal: true, currentConf: 0.6,
+			want: 0.7,
+		},
+		{
+			name:        "3 messages bumps to 0.7",
+			sentCount:   2, receivedCount: 1,
+			isInternal: false, currentConf: 0.6,
+			want: 0.7,
+		},
+		{
+			name:        "10 messages bumps to 0.75",
+			sentCount:   5, receivedCount: 5,
+			isInternal: false, currentConf: 0.6,
+			want: 0.75,
+		},
+		{
+			name:        "25 messages bumps to 0.80",
+			sentCount:   10, receivedCount: 15,
+			isInternal: false, currentConf: 0.6,
+			want: 0.80,
+		},
+		{
+			name:        "50 messages bumps to 0.85",
+			sentCount:   25, receivedCount: 25,
+			isInternal: false, currentConf: 0.6,
+			want: 0.85,
+		},
+		{
+			name:        "never downgrades — already at 0.85",
+			sentCount:   1, receivedCount: 0,
+			isInternal: false, currentConf: 0.85,
+			want: 0.85,
+		},
+		{
+			name:        "never downgrades — already at 0.9 (AD-synced)",
+			sentCount:   100, receivedCount: 0,
+			isInternal: false, currentConf: 0.9,
+			want: 0.9,
+		},
+		{
+			name:        "100 messages, already at 0.85 — stays at 0.85",
+			sentCount:   60, receivedCount: 40,
+			isInternal: false, currentConf: 0.85,
+			want: 0.85,
+		},
+		{
+			name:        "internal with 25 msgs — takes higher tier",
+			sentCount:   13, receivedCount: 12,
+			isInternal: true, currentConf: 0.6,
+			want: 0.80,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &Person{
+				SentCount:     tt.sentCount,
+				ReceivedCount: tt.receivedCount,
+				IsInternal:    tt.isInternal,
+				Confidence:    tt.currentConf,
+			}
+			got := boostedConfidence(p)
+			if got != tt.want {
+				t.Errorf("boostedConfidence() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestBoostedConfidence_NeedsReviewClearThreshold verifies the 0.8 threshold
+// for auto-clearing NeedsReview is consistent with the tier boundaries.
+func TestBoostedConfidence_NeedsReviewClearThreshold(t *testing.T) {
+	// At exactly 25 messages the confidence hits 0.80 — NeedsReview should clear.
+	p := &Person{SentCount: 15, ReceivedCount: 10, Confidence: 0.6, NeedsReview: true}
+	conf := boostedConfidence(p)
+	if conf < 0.8 {
+		t.Errorf("expected conf >= 0.8 at 25 messages, got %v", conf)
+	}
+
+	// At 24 messages confidence is 0.75 — NeedsReview should NOT clear.
+	p2 := &Person{SentCount: 12, ReceivedCount: 12, Confidence: 0.6, NeedsReview: true}
+	conf2 := boostedConfidence(p2)
+	if conf2 >= 0.8 {
+		t.Errorf("expected conf < 0.8 at 24 messages, got %v", conf2)
+	}
+}
+
 // TestResolver_WithTenantPatterns tests that the Resolver can be configured with
 // custom tenant-specific patterns and that these patterns are used during entity resolution.
 func TestResolver_WithTenantPatterns(t *testing.T) {
