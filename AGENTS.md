@@ -39,7 +39,7 @@ bd sync               # Sync with git
 - If push fails, resolve and retry until it succeeds
 
 
-<!-- BEGIN COBUILD INTEGRATION v:1 hash:fe361861 -->
+<!-- BEGIN COBUILD INTEGRATION v:1 hash:286698af -->
 # CoBuild Pipeline Instructions
 
 This project uses CoBuild for pipeline automation. If you are an agent working on a task dispatched by CoBuild, follow these instructions.
@@ -49,10 +49,10 @@ This project uses CoBuild for pipeline automation. If you are an agent working o
 - **Name:** penfold
 - **Prefix:** pf-
 - **Workflows:**
-  - design: design → decompose → implement → review → done
   - bug: investigate → implement → review → done
   - bug-complex: investigate → implement → review → done
   - task: implement → review → done
+  - design: design → decompose → implement → review → done
 
 ## Commands
 
@@ -224,7 +224,7 @@ After dispatching tasks:
 4. **Merge** — `cobuild merge <task-id>` (or `gh pr merge <pr> --admin --squash` if cobuild merge fails)
 5. **Close** — update work item status to closed
 6. **Report** — tell the user what shipped, not "want me to review?"
-7. **Deploy** — do NOT deploy automatically. Report which services need deploying and **ask the user** whether to proceed. Deploy touches production and is always a human decision.
+7. **Deploy** — do NOT deploy automatically. Run `cobuild deploy <id> --dry-run` to show which services would be affected, then **ask the user** for approval. On approval, run `cobuild deploy <id>` (triggers deploy commands from pipeline config with smoke tests and auto-rollback). Deploy touches production and is always a human decision.
 
 Only pause for user input if there is an actual blocker: merge conflict, critical Gemini finding you can't resolve, a design decision, or deploy approval.
 
