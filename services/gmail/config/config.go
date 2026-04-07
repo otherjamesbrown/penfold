@@ -2,6 +2,7 @@
 package config
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -33,6 +34,10 @@ type Config struct {
 
 	// SyncTimeoutSeconds is the timeout for sync operations in seconds.
 	SyncTimeoutSeconds int
+
+	// TokenEncryptionKey is the 32-byte AES-256-GCM key for encrypting OAuth tokens.
+	// Loaded from GMAIL_TOKEN_ENCRYPTION_KEY as a 64-character hex string.
+	TokenEncryptionKey []byte
 }
 
 // Default configuration values.
@@ -106,6 +111,12 @@ func loadServiceEnv(cfg *Config) {
 	if v := os.Getenv("GMAIL_SYNC_TIMEOUT_SECONDS"); v != "" {
 		if timeout, err := strconv.Atoi(v); err == nil {
 			cfg.SyncTimeoutSeconds = timeout
+		}
+	}
+
+	if v := os.Getenv("GMAIL_TOKEN_ENCRYPTION_KEY"); v != "" {
+		if key, err := hex.DecodeString(v); err == nil {
+			cfg.TokenEncryptionKey = key
 		}
 	}
 }
