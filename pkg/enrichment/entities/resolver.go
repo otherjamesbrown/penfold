@@ -165,6 +165,33 @@ func (r *Resolver) ResolveOrCreate(ctx context.Context, tenantID, email, display
 			}
 		}
 
+		// Boost confidence based on message count evidence.
+		// Only applies to person accounts still under review — skip bots/roles and
+		// human-reviewed entities (NeedsReview == false).
+		if person.AccountType == AccountTypePerson && person.NeedsReview {
+			newConf := boostedConfidence(person)
+			if newConf > person.Confidence {
+				oldConf := person.Confidence
+				person.Confidence = newConf
+				if person.Confidence >= 0.8 {
+					person.NeedsReview = false
+				}
+				if err := r.repo.UpdatePerson(ctx, person); err != nil {
+					r.logger.Warn("Failed to update entity confidence",
+						logging.Err(err),
+						logging.F("person_id", person.ID))
+				} else {
+					r.logger.Info("Boosted entity confidence on re-encounter",
+						logging.F("person_id", person.ID),
+						logging.F("email", email),
+						logging.F("old_confidence", oldConf),
+						logging.F("new_confidence", newConf),
+						logging.F("msg_count", person.SentCount+person.ReceivedCount),
+						logging.F("needs_review", person.NeedsReview))
+				}
+			}
+		}
+
 		return &ResolutionResult{
 			Person:     person,
 			Confidence: person.Confidence,
@@ -337,6 +364,40 @@ func (r *Resolver) addDisplayNameAlias(ctx context.Context, personID int64, disp
 		// Ignore duplicate errors
 		r.logger.Debug("Failed to add display name alias", logging.Err(err))
 	}
+}
+
+// boostedConfidence returns the confidence level a person should have based on
+// message count evidence. It never returns a value lower than the person's current
+// confidence (callers must check before applying).
+//
+// Tiers:
+//
+//	0.85 — seen in 50+ messages
+//	0.80 — seen in 25+ messages  (auto-clears NeedsReview)
+//	0.75 — seen in 10+ messages
+//	0.70 — seen in 3+ messages OR internal domain
+//	0.60 — default (seen once)
+func boostedConfidence(p *Person) float32 {
+	msgCount := p.SentCount + p.ReceivedCount
+
+	var target float32
+	switch {
+	case msgCount >= 50:
+		target = 0.85
+	case msgCount >= 25:
+		target = 0.80
+	case msgCount >= 10:
+		target = 0.75
+	case msgCount >= 3 || p.IsInternal:
+		target = 0.70
+	default:
+		target = 0.60
+	}
+
+	if target > p.Confidence {
+		return target
+	}
+	return p.Confidence
 }
 
 // Verify interface compliance
