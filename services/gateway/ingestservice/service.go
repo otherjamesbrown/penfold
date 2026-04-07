@@ -22,6 +22,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/parse"
 	"github.com/otherjamesbrown/penfold/pkg/repository"
+	"github.com/otherjamesbrown/penfold/services/gateway/router"
 )
 
 // Repository defines the interface for ingest storage operations.
@@ -78,7 +79,8 @@ type Service struct {
 	tenantRepo     TenantRepository
 	seriesRepo     repository.SeriesRepository
 	logger         logging.Logger
-	temporalClient client.Client // optional, for starting workflows
+	temporalClient client.Client   // optional, for starting workflows
+	gmailRouter    *router.Router  // optional, for Gmail sync routing
 }
 
 // NewService creates a new ingest service.
@@ -95,6 +97,12 @@ func NewService(repo Repository, tenantRepo TenantRepository, seriesRepo reposit
 // This is optional and can be set after service creation.
 func (s *Service) SetTemporalClient(c client.Client) {
 	s.temporalClient = c
+}
+
+// SetGmailRouter sets the router used for Gmail sync routing.
+// This is optional and can be set after service creation.
+func (s *Service) SetGmailRouter(r *router.Router) {
+	s.gmailRouter = r
 }
 
 // resolveTenantID resolves a tenant reference (UUID or slug) to a UUID.

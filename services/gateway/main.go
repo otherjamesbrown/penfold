@@ -54,6 +54,7 @@ import (
 	instructionv1 "github.com/otherjamesbrown/penfold/api/proto/instruction/v1"
 	graphconnectorpb "github.com/otherjamesbrown/penfold/api/proto/connectors/v1/graphpb"
 	gatewaypb "github.com/otherjamesbrown/penfold/api/proto/core/v1/gatewaypb"
+	"github.com/otherjamesbrown/penfold/services/gateway/router"
 	"github.com/otherjamesbrown/penfold/pkg/ai"
 	"github.com/otherjamesbrown/penfold/pkg/assertions"
 	"github.com/otherjamesbrown/penfold/pkg/auth"
@@ -615,6 +616,17 @@ func main() {
 	} else {
 		logger.Warn("ScheduleService not registered (Temporal client not available)")
 	}
+
+	// Initialize router for backend service proxying.
+	gmailRouter := router.NewRouter(router.WithLogger(logger), router.WithMetrics(m))
+	if gmailAddr := os.Getenv("GMAIL_BACKEND_ADDRESS"); gmailAddr != "" {
+		if err := gmailRouter.RegisterBackend("gmail", gmailAddr); err != nil {
+			logger.Warn("Failed to register Gmail backend", logging.F("addr", gmailAddr), logging.Err(err))
+		} else {
+			logger.Info("Registered Gmail backend", logging.F("addr", gmailAddr))
+		}
+	}
+	ingestSvc.SetGmailRouter(gmailRouter)
 
 	// Set Temporal client on IngestService for automatic workflow starting
 	if temporalClient != nil {
