@@ -96,6 +96,19 @@ func resolveField(field string, metadata map[string]string) string {
 	return metadata[field]
 }
 
+// EvalCondition checks whether a field value satisfies a match condition.
+// Exported for use by packages that share the same matching semantics (e.g. tenant context provider).
+func EvalCondition(cond MatchCondition, fieldValue string) bool {
+	return matchCondition(cond, fieldValue)
+}
+
+// MatchesPattern checks if a string matches a wildcard pattern.
+// Both s and pattern should already be lowercased if case-insensitive matching is desired.
+// Exported for use by packages that share the same pattern matching semantics.
+func MatchesPattern(s, pattern string) bool {
+	return matchesPatternEngine(s, pattern)
+}
+
 // matchCondition checks whether a field value satisfies a match condition.
 func matchCondition(cond MatchCondition, fieldValue string) bool {
 	v := fieldValue

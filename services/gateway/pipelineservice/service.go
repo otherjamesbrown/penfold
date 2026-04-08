@@ -18,11 +18,17 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pipelinev1 "github.com/otherjamesbrown/penfold/api/proto/pipeline/v1"
+	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/routing"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/pipeline"
 	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 )
+
+// AIGeneratorClient is a minimal interface for LLM generation used by SuggestTenantContextTriggers.
+type AIGeneratorClient interface {
+	GenerateSummary(ctx context.Context, req *aiv1.SummaryRequest) (*aiv1.SummaryResponse, error)
+}
 
 // Service implements the PipelineService gRPC server.
 type Service struct {
@@ -32,6 +38,7 @@ type Service struct {
 	temporalClient client.Client
 	db             *sql.DB
 	namespace      string
+	aiClient       AIGeneratorClient // optional; nil disables SuggestTenantContextTriggers
 }
 
 // NewService creates a new pipeline service.
@@ -46,6 +53,11 @@ func NewService(repo *pipeline.Repository, logger logging.Logger, temporalClient
 		db:             db,
 		namespace:      namespace,
 	}
+}
+
+// SetAIClient injects an optional AI generator client for LLM-assisted operations.
+func (s *Service) SetAIClient(c AIGeneratorClient) {
+	s.aiClient = c
 }
 
 // GetStats retrieves overall pipeline statistics.
@@ -2880,4 +2892,399 @@ func (s *Service) TestPipelineRoute(ctx context.Context, req *pipelinev1.TestPip
 		ContentSubtype: contentSubtype,
 		MatchedRoutes:  matchedRoutes,
 	}, nil
+}
+
+// =============================================================================
+// Tenant Context RPCs
+// =============================================================================
+
+// CreateTenantContext creates a new tenant context entry with optional conditions.
+func (s *Service) CreateTenantContext(ctx context.Context, req *pipelinev1.CreateTenantContextRequest) (*pipelinev1.CreateTenantContextResponse, error) {
+	s.logger.Debug("CreateTenantContext called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("category", req.Category),
+		logging.F("label", req.Label),
+	)
+
+	if req.Category == "" {
+		return nil, status.Error(codes.InvalidArgument, "category is required")
+	}
+	if req.Label == "" {
+		return nil, status.Error(codes.InvalidArgument, "label is required")
+	}
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "database not available")
+	}
+
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = s.defaultTenantID(ctx)
+	}
+
+	detailsJSON := req.DetailsJson
+	if detailsJSON == "" {
+		detailsJSON = "{}"
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to begin transaction: %v", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	var entryID int32
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO tenant_context (tenant_id, category, label, details, always_inject, active)
+		VALUES ($1, $2, $3, $4::jsonb, $5, true)
+		RETURNING id
+	`, tenantID, req.Category, req.Label, detailsJSON, req.AlwaysInject).Scan(&entryID)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return nil, status.Errorf(codes.AlreadyExists, "context entry %q/%q already exists for tenant", req.Category, req.Label)
+		}
+		s.logger.Error("Error inserting tenant context entry", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to create context entry: %v", err)
+	}
+
+	for _, cond := range req.Conditions {
+		if _, err = tx.ExecContext(ctx, `
+			INSERT INTO tenant_context_conditions (context_id, field, match_type, value, case_sensitive)
+			VALUES ($1, $2, $3, $4, $5)
+		`, entryID, cond.Field, cond.MatchType, cond.Value, cond.CaseSensitive); err != nil {
+			s.logger.Error("Error inserting tenant context condition", logging.Err(err))
+			return nil, status.Errorf(codes.Internal, "failed to create condition: %v", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to commit transaction: %v", err)
+	}
+
+	entry, err := s.queryTenantContextEntry(ctx, tenantID, entryID)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "entry created but failed to fetch: %v", err)
+	}
+
+	return &pipelinev1.CreateTenantContextResponse{Entry: entry}, nil
+}
+
+// ListTenantContext lists all context entries for a tenant.
+func (s *Service) ListTenantContext(ctx context.Context, req *pipelinev1.ListTenantContextRequest) (*pipelinev1.ListTenantContextResponse, error) {
+	s.logger.Debug("ListTenantContext called", logging.F("tenant_id", req.TenantId))
+
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "database not available")
+	}
+
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = s.defaultTenantID(ctx)
+	}
+
+	query := `
+		SELECT id, category, label, details::text, always_inject, active
+		FROM tenant_context
+		WHERE tenant_id = $1
+	`
+	args := []interface{}{tenantID}
+
+	if req.Category != "" {
+		query += " AND category = $2"
+		args = append(args, req.Category)
+	}
+	query += " ORDER BY category, label"
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to list context entries: %v", err)
+	}
+	defer rows.Close()
+
+	var entries []*pipelinev1.TenantContextEntry
+	for rows.Next() {
+		e := &pipelinev1.TenantContextEntry{}
+		if err := rows.Scan(&e.Id, &e.Category, &e.Label, &e.DetailsJson, &e.AlwaysInject, &e.Active); err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to scan context entry: %v", err)
+		}
+		entries = append(entries, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to iterate context entries: %v", err)
+	}
+
+	// Load conditions for all entries.
+	if len(entries) > 0 {
+		ids := make([]int32, len(entries))
+		for i, e := range entries {
+			ids[i] = e.Id
+		}
+		if err := s.loadTenantContextConditions(ctx, entries, ids); err != nil {
+			return nil, err
+		}
+	}
+
+	return &pipelinev1.ListTenantContextResponse{Entries: entries}, nil
+}
+
+// GetTenantContext retrieves a single tenant context entry by ID.
+func (s *Service) GetTenantContext(ctx context.Context, req *pipelinev1.GetTenantContextRequest) (*pipelinev1.GetTenantContextResponse, error) {
+	s.logger.Debug("GetTenantContext called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("id", req.Id),
+	)
+
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "database not available")
+	}
+
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = s.defaultTenantID(ctx)
+	}
+
+	entry, err := s.queryTenantContextEntry(ctx, tenantID, req.Id)
+	if err != nil {
+		return nil, err
+	}
+	if entry == nil {
+		return nil, status.Errorf(codes.NotFound, "context entry %d not found", req.Id)
+	}
+
+	return &pipelinev1.GetTenantContextResponse{Entry: entry}, nil
+}
+
+// DeleteTenantContext deletes a tenant context entry (conditions cascade).
+func (s *Service) DeleteTenantContext(ctx context.Context, req *pipelinev1.DeleteTenantContextRequest) (*pipelinev1.DeleteTenantContextResponse, error) {
+	s.logger.Debug("DeleteTenantContext called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("id", req.Id),
+	)
+
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "database not available")
+	}
+
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = s.defaultTenantID(ctx)
+	}
+
+	result, err := s.db.ExecContext(ctx,
+		`DELETE FROM tenant_context WHERE tenant_id = $1 AND id = $2`,
+		tenantID, req.Id,
+	)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to delete context entry: %v", err)
+	}
+
+	n, err := result.RowsAffected()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get rows affected: %v", err)
+	}
+	if n == 0 {
+		return nil, status.Errorf(codes.NotFound, "context entry %d not found", req.Id)
+	}
+
+	return &pipelinev1.DeleteTenantContextResponse{DeletedCount: int32(n)}, nil
+}
+
+// AddTenantContextCondition adds a trigger condition to an existing context entry.
+func (s *Service) AddTenantContextCondition(ctx context.Context, req *pipelinev1.AddTenantContextConditionRequest) (*pipelinev1.AddTenantContextConditionResponse, error) {
+	s.logger.Debug("AddTenantContextCondition called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("context_id", req.ContextId),
+	)
+
+	if req.Condition == nil {
+		return nil, status.Error(codes.InvalidArgument, "condition is required")
+	}
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "database not available")
+	}
+
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = s.defaultTenantID(ctx)
+	}
+
+	// Verify the entry belongs to this tenant.
+	var count int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM tenant_context WHERE id = $1 AND tenant_id = $2`,
+		req.ContextId, tenantID,
+	).Scan(&count); err != nil || count == 0 {
+		return nil, status.Errorf(codes.NotFound, "context entry %d not found", req.ContextId)
+	}
+
+	var condID int32
+	if err := s.db.QueryRowContext(ctx, `
+		INSERT INTO tenant_context_conditions (context_id, field, match_type, value, case_sensitive)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id
+	`, req.ContextId, req.Condition.Field, req.Condition.MatchType, req.Condition.Value, req.Condition.CaseSensitive).Scan(&condID); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to add condition: %v", err)
+	}
+
+	cond := &pipelinev1.TenantContextCondition{
+		Id:            condID,
+		Field:         req.Condition.Field,
+		MatchType:     req.Condition.MatchType,
+		Value:         req.Condition.Value,
+		CaseSensitive: req.Condition.CaseSensitive,
+	}
+
+	return &pipelinev1.AddTenantContextConditionResponse{Condition: cond}, nil
+}
+
+// SuggestTenantContextTriggers uses an LLM to suggest trigger conditions for a context entry.
+func (s *Service) SuggestTenantContextTriggers(ctx context.Context, req *pipelinev1.SuggestTenantContextTriggersRequest) (*pipelinev1.SuggestTenantContextTriggersResponse, error) {
+	s.logger.Debug("SuggestTenantContextTriggers called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("category", req.Category),
+		logging.F("label", req.Label),
+	)
+
+	if s.aiClient == nil {
+		return nil, status.Error(codes.Unavailable, "AI client not configured")
+	}
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "database not available")
+	}
+
+	// Load the prompt template from DB.
+	prompt, err := s.repo.GetPromptByStage(ctx, "context_trigger_suggest", 0)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to load trigger suggest prompt: %v", err)
+	}
+
+	detailsJSON := req.DetailsJson
+	if detailsJSON == "" {
+		detailsJSON = "{}"
+	}
+
+	// Fill in the template placeholders.
+	content := prompt.Content
+	content = strings.ReplaceAll(content, "{category}", req.Category)
+	content = strings.ReplaceAll(content, "{label}", req.Label)
+	content = strings.ReplaceAll(content, "{details}", detailsJSON)
+
+	jsonMode := true
+	resp, err := s.aiClient.GenerateSummary(ctx, &aiv1.SummaryRequest{
+		Content:  content,
+		JsonMode: &jsonMode,
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "AI suggestion failed: %v", err)
+	}
+
+	// Parse the JSON array of conditions from the model response.
+	type condJSON struct {
+		Field     string `json:"field"`
+		MatchType string `json:"match_type"`
+		Value     string `json:"value"`
+	}
+
+	rawJSON := strings.TrimSpace(resp.Summary)
+	// Strip markdown code fences if the model included them.
+	rawJSON = strings.TrimPrefix(rawJSON, "```json")
+	rawJSON = strings.TrimPrefix(rawJSON, "```")
+	rawJSON = strings.TrimSuffix(rawJSON, "```")
+	rawJSON = strings.TrimSpace(rawJSON)
+
+	var condList []condJSON
+	if err := json.Unmarshal([]byte(rawJSON), &condList); err != nil {
+		s.logger.Warn("Failed to parse trigger suggestions from AI response",
+			logging.F("raw_response", rawJSON),
+			logging.F("error", err.Error()),
+		)
+		return &pipelinev1.SuggestTenantContextTriggersResponse{
+			ModelUsed: resp.ModelUsed,
+		}, nil
+	}
+
+	var conditions []*pipelinev1.TenantContextCondition
+	for _, c := range condList {
+		if c.Field == "" || c.MatchType == "" || c.Value == "" {
+			continue
+		}
+		conditions = append(conditions, &pipelinev1.TenantContextCondition{
+			Field:     c.Field,
+			MatchType: c.MatchType,
+			Value:     c.Value,
+		})
+	}
+
+	return &pipelinev1.SuggestTenantContextTriggersResponse{
+		Conditions: conditions,
+		ModelUsed:  resp.ModelUsed,
+	}, nil
+}
+
+// queryTenantContextEntry fetches a single tenant context entry with its conditions.
+func (s *Service) queryTenantContextEntry(ctx context.Context, tenantID string, id int32) (*pipelinev1.TenantContextEntry, error) {
+	e := &pipelinev1.TenantContextEntry{}
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, category, label, details::text, always_inject, active
+		FROM tenant_context
+		WHERE tenant_id = $1 AND id = $2
+	`, tenantID, id).Scan(&e.Id, &e.Category, &e.Label, &e.DetailsJson, &e.AlwaysInject, &e.Active)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to query entry: %w", err)
+	}
+
+	if err := s.loadTenantContextConditions(ctx, []*pipelinev1.TenantContextEntry{e}, []int32{e.Id}); err != nil {
+		return nil, err
+	}
+
+	return e, nil
+}
+
+// loadTenantContextConditions loads conditions for the given entries in a single query.
+func (s *Service) loadTenantContextConditions(ctx context.Context, entries []*pipelinev1.TenantContextEntry, ids []int32) error {
+	// Build the IN clause with positional parameters.
+	placeholders := make([]string, len(ids))
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "$" + strconv.Itoa(i+1)
+		args[i] = id
+	}
+
+	query := fmt.Sprintf(`
+		SELECT id, context_id, field, match_type, value, case_sensitive
+		FROM tenant_context_conditions
+		WHERE context_id IN (%s)
+		ORDER BY context_id, id
+	`, strings.Join(placeholders, ", "))
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to load conditions: %v", err)
+	}
+	defer rows.Close()
+
+	// Build an index for fast lookup.
+	entryIdx := make(map[int32]int, len(entries))
+	for i, e := range entries {
+		entryIdx[e.Id] = i
+	}
+
+	for rows.Next() {
+		var cond pipelinev1.TenantContextCondition
+		var contextID int32
+		if err := rows.Scan(&cond.Id, &contextID, &cond.Field, &cond.MatchType, &cond.Value, &cond.CaseSensitive); err != nil {
+			return status.Errorf(codes.Internal, "failed to scan condition: %v", err)
+		}
+		if idx, ok := entryIdx[contextID]; ok {
+			entries[idx].Conditions = append(entries[idx].Conditions, &cond)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return status.Errorf(codes.Internal, "failed to iterate conditions: %v", err)
+	}
+
+	return nil
 }

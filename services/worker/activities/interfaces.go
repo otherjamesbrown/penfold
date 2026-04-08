@@ -580,3 +580,31 @@ type ConversationRepository interface {
 	// for the given number of days.
 	GetStaleActiveConversations(ctx context.Context, tenantID string, staleDays int, limit int) ([]ConversationForSummary, error)
 }
+
+// TenantContextEntry is a personal reference context entry loaded from the database.
+type TenantContextEntry struct {
+	ID           int
+	TenantID     string
+	Category     string
+	Label        string
+	DetailsJSON  string
+	AlwaysInject bool
+	Active       bool
+	Conditions   []TenantContextCondition
+}
+
+// TenantContextCondition is a trigger condition for a TenantContextEntry.
+type TenantContextCondition struct {
+	ID            int
+	Field         string // "content", "sender_email", "subject", "to_address"
+	MatchType     string // "contains", "prefix", "suffix", "glob", "exact"
+	Value         string
+	CaseSensitive bool
+}
+
+// TenantContextRepository provides data access for tenant context entries.
+type TenantContextRepository interface {
+	// GetActiveEntries returns all active tenant context entries for the given tenant,
+	// with their associated conditions.
+	GetActiveEntries(ctx context.Context, tenantID string) ([]TenantContextEntry, error)
+}
