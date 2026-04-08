@@ -312,12 +312,88 @@ func (s *GmailServer) SyncEmails(ctx context.Context, req *gmailv1.SyncEmailsReq
 
 // GetSyncStatus retrieves the current status of an ongoing or completed sync operation.
 func (s *GmailServer) GetSyncStatus(ctx context.Context, req *gmailv1.GetSyncStatusRequest) (*gmailv1.SyncStatus, error) {
+	syncID := req.GetSyncId()
+	tenantID := req.GetTenantId()
+
 	s.logger.Info("GetSyncStatus called",
-		logging.F("tenant_id", req.GetTenantId()),
-		logging.F("sync_id", req.GetSyncId()),
+		logging.F("tenant_id", tenantID),
+		logging.F("sync_id", syncID),
 	)
 
-	return nil, status.Errorf(codes.Unimplemented, "method GetSyncStatus not implemented")
+	if syncID == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "sync_id is required")
+	}
+
+	if s.stateStorage == nil {
+		return nil, status.Errorf(codes.Unavailable, "state storage not initialized")
+	}
+
+	state, err := s.stateStorage.GetStateByID(ctx, syncID)
+	if err != nil {
+		if err == gSync.ErrStateNotFound {
+			return nil, status.Errorf(codes.NotFound, "sync %s not found", syncID)
+		}
+		return nil, status.Errorf(codes.Internal, "getting sync state: %v", err)
+	}
+
+	return syncStateToProto(state), nil
+}
+
+// syncStateToProto converts an internal SyncState to a proto SyncStatus.
+func syncStateToProto(state *gSync.SyncState) *gmailv1.SyncStatus {
+	protoStatus := &gmailv1.SyncStatus{
+		SyncId:          state.SyncID,
+		State:           internalStatusToProtoState(state.Status),
+		ProcessedCount:  state.ProcessedCount,
+		TotalCount:      state.TotalCount,
+		SuccessCount:    state.ProcessedCount - state.ErrorCount,
+		ErrorCount:      state.ErrorCount,
+		ProgressPercent: state.Progress(),
+	}
+
+	if !state.CreatedAt.IsZero() {
+		protoStatus.StartedAt = timestamppb.New(state.CreatedAt)
+	}
+
+	if state.IsComplete() && !state.LastSyncAt.IsZero() {
+		protoStatus.CompletedAt = timestamppb.New(state.LastSyncAt)
+	}
+
+	for _, e := range state.Errors {
+		se := &gmailv1.SyncError{
+			Code:    e.Code,
+			Message: e.Message,
+		}
+		if e.EmailID != "" {
+			emailID := e.EmailID
+			se.EmailId = &emailID
+		}
+		protoStatus.Errors = append(protoStatus.Errors, se)
+	}
+
+	return protoStatus
+}
+
+// internalStatusToProtoState maps the internal sync status to a proto SyncState enum value.
+func internalStatusToProtoState(s gSync.SyncStatus) gmailv1.SyncState {
+	switch s {
+	case gSync.SyncStatusPending:
+		return gmailv1.SyncState_SYNC_STATE_PENDING
+	case gSync.SyncStatusInProgress:
+		return gmailv1.SyncState_SYNC_STATE_IN_PROGRESS
+	case gSync.SyncStatusCompleted:
+		return gmailv1.SyncState_SYNC_STATE_COMPLETED
+	case gSync.SyncStatusCompletedWithErrors:
+		return gmailv1.SyncState_SYNC_STATE_COMPLETED_WITH_ERRORS
+	case gSync.SyncStatusFailed:
+		return gmailv1.SyncState_SYNC_STATE_FAILED
+	case gSync.SyncStatusCancelled:
+		return gmailv1.SyncState_SYNC_STATE_CANCELLED
+	case gSync.SyncStatusInterrupted:
+		return gmailv1.SyncState_SYNC_STATE_IN_PROGRESS
+	default:
+		return gmailv1.SyncState_SYNC_STATE_UNSPECIFIED
+	}
 }
 
 // ListEmails returns a paginated list of processed emails.
