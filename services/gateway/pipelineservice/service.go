@@ -927,6 +927,7 @@ func (s *Service) ReprocessDryRun(ctx context.Context, req *pipelinev1.Reprocess
 	s.logger.Debug("ReprocessDryRun called",
 		logging.F("stage", req.Stage),
 		logging.F("source_tag", req.SourceTag),
+		logging.F("tenant_id", req.TenantId),
 	)
 
 	if req.Stage == "" {
@@ -944,7 +945,7 @@ func (s *Service) ReprocessDryRun(ctx context.Context, req *pipelinev1.Reprocess
 	affectedStages := append([]string{req.Stage}, downstreamStages...)
 
 	// Count sources that would be affected
-	sourceCount, err := s.repo.CountSourcesByStage(ctx, req.Stage, req.SourceTag, req.SourceIds)
+	sourceCount, err := s.repo.CountSourcesByStage(ctx, req.Stage, req.SourceTag, req.SourceIds, req.TenantId)
 	if err != nil {
 		s.logger.Error("Error counting sources", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to count sources: %v", err)
@@ -954,6 +955,9 @@ func (s *Service) ReprocessDryRun(ctx context.Context, req *pipelinev1.Reprocess
 	estimatedDuration := sourceCount * int64(len(affectedStages)) * 2
 
 	message := fmt.Sprintf("Reprocessing stage %s would affect %d stage(s) and %d source(s)", req.Stage, len(affectedStages), sourceCount)
+	if req.TenantId != "" {
+		message += fmt.Sprintf(" (filtered by tenant: %s)", req.TenantId)
+	}
 	if req.SourceTag != "" {
 		message += fmt.Sprintf(" (filtered by source_tag: %s)", req.SourceTag)
 	}

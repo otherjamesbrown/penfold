@@ -719,7 +719,7 @@ func (r *Repository) ListSourceHistory(ctx context.Context, sourceID int64, stag
 }
 
 // CountSourcesByStage counts sources that would be affected by reprocessing a stage.
-func (r *Repository) CountSourcesByStage(ctx context.Context, stage string, sourceTag string, sourceIDs []int64) (int64, error) {
+func (r *Repository) CountSourcesByStage(ctx context.Context, stage string, sourceTag string, sourceIDs []int64, tenantID string) (int64, error) {
 	// Build query dynamically based on filters
 	query := `
 		SELECT COUNT(DISTINCT s.id)
@@ -730,6 +730,12 @@ func (r *Repository) CountSourcesByStage(ctx context.Context, stage string, sour
 
 	args := []interface{}{}
 	argNum := 1
+
+	if tenantID != "" {
+		query += fmt.Sprintf(" AND s.tenant_id = $%d", argNum)
+		args = append(args, tenantID)
+		argNum++
+	}
 
 	if sourceTag != "" {
 		query += fmt.Sprintf(" AND s.ingestion_metadata->>'source_tag' = $%d", argNum)
