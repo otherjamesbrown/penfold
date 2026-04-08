@@ -97,7 +97,7 @@ func NewContextBuilderActivities(
 	}
 	// Register built-in context providers with a nil newsletterRepo.
 	// Call WithNewsletterContextRepo after construction to enable newsletter providers.
-	RegisterContextProviders(a.logger, contextRepo, nil, topicRepo)
+	RegisterContextProviders(a.logger, contextRepo, nil, topicRepo, nil, nil)
 	return a
 }
 
@@ -105,7 +105,7 @@ func NewContextBuilderActivities(
 // re-registers context providers so user_context, active_projects, and
 // tracked_products providers use the new repo.
 func (a *ContextBuilderActivities) WithNewsletterContextRepo(repo NewsletterContextRepository) *ContextBuilderActivities {
-	RegisterContextProviders(a.logger, a.contextRepo, repo, a.topicRepo)
+	RegisterContextProviders(a.logger, a.contextRepo, repo, a.topicRepo, nil, nil)
 	return a
 }
 

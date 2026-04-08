@@ -59,10 +59,13 @@ func RegisterContextProviders(
 	contextRepo ContextPackageRepository,
 	newsletterRepo NewsletterContextRepository,
 	topicRepo TopicLookupInterface,
+	tenantContextRepo TenantContextRepository,
+	operConfig OperationalConfigReader,
 ) {
 	providerRegistry["user_context"] = NewUserContextProvider(newsletterRepo, logger)
 	providerRegistry["glossary"] = NewGlossaryProvider(contextRepo, logger)
 	providerRegistry["active_projects"] = NewActiveProjectsProvider(newsletterRepo, logger)
 	providerRegistry["topics"] = NewTopicsProvider(topicRepo, logger)
 	providerRegistry["tracked_products"] = NewTrackedProductsProvider(newsletterRepo, logger)
+	providerRegistry["tenant_context"] = NewTenantContextProvider(tenantContextRepo, operConfig, logger)
 }
