@@ -5,11 +5,13 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -2621,6 +2623,119 @@ func (s *Service) defaultTenantID(ctx context.Context) string {
 	var tenantID string
 	_ = s.db.QueryRowContext(ctx, "SELECT id FROM tenants LIMIT 1").Scan(&tenantID)
 	return tenantID
+}
+
+// CreateClassificationRule creates a new classification rule with conditions in a transaction.
+func (s *Service) CreateClassificationRule(ctx context.Context, req *pipelinev1.CreateClassificationRuleRequest) (*pipelinev1.CreateClassificationRuleResponse, error) {
+	s.logger.Debug("CreateClassificationRule called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("name", req.Name),
+	)
+
+	if req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+	if len(req.Conditions) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "at least one condition is required")
+	}
+
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "database not available")
+	}
+
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = s.defaultTenantID(ctx)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to begin transaction: %v", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	var ruleID int64
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO classification_rules
+			(tenant_id, name, priority, content_type_scope, content_type, content_subtype, notification_source, active)
+		VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, NULLIF($7, ''), $8)
+		RETURNING id
+	`, tenantID, req.Name, req.Priority,
+		req.ContentTypeScope, req.ContentType, req.ContentSubtype,
+		req.NotificationSource, req.Active).Scan(&ruleID)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return nil, status.Errorf(codes.AlreadyExists, "classification rule %q already exists for tenant", req.Name)
+		}
+		s.logger.Error("Error inserting classification rule", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to create classification rule: %v", err)
+	}
+
+	for _, cond := range req.Conditions {
+		if _, err = tx.ExecContext(ctx, `
+			INSERT INTO classification_match_conditions (rule_id, field, match_type, value, case_sensitive)
+			VALUES ($1, $2, $3, $4, false)
+		`, ruleID, cond.Field, cond.Operator, cond.Value); err != nil {
+			s.logger.Error("Error inserting classification condition", logging.Err(err))
+			return nil, status.Errorf(codes.Internal, "failed to create condition: %v", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to commit transaction: %v", err)
+	}
+
+	rules, err := s.queryClassificationRules(ctx, tenantID, req.Name)
+	if err != nil {
+		s.logger.Error("Error querying created rule", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "rule created but failed to fetch: %v", err)
+	}
+	if len(rules) == 0 {
+		return nil, status.Error(codes.Internal, "rule created but not found on re-query")
+	}
+
+	return &pipelinev1.CreateClassificationRuleResponse{Rule: rules[0]}, nil
+}
+
+// DeleteClassificationRule deletes a classification rule by name (conditions cascade).
+func (s *Service) DeleteClassificationRule(ctx context.Context, req *pipelinev1.DeleteClassificationRuleRequest) (*pipelinev1.DeleteClassificationRuleResponse, error) {
+	s.logger.Debug("DeleteClassificationRule called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("name", req.Name),
+	)
+
+	if req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "database not available")
+	}
+
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = s.defaultTenantID(ctx)
+	}
+
+	result, err := s.db.ExecContext(ctx,
+		`DELETE FROM classification_rules WHERE tenant_id = $1 AND name = $2`,
+		tenantID, req.Name,
+	)
+	if err != nil {
+		s.logger.Error("Error deleting classification rule", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to delete classification rule: %v", err)
+	}
+
+	n, err := result.RowsAffected()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get rows affected: %v", err)
+	}
+	if n == 0 {
+		return nil, status.Errorf(codes.NotFound, "classification rule %q not found", req.Name)
+	}
+
+	return &pipelinev1.DeleteClassificationRuleResponse{DeletedCount: int32(n)}, nil
 }
 
 // =============================================================================
