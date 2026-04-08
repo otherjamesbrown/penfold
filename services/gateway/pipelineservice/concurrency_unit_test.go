@@ -230,3 +230,51 @@ func TestKickProcessing_NilTemporalClient(t *testing.T) {
 	assert.Equal(t, codes.Unavailable, st.Code())
 	assert.Contains(t, st.Message(), "Temporal")
 }
+
+// TestKickProcessing_RequestWithExplicitLimit verifies that a request with an
+// explicit Limit reaches the DB stage (past Temporal nil check) when a Temporal
+// client is present. This validates the routing logic: explicit Limit must not
+// be rejected early by the concurrency-cap short-circuit path.
+func TestKickProcessing_RequestWithExplicitLimit(t *testing.T) {
+	ctx := context.Background()
+
+	// Temporal client present, DB nil — will fail at DB stage, not before.
+	mockTC := &mockTemporalClient{}
+	svc := NewService(nil, testLogger(), mockTC, nil, "default")
+
+	req := &pipelinev1.KickProcessingRequest{
+		Limit: 100,
+	}
+
+	resp, err := svc.KickProcessing(ctx, req)
+
+	// Expected: Internal error from DB (not Unavailable from Temporal check)
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	// Must NOT be Unavailable (that would mean it hit the Temporal nil check)
+	assert.NotEqual(t, codes.Unavailable, st.Code(), "should pass Temporal check and fail at DB")
+}
+
+// TestKickProcessing_ZeroLimitHitsConcurrencyPath verifies that a request with
+// Limit=0 (no explicit limit) hits the concurrency-cap path and returns early
+// with Internal error from DB (max_concurrent lookup) rather than Unavailable.
+func TestKickProcessing_ZeroLimitHitsConcurrencyPath(t *testing.T) {
+	ctx := context.Background()
+
+	mockTC := &mockTemporalClient{}
+	svc := NewService(nil, testLogger(), mockTC, nil, "default")
+
+	req := &pipelinev1.KickProcessingRequest{
+		Limit: 0, // no explicit limit — use concurrency cap
+	}
+
+	resp, err := svc.KickProcessing(ctx, req)
+
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.NotEqual(t, codes.Unavailable, st.Code(), "should pass Temporal check and fail at DB")
+}

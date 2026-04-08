@@ -160,24 +160,30 @@ func (s *Service) KickProcessing(ctx context.Context, req *pipelinev1.KickProces
 
 	// Calculate available slots
 	availableSlots := maxConcurrent - inFlightCount
-	if availableSlots <= 0 {
-		s.logger.Info("No available concurrency slots",
-			logging.F("max_concurrent", maxConcurrent),
-			logging.F("in_flight_count", inFlightCount),
-		)
-		return &pipelinev1.KickProcessingResponse{
-			QueuedCount:    0,
-			Message:        fmt.Sprintf("No available slots (max: %d, in-flight: %d)", maxConcurrent, inFlightCount),
-			InFlightCount:  int32(inFlightCount),
-			PendingCount:   pendingCount,
-			MaxConcurrent:  int32(maxConcurrent),
-		}, nil
-	}
 
-	// Apply user-requested limit if provided
-	limit := availableSlots
-	if req.Limit > 0 && int(req.Limit) < availableSlots {
+	// Determine how many items to kick.
+	// An explicit Limit bypasses the concurrency cap — the user is intentionally
+	// requesting a batch size and knows what they want.
+	// Without an explicit Limit, cap at available concurrency slots to avoid
+	// overwhelming the system during automated/scheduled kicks.
+	var limit int
+	if req.Limit > 0 {
 		limit = int(req.Limit)
+	} else {
+		if availableSlots <= 0 {
+			s.logger.Info("No available concurrency slots",
+				logging.F("max_concurrent", maxConcurrent),
+				logging.F("in_flight_count", inFlightCount),
+			)
+			return &pipelinev1.KickProcessingResponse{
+				QueuedCount:    0,
+				Message:        fmt.Sprintf("No available slots (max: %d, in-flight: %d)", maxConcurrent, inFlightCount),
+				InFlightCount:  int32(inFlightCount),
+				PendingCount:   pendingCount,
+				MaxConcurrent:  int32(maxConcurrent),
+			}, nil
+		}
+		limit = availableSlots
 	}
 
 	// Get pending sources from repository
