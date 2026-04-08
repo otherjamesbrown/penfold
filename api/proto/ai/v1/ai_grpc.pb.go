@@ -23,28 +23,29 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AICoordinatorService_GenerateEmbedding_FullMethodName  = "/penfold.ai.v1.AICoordinatorService/GenerateEmbedding"
-	AICoordinatorService_GenerateSummary_FullMethodName    = "/penfold.ai.v1.AICoordinatorService/GenerateSummary"
-	AICoordinatorService_ExtractAssertions_FullMethodName  = "/penfold.ai.v1.AICoordinatorService/ExtractAssertions"
-	AICoordinatorService_ClassifyContent_FullMethodName    = "/penfold.ai.v1.AICoordinatorService/ClassifyContent"
-	AICoordinatorService_TriageContent_FullMethodName      = "/penfold.ai.v1.AICoordinatorService/TriageContent"
-	AICoordinatorService_ExtractEntities_FullMethodName    = "/penfold.ai.v1.AICoordinatorService/ExtractEntities"
-	AICoordinatorService_DeepAnalyze_FullMethodName        = "/penfold.ai.v1.AICoordinatorService/DeepAnalyze"
-	AICoordinatorService_GetModelStatus_FullMethodName     = "/penfold.ai.v1.AICoordinatorService/GetModelStatus"
-	AICoordinatorService_ListModels_FullMethodName         = "/penfold.ai.v1.AICoordinatorService/ListModels"
-	AICoordinatorService_RegisterModel_FullMethodName      = "/penfold.ai.v1.AICoordinatorService/RegisterModel"
-	AICoordinatorService_UpdateModel_FullMethodName        = "/penfold.ai.v1.AICoordinatorService/UpdateModel"
-	AICoordinatorService_DeleteModel_FullMethodName        = "/penfold.ai.v1.AICoordinatorService/DeleteModel"
-	AICoordinatorService_GetRoutingRules_FullMethodName    = "/penfold.ai.v1.AICoordinatorService/GetRoutingRules"
-	AICoordinatorService_UpdateRoutingRule_FullMethodName  = "/penfold.ai.v1.AICoordinatorService/UpdateRoutingRule"
-	AICoordinatorService_Query_FullMethodName              = "/penfold.ai.v1.AICoordinatorService/Query"
-	AICoordinatorService_SummarizeByID_FullMethodName      = "/penfold.ai.v1.AICoordinatorService/SummarizeByID"
-	AICoordinatorService_AnalyzeByID_FullMethodName        = "/penfold.ai.v1.AICoordinatorService/AnalyzeByID"
-	AICoordinatorService_GetStageModels_FullMethodName     = "/penfold.ai.v1.AICoordinatorService/GetStageModels"
-	AICoordinatorService_SetStageModel_FullMethodName      = "/penfold.ai.v1.AICoordinatorService/SetStageModel"
-	AICoordinatorService_ResetStageModel_FullMethodName    = "/penfold.ai.v1.AICoordinatorService/ResetStageModel"
-	AICoordinatorService_GetAvailableModels_FullMethodName = "/penfold.ai.v1.AICoordinatorService/GetAvailableModels"
-	AICoordinatorService_TestModel_FullMethodName          = "/penfold.ai.v1.AICoordinatorService/TestModel"
+	AICoordinatorService_GenerateEmbedding_FullMethodName      = "/penfold.ai.v1.AICoordinatorService/GenerateEmbedding"
+	AICoordinatorService_GenerateSummary_FullMethodName        = "/penfold.ai.v1.AICoordinatorService/GenerateSummary"
+	AICoordinatorService_ExtractAssertions_FullMethodName      = "/penfold.ai.v1.AICoordinatorService/ExtractAssertions"
+	AICoordinatorService_ClassifyContent_FullMethodName        = "/penfold.ai.v1.AICoordinatorService/ClassifyContent"
+	AICoordinatorService_TriageContent_FullMethodName          = "/penfold.ai.v1.AICoordinatorService/TriageContent"
+	AICoordinatorService_ExtractEntities_FullMethodName        = "/penfold.ai.v1.AICoordinatorService/ExtractEntities"
+	AICoordinatorService_DeepAnalyze_FullMethodName            = "/penfold.ai.v1.AICoordinatorService/DeepAnalyze"
+	AICoordinatorService_GetModelStatus_FullMethodName         = "/penfold.ai.v1.AICoordinatorService/GetModelStatus"
+	AICoordinatorService_ListModels_FullMethodName             = "/penfold.ai.v1.AICoordinatorService/ListModels"
+	AICoordinatorService_RegisterModel_FullMethodName          = "/penfold.ai.v1.AICoordinatorService/RegisterModel"
+	AICoordinatorService_UpdateModel_FullMethodName            = "/penfold.ai.v1.AICoordinatorService/UpdateModel"
+	AICoordinatorService_DeleteModel_FullMethodName            = "/penfold.ai.v1.AICoordinatorService/DeleteModel"
+	AICoordinatorService_GetRoutingRules_FullMethodName        = "/penfold.ai.v1.AICoordinatorService/GetRoutingRules"
+	AICoordinatorService_UpdateRoutingRule_FullMethodName      = "/penfold.ai.v1.AICoordinatorService/UpdateRoutingRule"
+	AICoordinatorService_Query_FullMethodName                  = "/penfold.ai.v1.AICoordinatorService/Query"
+	AICoordinatorService_SummarizeByID_FullMethodName          = "/penfold.ai.v1.AICoordinatorService/SummarizeByID"
+	AICoordinatorService_AnalyzeByID_FullMethodName            = "/penfold.ai.v1.AICoordinatorService/AnalyzeByID"
+	AICoordinatorService_GetStageModels_FullMethodName         = "/penfold.ai.v1.AICoordinatorService/GetStageModels"
+	AICoordinatorService_SetStageModel_FullMethodName          = "/penfold.ai.v1.AICoordinatorService/SetStageModel"
+	AICoordinatorService_ResetStageModel_FullMethodName        = "/penfold.ai.v1.AICoordinatorService/ResetStageModel"
+	AICoordinatorService_GetAvailableModels_FullMethodName     = "/penfold.ai.v1.AICoordinatorService/GetAvailableModels"
+	AICoordinatorService_TestModel_FullMethodName              = "/penfold.ai.v1.AICoordinatorService/TestModel"
+	AICoordinatorService_SuggestContextTriggers_FullMethodName = "/penfold.ai.v1.AICoordinatorService/SuggestContextTriggers"
 )
 
 // AICoordinatorServiceClient is the client API for AICoordinatorService service.
@@ -123,6 +124,9 @@ type AICoordinatorServiceClient interface {
 	// TestModel performs a quick inference test for a specific model.
 	// Returns status, latency, and model used.
 	TestModel(ctx context.Context, in *TestModelRequest, opts ...grpc.CallOption) (*TestModelResponse, error)
+	// SuggestContextTriggers uses an LLM to suggest trigger conditions for a tenant context entry.
+	// Returns a list of conditions that can be used to detect relevant emails.
+	SuggestContextTriggers(ctx context.Context, in *SuggestContextTriggersRequest, opts ...grpc.CallOption) (*SuggestContextTriggersResponse, error)
 }
 
 type aICoordinatorServiceClient struct {
@@ -353,6 +357,16 @@ func (c *aICoordinatorServiceClient) TestModel(ctx context.Context, in *TestMode
 	return out, nil
 }
 
+func (c *aICoordinatorServiceClient) SuggestContextTriggers(ctx context.Context, in *SuggestContextTriggersRequest, opts ...grpc.CallOption) (*SuggestContextTriggersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SuggestContextTriggersResponse)
+	err := c.cc.Invoke(ctx, AICoordinatorService_SuggestContextTriggers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AICoordinatorServiceServer is the server API for AICoordinatorService service.
 // All implementations must embed UnimplementedAICoordinatorServiceServer
 // for forward compatibility.
@@ -429,6 +443,9 @@ type AICoordinatorServiceServer interface {
 	// TestModel performs a quick inference test for a specific model.
 	// Returns status, latency, and model used.
 	TestModel(context.Context, *TestModelRequest) (*TestModelResponse, error)
+	// SuggestContextTriggers uses an LLM to suggest trigger conditions for a tenant context entry.
+	// Returns a list of conditions that can be used to detect relevant emails.
+	SuggestContextTriggers(context.Context, *SuggestContextTriggersRequest) (*SuggestContextTriggersResponse, error)
 	mustEmbedUnimplementedAICoordinatorServiceServer()
 }
 
@@ -504,6 +521,9 @@ func (UnimplementedAICoordinatorServiceServer) GetAvailableModels(context.Contex
 }
 func (UnimplementedAICoordinatorServiceServer) TestModel(context.Context, *TestModelRequest) (*TestModelResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method TestModel not implemented")
+}
+func (UnimplementedAICoordinatorServiceServer) SuggestContextTriggers(context.Context, *SuggestContextTriggersRequest) (*SuggestContextTriggersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SuggestContextTriggers not implemented")
 }
 func (UnimplementedAICoordinatorServiceServer) mustEmbedUnimplementedAICoordinatorServiceServer() {}
 func (UnimplementedAICoordinatorServiceServer) testEmbeddedByValue()                              {}
@@ -922,6 +942,24 @@ func _AICoordinatorService_TestModel_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AICoordinatorService_SuggestContextTriggers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SuggestContextTriggersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AICoordinatorServiceServer).SuggestContextTriggers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AICoordinatorService_SuggestContextTriggers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AICoordinatorServiceServer).SuggestContextTriggers(ctx, req.(*SuggestContextTriggersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AICoordinatorService_ServiceDesc is the grpc.ServiceDesc for AICoordinatorService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1016,6 +1054,10 @@ var AICoordinatorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "TestModel",
 			Handler:    _AICoordinatorService_TestModel_Handler,
+		},
+		{
+			MethodName: "SuggestContextTriggers",
+			Handler:    _AICoordinatorService_SuggestContextTriggers_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

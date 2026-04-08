@@ -49,14 +49,15 @@ type TopicResult struct {
 
 // ContextBuilderActivities holds dependencies for context building activities.
 type ContextBuilderActivities struct {
-	logger            logging.Logger
-	entityResolver    EntityResolverInterface
-	entityRepo        EntityLookupInterface
-	contextRepo       ContextPackageRepository
-	topicRepo         TopicLookupInterface
-	pipelineRepo      PipelineRepository
-	configResolver    *enrichmentconfig.ConfigResolver
-	langfuseIngestion *langfuse.Ingestion // optional; nil disables Langfuse spans
+	logger             logging.Logger
+	entityResolver     EntityResolverInterface
+	entityRepo         EntityLookupInterface
+	contextRepo        ContextPackageRepository
+	topicRepo          TopicLookupInterface
+	pipelineRepo       PipelineRepository
+	configResolver     *enrichmentconfig.ConfigResolver
+	langfuseIngestion  *langfuse.Ingestion     // optional; nil disables Langfuse spans
+	tenantContextRepo  TenantContextRepository // optional; nil disables tenant_context provider
 }
 
 // NewContextBuilderActivities creates a new ContextBuilderActivities instance.
@@ -95,9 +96,9 @@ func NewContextBuilderActivities(
 		pipelineRepo:   pipelineRepo,
 		configResolver: configResolver,
 	}
-	// Register built-in context providers with a nil newsletterRepo.
-	// Call WithNewsletterContextRepo after construction to enable newsletter providers.
-	RegisterContextProviders(a.logger, contextRepo, nil, topicRepo)
+	// Register built-in context providers with nil optional repos.
+	// Call WithNewsletterContextRepo / WithTenantContextRepo after construction.
+	RegisterContextProviders(a.logger, contextRepo, nil, topicRepo, nil)
 	return a
 }
 
@@ -105,7 +106,15 @@ func NewContextBuilderActivities(
 // re-registers context providers so user_context, active_projects, and
 // tracked_products providers use the new repo.
 func (a *ContextBuilderActivities) WithNewsletterContextRepo(repo NewsletterContextRepository) *ContextBuilderActivities {
-	RegisterContextProviders(a.logger, a.contextRepo, repo, a.topicRepo)
+	RegisterContextProviders(a.logger, a.contextRepo, repo, a.topicRepo, a.tenantContextRepo)
+	return a
+}
+
+// WithTenantContextRepo injects an optional TenantContextRepository and
+// re-registers context providers so the tenant_context provider is active.
+func (a *ContextBuilderActivities) WithTenantContextRepo(repo TenantContextRepository) *ContextBuilderActivities {
+	a.tenantContextRepo = repo
+	RegisterContextProviders(a.logger, a.contextRepo, nil, a.topicRepo, repo)
 	return a
 }
 

@@ -110,7 +110,7 @@ func TestBuildStageContext_Integration(t *testing.T) {
 		pipelineRepo:         pipelineRepo,
 		newsletterContextRepo: newsletterRepo,
 	}
-	RegisterContextProviders(logger, contextRepo, newsletterRepo, nil)
+	RegisterContextProviders(logger, contextRepo, newsletterRepo, nil, nil)
 
 	result, err := a.BuildStageContext(ctx, BuildStageContextInput{
 		TenantID: tenantID,
@@ -157,7 +157,7 @@ func TestBuildStageContext_StandardAnalyze_Integration(t *testing.T) {
 		contextRepo:    contextRepo,
 		pipelineRepo:   pipelineRepo,
 	}
-	RegisterContextProviders(logger, contextRepo, nil, nil)
+	RegisterContextProviders(logger, contextRepo, nil, nil, nil)
 
 	result, err := a.BuildStageContext(ctx, BuildStageContextInput{
 		TenantID: tenantID,
@@ -253,7 +253,7 @@ func TestBuildStageContext_Parity_Newsletter_Integration(t *testing.T) {
 	require.NoError(t, err, "BuildNewsletterContext must not error")
 
 	// New path: BuildStageContext
-	RegisterContextProviders(logger, contextRepo, newsletterRepo, nil)
+	RegisterContextProviders(logger, contextRepo, newsletterRepo, nil, nil)
 	newOut, err := oldActivities.BuildStageContext(ctx, BuildStageContextInput{
 		TenantID: tenantID,
 		Pipeline: "newsletter",
@@ -326,7 +326,7 @@ func TestBuildStageContext_CustomPipeline_Integration(t *testing.T) {
 		contextRepo:    contextRepo,
 		pipelineRepo:   pipelineRepo,
 	}
-	RegisterContextProviders(logger, contextRepo, nil, nil)
+	RegisterContextProviders(logger, contextRepo, nil, nil, nil)
 
 	result, err := a.BuildStageContext(ctx, BuildStageContextInput{
 		TenantID: tenantID,
@@ -378,7 +378,7 @@ func TestBuildContextPackage_EntityResolution_Integration(t *testing.T) {
 		contextRepo:    contextRepo,
 		pipelineRepo:   pipelineRepo,
 	}
-	RegisterContextProviders(logger, contextRepo, nil, nil)
+	RegisterContextProviders(logger, contextRepo, nil, nil, nil)
 
 	// Minimal extraction: one person and one project in the extraction output.
 	// The mock entity resolver/repo return empty results, which is fine —
@@ -458,7 +458,7 @@ func TestBuildStageContext_ProviderFailure_NonBlocking_Integration(t *testing.T)
 	contextRepo := NewContextPackageRepo(pool, logger)
 
 	// Register all standard providers plus our test failing provider.
-	RegisterContextProviders(logger, contextRepo, nil, nil)
+	RegisterContextProviders(logger, contextRepo, nil, nil, nil)
 	providerRegistry[failingProviderName] = &alwaysFailingProvider{name: failingProviderName}
 	defer delete(providerRegistry, failingProviderName)
 

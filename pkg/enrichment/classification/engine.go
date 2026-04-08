@@ -96,6 +96,12 @@ func resolveField(field string, metadata map[string]string) string {
 	return metadata[field]
 }
 
+// Matches checks whether a field value satisfies this match condition.
+// Exported so other packages (e.g. tenant context provider) can reuse the matching logic.
+func (c MatchCondition) Matches(fieldValue string) bool {
+	return matchCondition(c, fieldValue)
+}
+
 // matchCondition checks whether a field value satisfies a match condition.
 func matchCondition(cond MatchCondition, fieldValue string) bool {
 	v := fieldValue

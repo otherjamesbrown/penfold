@@ -399,6 +399,24 @@ type ClassificationRepository interface {
 	LoadRules(ctx context.Context, tenantID string) ([]classification.ClassificationRule, error)
 }
 
+// TenantContextEntry represents a personal reference context entry with its trigger conditions.
+type TenantContextEntry struct {
+	ID           int
+	TenantID     string
+	Category     string
+	Label        string
+	Details      map[string]interface{}
+	AlwaysInject bool
+	Active       bool
+	Conditions   []classification.MatchCondition
+}
+
+// TenantContextRepository provides data access for tenant context entries.
+type TenantContextRepository interface {
+	// GetActiveEntries returns all active context entries for a tenant, with conditions.
+	GetActiveEntries(ctx context.Context, tenantID string) ([]TenantContextEntry, error)
+}
+
 // RoutingRepository defines the interface for loading pipeline routing rules.
 type RoutingRepository interface {
 	LoadRoutes(ctx context.Context, tenantID string) ([]routing.Route, error)

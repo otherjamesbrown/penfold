@@ -17,12 +17,18 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	pipelinev1 "github.com/otherjamesbrown/penfold/api/proto/pipeline/v1"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/routing"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/pipeline"
 	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 )
+
+// AIClient is the interface for calling the AI service from the pipeline service.
+type AIClient interface {
+	SuggestContextTriggers(ctx context.Context, req *aiv1.SuggestContextTriggersRequest) (*aiv1.SuggestContextTriggersResponse, error)
+}
 
 // Service implements the PipelineService gRPC server.
 type Service struct {
@@ -32,6 +38,7 @@ type Service struct {
 	temporalClient client.Client
 	db             *sql.DB
 	namespace      string
+	aiClient       AIClient // optional; nil disables AI-powered RPCs
 }
 
 // NewService creates a new pipeline service.
@@ -46,6 +53,12 @@ func NewService(repo *pipeline.Repository, logger logging.Logger, temporalClient
 		db:             db,
 		namespace:      namespace,
 	}
+}
+
+// WithAIClient injects an optional AI client for AI-powered RPCs.
+func (s *Service) WithAIClient(ai AIClient) *Service {
+	s.aiClient = ai
+	return s
 }
 
 // GetStats retrieves overall pipeline statistics.

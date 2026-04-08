@@ -765,6 +765,9 @@ func main() {
 		// Inject the newsletter context repo for enriched newsletter_extract context.
 		newsletterContextRepo := activities.NewPostgresNewsletterContextRepository(dbPool)
 		contextBuilderActivities.WithNewsletterContextRepo(newsletterContextRepo)
+		// Inject the tenant context repo for personal reference context injection.
+		tenantContextRepo := activities.NewPostgresTenantContextRepository(dbPool)
+		contextBuilderActivities.WithTenantContextRepo(tenantContextRepo)
 		activityRegistrar.WithContextBuilderActivities(contextBuilderActivities)
 		logger.Info("Context builder activities initialized with database (Stage 3)")
 

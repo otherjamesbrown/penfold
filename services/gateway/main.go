@@ -605,6 +605,9 @@ func main() {
 
 	// Now initialize PipelineService with all dependencies (including optional Temporal client).
 	pipelineSvc = pipelineservice.NewService(pipelineRepo, logger, temporalClient, db, cfg.Temporal.Namespace)
+	if aiClient != nil {
+		pipelineSvc.WithAIClient(aiClient)
+	}
 	pipelinev1.RegisterPipelineServiceServer(grpcServer, pipelineSvc)
 	logger.Info("Registered PipelineService")
 

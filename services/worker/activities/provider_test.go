@@ -440,7 +440,7 @@ func TestRegisterContextProviders(t *testing.T) {
 	newsletterRepo := &mockNewsletterContextRepo{}
 	topicRepo := &mockTopicRepo{}
 
-	RegisterContextProviders(logger, contextRepo, newsletterRepo, topicRepo)
+	RegisterContextProviders(logger, contextRepo, newsletterRepo, topicRepo, nil)
 	t.Cleanup(func() {
 		delete(providerRegistry, "user_context")
 		delete(providerRegistry, "glossary")

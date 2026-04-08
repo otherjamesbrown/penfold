@@ -121,6 +121,10 @@ service AICoordinatorService {
   // TestModel performs a quick inference test for a specific model.
   // Returns status, latency, and model used.
   rpc TestModel(TestModelRequest) returns (TestModelResponse);
+
+  // SuggestContextTriggers uses an LLM to suggest trigger conditions for a tenant context entry.
+  // Returns a list of conditions that can be used to detect relevant emails.
+  rpc SuggestContextTriggers(SuggestContextTriggersRequest) returns (SuggestContextTriggersResponse);
 }
 
 // =============================================================================
@@ -1518,4 +1522,44 @@ message TestModelResponse {
 
   // Error message if status is "error".
   optional string error_message = 6;
+}
+
+// =============================================================================
+// Context Trigger Suggestion Messages
+// =============================================================================
+
+// SuggestContextTriggersRequest contains the context entry details for trigger suggestion.
+message SuggestContextTriggersRequest {
+  // Tenant ID.
+  optional string tenant_id = 1;
+
+  // Category of the context entry (e.g. "vehicle", "health", "identity").
+  string category = 2;
+
+  // Human-readable label for the entry (e.g. "Porsche Macan").
+  string label = 3;
+
+  // Details about the entry as JSON (e.g. {"reg": "VO72 UHX"}).
+  string details_json = 4;
+}
+
+// ContextTriggerCondition is a suggested trigger condition for a context entry.
+message ContextTriggerCondition {
+  // Field to match against: "content", "sender_email", "subject", "to_address".
+  string field = 1;
+
+  // Match type: "contains", "prefix", "suffix", "exact", "glob".
+  string match_type = 2;
+
+  // Value to match.
+  string value = 3;
+}
+
+// SuggestContextTriggersResponse contains the suggested trigger conditions.
+message SuggestContextTriggersResponse {
+  // Suggested conditions for the context entry.
+  repeated ContextTriggerCondition conditions = 1;
+
+  // Model used for generation.
+  string model_used = 2;
 }

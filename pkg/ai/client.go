@@ -407,3 +407,24 @@ func (c *Client) UpdateRoutingRule(ctx context.Context, req *aiv1.UpdateRoutingR
 
 	return resp, nil
 }
+
+// SuggestContextTriggers calls the AI service to suggest trigger conditions for a context entry.
+func (c *Client) SuggestContextTriggers(ctx context.Context, req *aiv1.SuggestContextTriggersRequest) (*aiv1.SuggestContextTriggersResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("request is required")
+	}
+
+	// Apply request timeout if configured
+	if c.options.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.options.requestTimeout)
+		defer cancel()
+	}
+
+	resp, err := c.client.SuggestContextTriggers(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("suggest context triggers failed: %w", err)
+	}
+
+	return resp, nil
+}

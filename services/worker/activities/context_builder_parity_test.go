@@ -179,7 +179,7 @@ func TestContextBuilderParity(t *testing.T) {
 	topicAdapter := NewTopicLookupAdapter(topicsRepo)
 
 	// Register providers with real repos so they produce content from the DB.
-	RegisterContextProviders(logger, contextRepo, newsletterRepo, topicAdapter)
+	RegisterContextProviders(logger, contextRepo, newsletterRepo, topicAdapter, nil)
 
 	// Build activities with real repos (mock entity resolver — not needed for context assembly parity).
 	a := NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, contextRepo, topicAdapter, pipelineRepo, nil).
