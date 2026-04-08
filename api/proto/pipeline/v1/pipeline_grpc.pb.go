@@ -76,7 +76,6 @@ const (
 	PipelineService_DeleteTenantContext_FullMethodName          = "/penfold.pipeline.v1.PipelineService/DeleteTenantContext"
 	PipelineService_AddTenantContextCondition_FullMethodName    = "/penfold.pipeline.v1.PipelineService/AddTenantContextCondition"
 	PipelineService_RemoveTenantContextCondition_FullMethodName = "/penfold.pipeline.v1.PipelineService/RemoveTenantContextCondition"
-	PipelineService_SuggestTenantContextTriggers_FullMethodName = "/penfold.pipeline.v1.PipelineService/SuggestTenantContextTriggers"
 )
 
 // PipelineServiceClient is the client API for PipelineService service.
@@ -184,18 +183,16 @@ type PipelineServiceClient interface {
 	ComparePipelineRuns(ctx context.Context, in *ComparePipelineRunsRequest, opts ...grpc.CallOption) (*ComparePipelineRunsResponse, error)
 	// CreateTenantContext creates a new tenant context entry with optional conditions.
 	CreateTenantContext(ctx context.Context, in *CreateTenantContextRequest, opts ...grpc.CallOption) (*CreateTenantContextResponse, error)
-	// ListTenantContext lists tenant context entries with optional category filter.
+	// ListTenantContext lists all tenant context entries with optional category filter.
 	ListTenantContext(ctx context.Context, in *ListTenantContextRequest, opts ...grpc.CallOption) (*ListTenantContextResponse, error)
 	// GetTenantContext retrieves a single tenant context entry by ID.
 	GetTenantContext(ctx context.Context, in *GetTenantContextRequest, opts ...grpc.CallOption) (*GetTenantContextResponse, error)
-	// DeleteTenantContext deletes a tenant context entry by ID.
+	// DeleteTenantContext deletes a tenant context entry (conditions cascade).
 	DeleteTenantContext(ctx context.Context, in *DeleteTenantContextRequest, opts ...grpc.CallOption) (*DeleteTenantContextResponse, error)
-	// AddTenantContextCondition adds a trigger condition to an existing context entry.
+	// AddTenantContextCondition adds a trigger condition to a tenant context entry.
 	AddTenantContextCondition(ctx context.Context, in *AddTenantContextConditionRequest, opts ...grpc.CallOption) (*AddTenantContextConditionResponse, error)
-	// RemoveTenantContextCondition removes a trigger condition from a context entry.
+	// RemoveTenantContextCondition removes a trigger condition from a tenant context entry.
 	RemoveTenantContextCondition(ctx context.Context, in *RemoveTenantContextConditionRequest, opts ...grpc.CallOption) (*RemoveTenantContextConditionResponse, error)
-	// SuggestTenantContextTriggers uses an LLM to suggest trigger conditions for a context entry.
-	SuggestTenantContextTriggers(ctx context.Context, in *SuggestTenantContextTriggersRequest, opts ...grpc.CallOption) (*SuggestTenantContextTriggersResponse, error)
 }
 
 type pipelineServiceClient struct {
@@ -746,16 +743,6 @@ func (c *pipelineServiceClient) RemoveTenantContextCondition(ctx context.Context
 	return out, nil
 }
 
-func (c *pipelineServiceClient) SuggestTenantContextTriggers(ctx context.Context, in *SuggestTenantContextTriggersRequest, opts ...grpc.CallOption) (*SuggestTenantContextTriggersResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(SuggestTenantContextTriggersResponse)
-	err := c.cc.Invoke(ctx, PipelineService_SuggestTenantContextTriggers_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // PipelineServiceServer is the server API for PipelineService service.
 // All implementations must embed UnimplementedPipelineServiceServer
 // for forward compatibility.
@@ -861,18 +848,16 @@ type PipelineServiceServer interface {
 	ComparePipelineRuns(context.Context, *ComparePipelineRunsRequest) (*ComparePipelineRunsResponse, error)
 	// CreateTenantContext creates a new tenant context entry with optional conditions.
 	CreateTenantContext(context.Context, *CreateTenantContextRequest) (*CreateTenantContextResponse, error)
-	// ListTenantContext lists tenant context entries with optional category filter.
+	// ListTenantContext lists all tenant context entries with optional category filter.
 	ListTenantContext(context.Context, *ListTenantContextRequest) (*ListTenantContextResponse, error)
 	// GetTenantContext retrieves a single tenant context entry by ID.
 	GetTenantContext(context.Context, *GetTenantContextRequest) (*GetTenantContextResponse, error)
-	// DeleteTenantContext deletes a tenant context entry by ID.
+	// DeleteTenantContext deletes a tenant context entry (conditions cascade).
 	DeleteTenantContext(context.Context, *DeleteTenantContextRequest) (*DeleteTenantContextResponse, error)
-	// AddTenantContextCondition adds a trigger condition to an existing context entry.
+	// AddTenantContextCondition adds a trigger condition to a tenant context entry.
 	AddTenantContextCondition(context.Context, *AddTenantContextConditionRequest) (*AddTenantContextConditionResponse, error)
-	// RemoveTenantContextCondition removes a trigger condition from a context entry.
+	// RemoveTenantContextCondition removes a trigger condition from a tenant context entry.
 	RemoveTenantContextCondition(context.Context, *RemoveTenantContextConditionRequest) (*RemoveTenantContextConditionResponse, error)
-	// SuggestTenantContextTriggers uses an LLM to suggest trigger conditions for a context entry.
-	SuggestTenantContextTriggers(context.Context, *SuggestTenantContextTriggersRequest) (*SuggestTenantContextTriggersResponse, error)
 	mustEmbedUnimplementedPipelineServiceServer()
 }
 
@@ -1044,9 +1029,6 @@ func (UnimplementedPipelineServiceServer) AddTenantContextCondition(context.Cont
 }
 func (UnimplementedPipelineServiceServer) RemoveTenantContextCondition(context.Context, *RemoveTenantContextConditionRequest) (*RemoveTenantContextConditionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RemoveTenantContextCondition not implemented")
-}
-func (UnimplementedPipelineServiceServer) SuggestTenantContextTriggers(context.Context, *SuggestTenantContextTriggersRequest) (*SuggestTenantContextTriggersResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SuggestTenantContextTriggers not implemented")
 }
 func (UnimplementedPipelineServiceServer) mustEmbedUnimplementedPipelineServiceServer() {}
 func (UnimplementedPipelineServiceServer) testEmbeddedByValue()                         {}
@@ -2041,24 +2023,6 @@ func _PipelineService_RemoveTenantContextCondition_Handler(srv interface{}, ctx 
 	return interceptor(ctx, in, info, handler)
 }
 
-func _PipelineService_SuggestTenantContextTriggers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SuggestTenantContextTriggersRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(PipelineServiceServer).SuggestTenantContextTriggers(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: PipelineService_SuggestTenantContextTriggers_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PipelineServiceServer).SuggestTenantContextTriggers(ctx, req.(*SuggestTenantContextTriggersRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 // PipelineService_ServiceDesc is the grpc.ServiceDesc for PipelineService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -2281,10 +2245,6 @@ var PipelineService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RemoveTenantContextCondition",
 			Handler:    _PipelineService_RemoveTenantContextCondition_Handler,
-		},
-		{
-			MethodName: "SuggestTenantContextTriggers",
-			Handler:    _PipelineService_SuggestTenantContextTriggers_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
