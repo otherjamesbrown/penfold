@@ -2402,6 +2402,121 @@ func (s *Service) TestClassificationRule(ctx context.Context, req *pipelinev1.Te
 	return resp, nil
 }
 
+// CreateClassificationRule creates a new classification rule with conditions.
+func (s *Service) CreateClassificationRule(ctx context.Context, req *pipelinev1.CreateClassificationRuleRequest) (*pipelinev1.CreateClassificationRuleResponse, error) {
+	s.logger.Debug("CreateClassificationRule called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("name", req.Name),
+	)
+
+	if req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+	if req.ContentType == "" {
+		return nil, status.Error(codes.InvalidArgument, "content_type is required")
+	}
+	if len(req.Conditions) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "at least one condition is required")
+	}
+
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "database not available")
+	}
+
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = s.defaultTenantID(ctx)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to begin transaction: %v", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	var ruleID int64
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO classification_rules (tenant_id, name, priority, content_type_scope, content_type, content_subtype, notification_source, active)
+		VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, NULLIF($7, ''), true)
+		RETURNING id
+	`, tenantID, req.Name, req.Priority, req.Scope, req.ContentType, req.ContentSubtype, req.NotificationSource).Scan(&ruleID)
+	if err != nil {
+		if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "duplicate") {
+			return nil, status.Errorf(codes.AlreadyExists, "classification rule %q already exists", req.Name)
+		}
+		s.logger.Error("Error inserting classification rule", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to create classification rule: %v", err)
+	}
+
+	for _, cond := range req.Conditions {
+		if cond.Field == "" {
+			return nil, status.Error(codes.InvalidArgument, "condition field is required")
+		}
+		if cond.Operator == "" {
+			return nil, status.Error(codes.InvalidArgument, "condition operator is required")
+		}
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO classification_match_conditions (rule_id, field, match_type, value, case_sensitive)
+			VALUES ($1, $2, $3, $4, false)
+		`, ruleID, cond.Field, cond.Operator, cond.Value)
+		if err != nil {
+			s.logger.Error("Error inserting classification condition", logging.Err(err))
+			return nil, status.Errorf(codes.Internal, "failed to create condition: %v", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to commit transaction: %v", err)
+	}
+
+	// Return the created rule
+	rules, err := s.queryClassificationRules(ctx, tenantID, req.Name)
+	if err != nil || len(rules) == 0 {
+		return nil, status.Errorf(codes.Internal, "rule created but failed to retrieve: %v", err)
+	}
+
+	return &pipelinev1.CreateClassificationRuleResponse{Rule: rules[0]}, nil
+}
+
+// DeleteClassificationRule deletes a classification rule by name.
+func (s *Service) DeleteClassificationRule(ctx context.Context, req *pipelinev1.DeleteClassificationRuleRequest) (*pipelinev1.DeleteClassificationRuleResponse, error) {
+	s.logger.Debug("DeleteClassificationRule called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("name", req.Name),
+	)
+
+	if req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "database not available")
+	}
+
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = s.defaultTenantID(ctx)
+	}
+
+	result, err := s.db.ExecContext(ctx, `
+		DELETE FROM classification_rules WHERE tenant_id = $1 AND name = $2
+	`, tenantID, req.Name)
+	if err != nil {
+		s.logger.Error("Error deleting classification rule", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to delete classification rule: %v", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to check deletion result: %v", err)
+	}
+	if rowsAffected == 0 {
+		return nil, status.Errorf(codes.NotFound, "classification rule %q not found", req.Name)
+	}
+
+	return &pipelinev1.DeleteClassificationRuleResponse{Name: req.Name}, nil
+}
+
 // queryClassificationRules queries rules with optional name filter, returns proto messages.
 func (s *Service) queryClassificationRules(ctx context.Context, tenantID, name string) ([]*pipelinev1.ClassificationRule, error) {
 	query := `

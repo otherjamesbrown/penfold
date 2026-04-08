@@ -164,6 +164,13 @@ func (m *mockPipelineClient) SetOperationalConfig(ctx context.Context, in *pipel
 	return nil, nil
 }
 
+func (m *mockPipelineClient) CreateClassificationRule(ctx context.Context, in *pipelinev1.CreateClassificationRuleRequest, opts ...grpc.CallOption) (*pipelinev1.CreateClassificationRuleResponse, error) {
+	return nil, nil
+}
+func (m *mockPipelineClient) DeleteClassificationRule(ctx context.Context, in *pipelinev1.DeleteClassificationRuleRequest, opts ...grpc.CallOption) (*pipelinev1.DeleteClassificationRuleResponse, error) {
+	return nil, nil
+}
+
 // Compile-time check that mockPipelineClient satisfies the interface.
 var _ pipelinev1.PipelineServiceClient = (*mockPipelineClient)(nil)
 
