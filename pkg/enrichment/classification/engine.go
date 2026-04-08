@@ -71,7 +71,7 @@ func (e *Engine) Classify(contentType string, metadata map[string]string) Classi
 	for _, rule := range applicable {
 		for _, cond := range rule.Conditions {
 			fieldValue := resolveField(cond.Field, metadata)
-			if matchCondition(cond, fieldValue) {
+			if EvalCondition(cond, fieldValue) {
 				return ClassificationResult{
 					ContentType:        rule.ContentType,
 					ContentSubtype:     rule.ContentSubtype,
@@ -96,8 +96,8 @@ func resolveField(field string, metadata map[string]string) string {
 	return metadata[field]
 }
 
-// matchCondition checks whether a field value satisfies a match condition.
-func matchCondition(cond MatchCondition, fieldValue string) bool {
+// EvalCondition checks whether a field value satisfies a match condition.
+func EvalCondition(cond MatchCondition, fieldValue string) bool {
 	v := fieldValue
 	condValue := cond.Value
 
@@ -114,7 +114,7 @@ func matchCondition(cond MatchCondition, fieldValue string) bool {
 	case "suffix":
 		return strings.HasSuffix(v, condValue)
 	case "glob":
-		return matchesPatternEngine(v, condValue)
+		return MatchesPattern(v, condValue)
 	case "exact":
 		return v == condValue
 	case "exists":
@@ -124,10 +124,10 @@ func matchCondition(cond MatchCondition, fieldValue string) bool {
 	}
 }
 
-// matchesPatternEngine checks if a string matches a wildcard pattern.
+// MatchesPattern checks if a string matches a wildcard pattern.
 // Supports patterns like "*@domain.com", "prefix@*", "*@*.domain.com".
 // Both s and pattern should already be lowercased if case-insensitive matching is desired.
-func matchesPatternEngine(s, pattern string) bool {
+func MatchesPattern(s, pattern string) bool {
 	// No wildcard - exact match
 	if !strings.Contains(pattern, "*") {
 		return s == pattern
