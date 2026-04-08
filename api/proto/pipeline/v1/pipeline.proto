@@ -163,23 +163,20 @@ service PipelineService {
   // CreateTenantContext creates a new tenant context entry with optional conditions.
   rpc CreateTenantContext(CreateTenantContextRequest) returns (CreateTenantContextResponse);
 
-  // ListTenantContext lists tenant context entries with optional category filter.
+  // ListTenantContext lists all tenant context entries with optional category filter.
   rpc ListTenantContext(ListTenantContextRequest) returns (ListTenantContextResponse);
 
   // GetTenantContext retrieves a single tenant context entry by ID.
   rpc GetTenantContext(GetTenantContextRequest) returns (GetTenantContextResponse);
 
-  // DeleteTenantContext deletes a tenant context entry by ID.
+  // DeleteTenantContext deletes a tenant context entry (conditions cascade).
   rpc DeleteTenantContext(DeleteTenantContextRequest) returns (DeleteTenantContextResponse);
 
-  // AddTenantContextCondition adds a trigger condition to an existing context entry.
+  // AddTenantContextCondition adds a trigger condition to a tenant context entry.
   rpc AddTenantContextCondition(AddTenantContextConditionRequest) returns (AddTenantContextConditionResponse);
 
-  // RemoveTenantContextCondition removes a trigger condition from a context entry.
+  // RemoveTenantContextCondition removes a trigger condition from a tenant context entry.
   rpc RemoveTenantContextCondition(RemoveTenantContextConditionRequest) returns (RemoveTenantContextConditionResponse);
-
-  // SuggestTenantContextTriggers uses an LLM to suggest trigger conditions for a context entry.
-  rpc SuggestTenantContextTriggers(SuggestTenantContextTriggersRequest) returns (SuggestTenantContextTriggersResponse);
 }
 
 // =============================================================================
@@ -1861,139 +1858,149 @@ message ComparePipelineRunsResponse {
 // Tenant Context Messages
 // =============================================================================
 
-// TenantContextCondition is a trigger condition for injecting a context entry.
+// TenantContextCondition represents a single trigger condition for a context entry.
 message TenantContextCondition {
-  // Unique condition ID.
-  int32 id = 1;
+  // Condition ID.
+  int64 id = 1;
 
   // Field to match against (content, subject, sender_email, to_address).
   string field = 2;
 
-  // Match type (contains, prefix, suffix, glob, exact).
+  // Match type: contains, prefix, suffix, exact.
   string match_type = 3;
 
   // Value to match.
   string value = 4;
 
-  // Whether the match is case-sensitive.
+  // Whether matching is case-sensitive.
   bool case_sensitive = 5;
 }
 
-// TenantContextEntry is a personal reference context entry for a tenant.
+// TenantContextEntry represents a personal reference context entry.
 message TenantContextEntry {
-  // Unique entry ID.
-  int32 id = 1;
+  // Entry ID.
+  int64 id = 1;
 
-  // Tenant ID.
-  string tenant_id = 2;
+  // Category (vehicle, identity, property, health, subscription, finance, other).
+  string category = 2;
 
-  // Category (e.g. vehicle, identity, property, health, subscription, finance, other).
-  string category = 3;
+  // Human-readable label (e.g., "Porsche Macan").
+  string label = 3;
 
-  // Human-readable label (e.g. "Porsche Macan").
-  string label = 4;
+  // Structured details as JSON.
+  string details = 4;
 
-  // Details as a raw JSON string.
-  string details_json = 5;
-
-  // Whether to inject this entry into every email's context regardless of conditions.
-  bool always_inject = 6;
+  // Whether to inject this entry into every pipeline run (no conditions required).
+  bool always_inject = 5;
 
   // Whether this entry is active.
-  bool active = 7;
+  bool active = 6;
 
-  // When the entry was created.
-  google.protobuf.Timestamp created_at = 8;
-
-  // Trigger conditions that cause this entry to be injected.
-  repeated TenantContextCondition conditions = 9;
+  // Trigger conditions (OR logic: any match injects the entry).
+  repeated TenantContextCondition conditions = 7;
 }
 
 // CreateTenantContextRequest creates a new tenant context entry.
 message CreateTenantContextRequest {
+  // Tenant ID (uses default if empty).
   string tenant_id = 1;
+
+  // Category.
   string category = 2;
+
+  // Label (must be unique within tenant+category).
   string label = 3;
-  string details_json = 4;
+
+  // Structured details as JSON.
+  string details = 4;
+
+  // Whether to always inject (no condition matching required).
   bool always_inject = 5;
+
+  // Initial trigger conditions.
   repeated TenantContextCondition conditions = 6;
 }
 
-// CreateTenantContextResponse returns the created entry.
+// CreateTenantContextResponse contains the created entry.
 message CreateTenantContextResponse {
+  // The created entry.
   TenantContextEntry entry = 1;
 }
 
-// ListTenantContextRequest lists context entries for a tenant.
+// ListTenantContextRequest lists tenant context entries.
 message ListTenantContextRequest {
+  // Tenant ID (uses default if empty).
   string tenant_id = 1;
 
   // Optional category filter.
   string category = 2;
 }
 
-// ListTenantContextResponse returns matching entries.
+// ListTenantContextResponse contains all matching entries.
 message ListTenantContextResponse {
+  // Entries ordered by category, label.
   repeated TenantContextEntry entries = 1;
 }
 
-// GetTenantContextRequest retrieves a single context entry by ID.
+// GetTenantContextRequest retrieves a single entry by ID.
 message GetTenantContextRequest {
+  // Tenant ID (uses default if empty).
   string tenant_id = 1;
-  int32 id = 2;
+
+  // Entry ID.
+  int64 id = 2;
 }
 
-// GetTenantContextResponse returns the requested entry.
+// GetTenantContextResponse contains the requested entry.
 message GetTenantContextResponse {
+  // The entry.
   TenantContextEntry entry = 1;
 }
 
-// DeleteTenantContextRequest deletes a context entry by ID.
+// DeleteTenantContextRequest deletes a tenant context entry.
 message DeleteTenantContextRequest {
+  // Tenant ID (uses default if empty).
   string tenant_id = 1;
-  int32 id = 2;
+
+  // Entry ID to delete.
+  int64 id = 2;
 }
 
-// DeleteTenantContextResponse reports how many entries were deleted.
+// DeleteTenantContextResponse confirms deletion.
 message DeleteTenantContextResponse {
+  // Number of entries deleted.
   int32 deleted_count = 1;
 }
 
-// AddTenantContextConditionRequest adds a trigger condition to a context entry.
+// AddTenantContextConditionRequest adds a trigger condition to an entry.
 message AddTenantContextConditionRequest {
+  // Tenant ID (uses default if empty).
   string tenant_id = 1;
-  int32 context_id = 2;
-  string field = 3;
-  string match_type = 4;
-  string value = 5;
-  bool case_sensitive = 6;
+
+  // Context entry ID.
+  int64 context_id = 2;
+
+  // Condition to add.
+  TenantContextCondition condition = 3;
 }
 
-// AddTenantContextConditionResponse returns the updated entry.
+// AddTenantContextConditionResponse contains the updated entry.
 message AddTenantContextConditionResponse {
+  // The updated entry with the new condition.
   TenantContextEntry entry = 1;
 }
 
-// RemoveTenantContextConditionRequest removes a trigger condition by ID.
+// RemoveTenantContextConditionRequest removes a trigger condition.
 message RemoveTenantContextConditionRequest {
+  // Tenant ID (uses default if empty).
   string tenant_id = 1;
-  int32 condition_id = 2;
+
+  // Condition ID to remove.
+  int64 condition_id = 2;
 }
 
-// RemoveTenantContextConditionResponse reports how many conditions were deleted.
+// RemoveTenantContextConditionResponse confirms removal.
 message RemoveTenantContextConditionResponse {
+  // Number of conditions deleted.
   int32 deleted_count = 1;
-}
-
-// SuggestTenantContextTriggersRequest asks the LLM to suggest trigger conditions.
-message SuggestTenantContextTriggersRequest {
-  string tenant_id = 1;
-  string category = 2;
-  string label = 3;
-  string details_json = 4;
-}
-
-// SuggestTenantContextTriggersResponse returns LLM-generated trigger suggestions.
-message SuggestTenantContextTriggersResponse {
-  repeated TenantContextCondition suggestions = 1;
 }
