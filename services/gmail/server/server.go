@@ -22,6 +22,14 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// pendingWorkflowStart records a source whose Temporal workflow needs to be started.
+type pendingWorkflowStart struct {
+	sourceID    int64
+	contentID   string
+	contentHash string
+	workflowID  string
+}
+
 // SourceIngestRepo defines the minimal storage interface needed by the MessageHandler.
 type SourceIngestRepo interface {
 	CheckDuplicate(ctx context.Context, tenantID, messageID, contentHash string) (bool, int64, string, error)
@@ -115,6 +123,10 @@ func (s *GmailServer) SyncEmails(ctx context.Context, req *gmailv1.SyncEmailsReq
 		maxResults = 500
 	}
 
+	// pendingStarts collects sources that need a workflow started after sync.
+	// Populated when the inline start fails or when temporalClient is nil.
+	var pendingStarts []pendingWorkflowStart
+
 	opts := &gSync.SyncOptions{
 		Query:            query,
 		Labels:           req.GetLabels(),
@@ -137,7 +149,10 @@ func (s *GmailServer) SyncEmails(ctx context.Context, req *gmailv1.SyncEmailsReq
 			h.Write([]byte(parsed.From))
 			contentHash := hex.EncodeToString(h.Sum(nil))
 
-			// Collect participant emails
+			// Extract sender address and display name from "Display Name <email>" format.
+			// from_address and from_name are stored separately in metadata so that
+			// FetchSource (source.go) can populate SenderEmail and SenderName in the
+			// Collect participant emails (for the DB column)
 			participants := make([]string, 0)
 			participantSeen := make(map[string]bool)
 			addParticipant := func(email string) {
@@ -148,6 +163,8 @@ func (s *GmailServer) SyncEmails(ctx context.Context, req *gmailv1.SyncEmailsReq
 				participants = append(participants, email)
 			}
 			// Extract from address and name from "Name <email>" format
+			// These are stored in ingestion_metadata so that the triage activity
+			// can use them for classification rules and pre-classify.
 			fromAddr := strings.TrimSpace(parsed.From)
 			fromName := ""
 			if idx := strings.Index(parsed.From, "<"); idx >= 0 {
@@ -155,18 +172,28 @@ func (s *GmailServer) SyncEmails(ctx context.Context, req *gmailv1.SyncEmailsReq
 				fromAddr = strings.TrimSuffix(strings.TrimSpace(parsed.From[idx+1:]), ">")
 			}
 			addParticipant(fromAddr)
-			for _, addr := range parsed.To {
-				if idx := strings.Index(addr, "<"); idx >= 0 {
-					addr = strings.TrimSuffix(strings.TrimSpace(addr[idx+1:]), ">")
+
+			// Build To/CC participant lists as JSON-compatible slices.
+			// These are stored in ingestion_metadata["to"] / ["cc"] so that
+			// parseParticipants (source.go) can populate ParticipantEmails for the workflow.
+			buildAddrList := func(addrs []string) []map[string]interface{} {
+				var list []map[string]interface{}
+				for _, addr := range addrs {
+					addrPart := addr
+					namePart := ""
+					if idx := strings.Index(addr, "<"); idx >= 0 {
+						namePart = strings.Trim(strings.TrimSpace(addr[:idx]), `"`)
+						addrPart = strings.TrimSuffix(strings.TrimSpace(addr[idx+1:]), ">")
+					}
+					if addrPart != "" {
+						list = append(list, map[string]interface{}{"name": namePart, "address": addrPart})
+						addParticipant(addrPart)
+					}
 				}
-				addParticipant(addr)
+				return list
 			}
-			for _, addr := range parsed.CC {
-				if idx := strings.Index(addr, "<"); idx >= 0 {
-					addr = strings.TrimSuffix(strings.TrimSpace(addr[idx+1:]), ">")
-				}
-				addParticipant(addr)
-			}
+			toList := buildAddrList(parsed.To)
+			ccList := buildAddrList(parsed.CC)
 
 			if s.sourceRepo == nil {
 				s.logger.Debug("source repo not configured, skipping ingest",
@@ -191,13 +218,20 @@ func (s *GmailServer) SyncEmails(ctx context.Context, req *gmailv1.SyncEmailsReq
 				return nil
 			}
 
-			// Build metadata
+			// Build metadata.
+			// Keys match what FetchSource (source.go) and parseParticipants expect:
+			//   from_address → SenderEmail
+			//   from_name    → SenderName
+			//   to / cc      → ParticipantEmails (JSON arrays of {name, address})
+			//   subject      → Subject
 			metadata := map[string]interface{}{
 				"subject":          parsed.Subject,
 				"from":             parsed.From,
 				"from_address":     fromAddr,
 				"sender_email":     fromAddr,
 				"from_name":        fromName,
+				"to":               toList,
+				"cc":               ccList,
 				"thread_id":        parsed.ThreadID,
 				"labels":           parsed.Labels,
 				"gmail_message_id": msg.ID,
@@ -240,34 +274,48 @@ func (s *GmailServer) SyncEmails(ctx context.Context, req *gmailv1.SyncEmailsReq
 				logging.F("tenant_id", tenantID),
 			)
 
-			// Start SLMPipelineWorkflow if Temporal client is configured
+			workflowID := pkgtemporal.GenerateIngestWorkflowID(tenantID, storage.SourceSystemGmail, msg.ID)
+
+			// Start SLMPipelineWorkflow if Temporal client is configured.
+			// On failure (or when temporal is unconfigured), record the source so the
+			// post-sync sweep can start it with a background context.
 			if s.temporalClient == nil {
-				s.logger.Debug("temporal client not configured, skipping workflow start",
+				s.logger.Debug("temporal client not configured, deferring workflow start to post-sync kick",
 					logging.F("source_id", createdSource.ID),
 				)
+				pendingStarts = append(pendingStarts, pendingWorkflowStart{
+					sourceID:    createdSource.ID,
+					contentID:   createdSource.ContentID,
+					contentHash: contentHash,
+					workflowID:  workflowID,
+				})
 				return nil
 			}
 
-			workflowID := pkgtemporal.GenerateIngestWorkflowID(tenantID, storage.SourceSystemGmail, msg.ID)
-			input := pkgtemporal.SLMPipelineInput{
+			wfInput := pkgtemporal.SLMPipelineInput{
 				TenantID:    tenantID,
 				SourceID:    createdSource.ID,
 				ContentID:   createdSource.ContentID,
 				ContentHash: contentHash,
 				JobID:       workflowID,
 			}
-			opts := temporalclient.StartWorkflowOptions{
+			wfOpts := temporalclient.StartWorkflowOptions{
 				ID:        workflowID,
 				TaskQueue: "penfold-main",
 			}
-			_, wfErr := s.temporalClient.ExecuteWorkflow(ctx, opts, "SLMPipelineWorkflow", input)
+			_, wfErr := s.temporalClient.ExecuteWorkflow(ctx, wfOpts, "SLMPipelineWorkflow", wfInput)
 			if wfErr != nil {
-				s.logger.Warn("failed to start SLMPipelineWorkflow",
+				s.logger.Warn("failed to start SLMPipelineWorkflow inline, deferring to post-sync kick",
 					logging.F("source_id", createdSource.ID),
 					logging.F("workflow_id", workflowID),
 					logging.Err(wfErr),
 				)
-				// Don't fail the message handler — source is created, workflow can be kicked via pipeline service
+				pendingStarts = append(pendingStarts, pendingWorkflowStart{
+					sourceID:    createdSource.ID,
+					contentID:   createdSource.ContentID,
+					contentHash: contentHash,
+					workflowID:  workflowID,
+				})
 			} else {
 				s.logger.Info("started SLMPipelineWorkflow",
 					logging.F("workflow_id", workflowID),
@@ -294,6 +342,50 @@ func (s *GmailServer) SyncEmails(ctx context.Context, req *gmailv1.SyncEmailsReq
 			logging.F("tenant_id", tenantID),
 		)
 		return nil, status.Errorf(codes.Internal, "sync failed: %v", err)
+	}
+
+	// Post-sync workflow kick: start any workflows that failed to start inline.
+	// Uses context.Background() so the starts succeed even if the gRPC request
+	// context is near expiry after a long sync run.
+	if s.temporalClient != nil && len(pendingStarts) > 0 {
+		s.logger.Info("starting deferred workflows for sources not started inline",
+			logging.F("count", len(pendingStarts)),
+			logging.F("tenant_id", tenantID),
+		)
+		kickCtx := context.Background()
+		startedCount := 0
+		for _, pw := range pendingStarts {
+			wfInput := pkgtemporal.SLMPipelineInput{
+				TenantID:    tenantID,
+				SourceID:    pw.sourceID,
+				ContentID:   pw.contentID,
+				ContentHash: pw.contentHash,
+				JobID:       pw.workflowID,
+			}
+			wfOpts := temporalclient.StartWorkflowOptions{
+				ID:        pw.workflowID,
+				TaskQueue: "penfold-main",
+			}
+			_, wfErr := s.temporalClient.ExecuteWorkflow(kickCtx, wfOpts, "SLMPipelineWorkflow", wfInput)
+			if wfErr != nil {
+				s.logger.Warn("post-sync workflow start failed",
+					logging.F("source_id", pw.sourceID),
+					logging.F("workflow_id", pw.workflowID),
+					logging.Err(wfErr),
+				)
+			} else {
+				startedCount++
+				s.logger.Info("post-sync workflow started",
+					logging.F("source_id", pw.sourceID),
+					logging.F("workflow_id", pw.workflowID),
+				)
+			}
+		}
+		s.logger.Info("post-sync workflow kick complete",
+			logging.F("started", startedCount),
+			logging.F("deferred_total", len(pendingStarts)),
+			logging.F("tenant_id", tenantID),
+		)
 	}
 
 	syncState := gmailv1.SyncState_SYNC_STATE_COMPLETED
