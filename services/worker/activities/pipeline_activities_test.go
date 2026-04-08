@@ -169,6 +169,27 @@ func (m *mockPipelineClient) GetOperationalConfig(ctx context.Context, in *pipel
 func (m *mockPipelineClient) SetOperationalConfig(ctx context.Context, in *pipelinev1.SetOperationalConfigRequest, opts ...grpc.CallOption) (*pipelinev1.SetOperationalConfigResponse, error) {
 	return nil, nil
 }
+func (m *mockPipelineClient) CreateTenantContext(ctx context.Context, in *pipelinev1.CreateTenantContextRequest, opts ...grpc.CallOption) (*pipelinev1.CreateTenantContextResponse, error) {
+	return nil, nil
+}
+func (m *mockPipelineClient) ListTenantContext(ctx context.Context, in *pipelinev1.ListTenantContextRequest, opts ...grpc.CallOption) (*pipelinev1.ListTenantContextResponse, error) {
+	return nil, nil
+}
+func (m *mockPipelineClient) GetTenantContext(ctx context.Context, in *pipelinev1.GetTenantContextRequest, opts ...grpc.CallOption) (*pipelinev1.GetTenantContextResponse, error) {
+	return nil, nil
+}
+func (m *mockPipelineClient) DeleteTenantContext(ctx context.Context, in *pipelinev1.DeleteTenantContextRequest, opts ...grpc.CallOption) (*pipelinev1.DeleteTenantContextResponse, error) {
+	return nil, nil
+}
+func (m *mockPipelineClient) AddTenantContextCondition(ctx context.Context, in *pipelinev1.AddTenantContextConditionRequest, opts ...grpc.CallOption) (*pipelinev1.AddTenantContextConditionResponse, error) {
+	return nil, nil
+}
+func (m *mockPipelineClient) RemoveTenantContextCondition(ctx context.Context, in *pipelinev1.RemoveTenantContextConditionRequest, opts ...grpc.CallOption) (*pipelinev1.RemoveTenantContextConditionResponse, error) {
+	return nil, nil
+}
+func (m *mockPipelineClient) SuggestTenantContextTriggers(ctx context.Context, in *pipelinev1.SuggestTenantContextTriggersRequest, opts ...grpc.CallOption) (*pipelinev1.SuggestTenantContextTriggersResponse, error) {
+	return nil, nil
+}
 
 // Compile-time check that mockPipelineClient satisfies the interface.
 var _ pipelinev1.PipelineServiceClient = (*mockPipelineClient)(nil)

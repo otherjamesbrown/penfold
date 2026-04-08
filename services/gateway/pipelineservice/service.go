@@ -17,7 +17,9 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	aiv1 "github.com/otherjamesbrown/penfold/api/proto/aiv1"
 	pipelinev1 "github.com/otherjamesbrown/penfold/api/proto/pipeline/v1"
+	"github.com/otherjamesbrown/penfold/pkg/ai"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/routing"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/pipeline"
@@ -32,6 +34,12 @@ type Service struct {
 	temporalClient client.Client
 	db             *sql.DB
 	namespace      string
+	aiClient       *ai.Client
+}
+
+// SetAIClient sets the AI coordinator client for LLM-assisted operations.
+func (s *Service) SetAIClient(c *ai.Client) {
+	s.aiClient = c
 }
 
 // NewService creates a new pipeline service.
@@ -2879,5 +2887,98 @@ func (s *Service) TestPipelineRoute(ctx context.Context, req *pipelinev1.TestPip
 		ContentType:    contentType,
 		ContentSubtype: contentSubtype,
 		MatchedRoutes:  matchedRoutes,
+	}, nil
+}
+
+// suggestedCondition is the JSON shape returned by the LLM for trigger suggestions.
+type suggestedCondition struct {
+	Field     string `json:"field"`
+	MatchType string `json:"match_type"`
+	Value     string `json:"value"`
+}
+
+// SuggestTenantContextTriggers uses an LLM to suggest trigger conditions for a context entry.
+func (s *Service) SuggestTenantContextTriggers(ctx context.Context, req *pipelinev1.SuggestTenantContextTriggersRequest) (*pipelinev1.SuggestTenantContextTriggersResponse, error) {
+	s.logger.Debug("SuggestTenantContextTriggers called",
+		logging.F("category", req.Category),
+		logging.F("label", req.Label),
+	)
+
+	empty := &pipelinev1.SuggestTenantContextTriggersResponse{}
+
+	if s.aiClient == nil {
+		s.logger.Warn("SuggestTenantContextTriggers: AI service not configured, returning empty suggestions")
+		return empty, nil
+	}
+
+	// Load the prompt template for trigger suggestion.
+	promptTemplate, err := s.repo.GetPromptByStage(ctx, "context_trigger_suggest", 0)
+	if err != nil {
+		s.logger.Warn("SuggestTenantContextTriggers: prompt template not found, returning empty suggestions",
+			logging.Err(err),
+		)
+		return empty, nil
+	}
+
+	// Interpolate {category}, {label}, {details} into the template.
+	details := req.DetailsJson
+	if details == "" {
+		details = "{}"
+	}
+	prompt := strings.ReplaceAll(promptTemplate.Content, "{category}", req.Category)
+	prompt = strings.ReplaceAll(prompt, "{label}", req.Label)
+	prompt = strings.ReplaceAll(prompt, "{details}", details)
+
+	// Call the AI coordinator using the same pattern as other LLM calls in the gateway.
+	maxLen := int32(1000)
+	summaryResp, err := s.aiClient.GenerateSummary(ctx, &aiv1.SummaryRequest{
+		Content:   prompt,
+		MaxLength: &maxLen,
+		Style:     aiv1.SummaryStyle_SUMMARY_STYLE_DETAILED,
+	})
+	if err != nil {
+		s.logger.Warn("SuggestTenantContextTriggers: AI call failed, returning empty suggestions",
+			logging.Err(err),
+		)
+		return empty, nil
+	}
+
+	// Extract JSON from the response — it may be wrapped in markdown code fences.
+	raw := summaryResp.GetSummary()
+	if idx := strings.Index(raw, "["); idx >= 0 {
+		raw = raw[idx:]
+	}
+	if idx := strings.LastIndex(raw, "]"); idx >= 0 {
+		raw = raw[:idx+1]
+	}
+
+	// Parse the LLM response as a JSON array. If parsing fails, return empty (best-effort).
+	var conditions []suggestedCondition
+	if err := json.Unmarshal([]byte(raw), &conditions); err != nil {
+		s.logger.Warn("SuggestTenantContextTriggers: failed to parse LLM response as JSON, returning empty suggestions",
+			logging.F("raw", raw),
+			logging.Err(err),
+		)
+		return empty, nil
+	}
+
+	suggestions := make([]*pipelinev1.TenantContextCondition, 0, len(conditions))
+	for _, c := range conditions {
+		if c.Field == "" || c.MatchType == "" || c.Value == "" {
+			continue
+		}
+		suggestions = append(suggestions, &pipelinev1.TenantContextCondition{
+			Field:     c.Field,
+			MatchType: c.MatchType,
+			Value:     c.Value,
+		})
+	}
+
+	s.logger.Debug("SuggestTenantContextTriggers completed",
+		logging.F("suggestion_count", len(suggestions)),
+	)
+
+	return &pipelinev1.SuggestTenantContextTriggersResponse{
+		Suggestions: suggestions,
 	}, nil
 }
