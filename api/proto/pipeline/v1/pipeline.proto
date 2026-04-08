@@ -130,6 +130,15 @@ service PipelineService {
   // TestClassificationRule runs the classification engine against a content item.
   rpc TestClassificationRule(TestClassificationRuleRequest) returns (TestClassificationRuleResponse);
 
+  // CreateClassificationRule creates a new classification rule with conditions.
+  rpc CreateClassificationRule(CreateClassificationRuleRequest) returns (CreateClassificationRuleResponse);
+
+  // DeleteClassificationRule deletes a classification rule by name.
+  rpc DeleteClassificationRule(DeleteClassificationRuleRequest) returns (DeleteClassificationRuleResponse);
+
+  // CopyClassificationRules copies all rules from one tenant to another.
+  rpc CopyClassificationRules(CopyClassificationRulesRequest) returns (CopyClassificationRulesResponse);
+
   // ListPipelineRoutes lists all pipeline routing rules.
   rpc ListPipelineRoutes(ListPipelineRoutesRequest) returns (ListPipelineRoutesResponse);
 
@@ -1473,6 +1482,66 @@ message TestClassificationRuleResponse {
 
   // Description of which condition matched.
   string matched_condition = 6;
+}
+
+// CreateClassificationRuleRequest creates a new classification rule.
+message CreateClassificationRuleRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Rule name (must be unique per tenant).
+  string name = 2;
+
+  // Priority (lower = higher priority, evaluated first).
+  int32 priority = 3;
+
+  // Scope of content this rule applies to (e.g., "EMAIL"). Empty means any.
+  string scope = 4;
+
+  // Resulting content type when rule matches (e.g., "EMAIL").
+  string content_type = 5;
+
+  // Resulting content subtype when rule matches (e.g., "NEWSLETTER").
+  string content_subtype = 6;
+
+  // Resulting notification source when rule matches.
+  string notification_source = 7;
+
+  // Match conditions (OR logic: any match triggers the rule).
+  repeated ClassificationMatchCondition conditions = 8;
+}
+
+// CreateClassificationRuleResponse returns the created rule.
+message CreateClassificationRuleResponse {
+  // The created classification rule.
+  ClassificationRule rule = 1;
+}
+
+// DeleteClassificationRuleRequest deletes a rule by name.
+message DeleteClassificationRuleRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Rule name to delete.
+  string name = 2;
+}
+
+// DeleteClassificationRuleResponse confirms deletion.
+message DeleteClassificationRuleResponse {}
+
+// CopyClassificationRulesRequest copies rules from one tenant to another.
+message CopyClassificationRulesRequest {
+  // Source tenant ID to copy from.
+  string from_tenant_id = 1;
+
+  // Destination tenant ID to copy into.
+  string to_tenant_id = 2;
+}
+
+// CopyClassificationRulesResponse reports how many rules were copied.
+message CopyClassificationRulesResponse {
+  // Number of rules copied.
+  int32 copied = 1;
 }
 
 // =============================================================================

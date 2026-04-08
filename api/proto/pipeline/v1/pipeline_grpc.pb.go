@@ -60,6 +60,9 @@ const (
 	PipelineService_ListClassificationRules_FullMethodName   = "/penfold.pipeline.v1.PipelineService/ListClassificationRules"
 	PipelineService_GetClassificationRule_FullMethodName     = "/penfold.pipeline.v1.PipelineService/GetClassificationRule"
 	PipelineService_TestClassificationRule_FullMethodName    = "/penfold.pipeline.v1.PipelineService/TestClassificationRule"
+	PipelineService_CreateClassificationRule_FullMethodName  = "/penfold.pipeline.v1.PipelineService/CreateClassificationRule"
+	PipelineService_DeleteClassificationRule_FullMethodName  = "/penfold.pipeline.v1.PipelineService/DeleteClassificationRule"
+	PipelineService_CopyClassificationRules_FullMethodName   = "/penfold.pipeline.v1.PipelineService/CopyClassificationRules"
 	PipelineService_ListPipelineRoutes_FullMethodName        = "/penfold.pipeline.v1.PipelineService/ListPipelineRoutes"
 	PipelineService_TestPipelineRoute_FullMethodName         = "/penfold.pipeline.v1.PipelineService/TestPipelineRoute"
 	PipelineService_ListPipelineDefinitions_FullMethodName   = "/penfold.pipeline.v1.PipelineService/ListPipelineDefinitions"
@@ -153,6 +156,12 @@ type PipelineServiceClient interface {
 	GetClassificationRule(ctx context.Context, in *GetClassificationRuleRequest, opts ...grpc.CallOption) (*GetClassificationRuleResponse, error)
 	// TestClassificationRule runs the classification engine against a content item.
 	TestClassificationRule(ctx context.Context, in *TestClassificationRuleRequest, opts ...grpc.CallOption) (*TestClassificationRuleResponse, error)
+	// CreateClassificationRule creates a new classification rule with conditions.
+	CreateClassificationRule(ctx context.Context, in *CreateClassificationRuleRequest, opts ...grpc.CallOption) (*CreateClassificationRuleResponse, error)
+	// DeleteClassificationRule deletes a classification rule by name.
+	DeleteClassificationRule(ctx context.Context, in *DeleteClassificationRuleRequest, opts ...grpc.CallOption) (*DeleteClassificationRuleResponse, error)
+	// CopyClassificationRules copies all rules from one tenant to another.
+	CopyClassificationRules(ctx context.Context, in *CopyClassificationRulesRequest, opts ...grpc.CallOption) (*CopyClassificationRulesResponse, error)
 	// ListPipelineRoutes lists all pipeline routing rules.
 	ListPipelineRoutes(ctx context.Context, in *ListPipelineRoutesRequest, opts ...grpc.CallOption) (*ListPipelineRoutesResponse, error)
 	// TestPipelineRoute shows which pipeline(s) a content item would enter.
@@ -559,6 +568,36 @@ func (c *pipelineServiceClient) TestClassificationRule(ctx context.Context, in *
 	return out, nil
 }
 
+func (c *pipelineServiceClient) CreateClassificationRule(ctx context.Context, in *CreateClassificationRuleRequest, opts ...grpc.CallOption) (*CreateClassificationRuleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateClassificationRuleResponse)
+	err := c.cc.Invoke(ctx, PipelineService_CreateClassificationRule_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pipelineServiceClient) DeleteClassificationRule(ctx context.Context, in *DeleteClassificationRuleRequest, opts ...grpc.CallOption) (*DeleteClassificationRuleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteClassificationRuleResponse)
+	err := c.cc.Invoke(ctx, PipelineService_DeleteClassificationRule_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pipelineServiceClient) CopyClassificationRules(ctx context.Context, in *CopyClassificationRulesRequest, opts ...grpc.CallOption) (*CopyClassificationRulesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CopyClassificationRulesResponse)
+	err := c.cc.Invoke(ctx, PipelineService_CopyClassificationRules_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *pipelineServiceClient) ListPipelineRoutes(ctx context.Context, in *ListPipelineRoutesRequest, opts ...grpc.CallOption) (*ListPipelineRoutesResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListPipelineRoutesResponse)
@@ -722,6 +761,12 @@ type PipelineServiceServer interface {
 	GetClassificationRule(context.Context, *GetClassificationRuleRequest) (*GetClassificationRuleResponse, error)
 	// TestClassificationRule runs the classification engine against a content item.
 	TestClassificationRule(context.Context, *TestClassificationRuleRequest) (*TestClassificationRuleResponse, error)
+	// CreateClassificationRule creates a new classification rule with conditions.
+	CreateClassificationRule(context.Context, *CreateClassificationRuleRequest) (*CreateClassificationRuleResponse, error)
+	// DeleteClassificationRule deletes a classification rule by name.
+	DeleteClassificationRule(context.Context, *DeleteClassificationRuleRequest) (*DeleteClassificationRuleResponse, error)
+	// CopyClassificationRules copies all rules from one tenant to another.
+	CopyClassificationRules(context.Context, *CopyClassificationRulesRequest) (*CopyClassificationRulesResponse, error)
 	// ListPipelineRoutes lists all pipeline routing rules.
 	ListPipelineRoutes(context.Context, *ListPipelineRoutesRequest) (*ListPipelineRoutesResponse, error)
 	// TestPipelineRoute shows which pipeline(s) a content item would enter.
@@ -861,6 +906,15 @@ func (UnimplementedPipelineServiceServer) GetClassificationRule(context.Context,
 }
 func (UnimplementedPipelineServiceServer) TestClassificationRule(context.Context, *TestClassificationRuleRequest) (*TestClassificationRuleResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method TestClassificationRule not implemented")
+}
+func (UnimplementedPipelineServiceServer) CreateClassificationRule(context.Context, *CreateClassificationRuleRequest) (*CreateClassificationRuleResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateClassificationRule not implemented")
+}
+func (UnimplementedPipelineServiceServer) DeleteClassificationRule(context.Context, *DeleteClassificationRuleRequest) (*DeleteClassificationRuleResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteClassificationRule not implemented")
+}
+func (UnimplementedPipelineServiceServer) CopyClassificationRules(context.Context, *CopyClassificationRulesRequest) (*CopyClassificationRulesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CopyClassificationRules not implemented")
 }
 func (UnimplementedPipelineServiceServer) ListPipelineRoutes(context.Context, *ListPipelineRoutesRequest) (*ListPipelineRoutesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListPipelineRoutes not implemented")
@@ -1591,6 +1645,60 @@ func _PipelineService_TestClassificationRule_Handler(srv interface{}, ctx contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PipelineService_CreateClassificationRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateClassificationRuleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).CreateClassificationRule(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_CreateClassificationRule_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).CreateClassificationRule(ctx, req.(*CreateClassificationRuleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PipelineService_DeleteClassificationRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteClassificationRuleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).DeleteClassificationRule(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_DeleteClassificationRule_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).DeleteClassificationRule(ctx, req.(*DeleteClassificationRuleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PipelineService_CopyClassificationRules_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CopyClassificationRulesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PipelineServiceServer).CopyClassificationRules(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PipelineService_CopyClassificationRules_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PipelineServiceServer).CopyClassificationRules(ctx, req.(*CopyClassificationRulesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _PipelineService_ListPipelineRoutes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListPipelineRoutesRequest)
 	if err := dec(in); err != nil {
@@ -1893,6 +2001,18 @@ var PipelineService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "TestClassificationRule",
 			Handler:    _PipelineService_TestClassificationRule_Handler,
+		},
+		{
+			MethodName: "CreateClassificationRule",
+			Handler:    _PipelineService_CreateClassificationRule_Handler,
+		},
+		{
+			MethodName: "DeleteClassificationRule",
+			Handler:    _PipelineService_DeleteClassificationRule_Handler,
+		},
+		{
+			MethodName: "CopyClassificationRules",
+			Handler:    _PipelineService_CopyClassificationRules_Handler,
 		},
 		{
 			MethodName: "ListPipelineRoutes",

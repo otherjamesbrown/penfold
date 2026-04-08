@@ -2624,6 +2624,273 @@ func (s *Service) defaultTenantID(ctx context.Context) string {
 }
 
 // =============================================================================
+// Classification Rules CRUD RPCs
+// =============================================================================
+
+// CreateClassificationRule creates a new classification rule with conditions.
+func (s *Service) CreateClassificationRule(ctx context.Context, req *pipelinev1.CreateClassificationRuleRequest) (*pipelinev1.CreateClassificationRuleResponse, error) {
+	s.logger.Debug("CreateClassificationRule called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("name", req.Name),
+	)
+
+	if req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+	if req.ContentType == "" {
+		return nil, status.Error(codes.InvalidArgument, "content_type is required")
+	}
+	if req.ContentSubtype == "" {
+		return nil, status.Error(codes.InvalidArgument, "content_subtype is required")
+	}
+	if len(req.Conditions) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "at least one condition is required")
+	}
+
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "database not available")
+	}
+
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = s.defaultTenantID(ctx)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to begin transaction: %v", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	// Insert the rule.
+	var ruleID int
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO classification_rules
+			(tenant_id, name, priority, content_type_scope, content_type, content_subtype, notification_source, active)
+		VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, NULLIF($7, ''), true)
+		RETURNING id
+	`, tenantID, req.Name, req.Priority, req.Scope, req.ContentType, req.ContentSubtype, req.NotificationSource).Scan(&ruleID)
+	if err != nil {
+		if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique") {
+			return nil, status.Errorf(codes.AlreadyExists, "classification rule %q already exists", req.Name)
+		}
+		return nil, status.Errorf(codes.Internal, "failed to insert classification rule: %v", err)
+	}
+
+	// Insert conditions.
+	for _, cond := range req.Conditions {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO classification_match_conditions (rule_id, field, match_type, value, case_sensitive)
+			VALUES ($1, $2, $3, $4, false)
+		`, ruleID, cond.Field, cond.Operator, cond.Value); err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to insert condition: %v", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to commit transaction: %v", err)
+	}
+
+	s.logger.Info("Classification rule created",
+		logging.F("tenant_id", tenantID),
+		logging.F("name", req.Name),
+		logging.F("rule_id", ruleID),
+	)
+
+	// Return the created rule.
+	rules, err := s.queryClassificationRules(ctx, tenantID, req.Name)
+	if err != nil || len(rules) == 0 {
+		// Fallback: return what we know from the request.
+		return &pipelinev1.CreateClassificationRuleResponse{
+			Rule: &pipelinev1.ClassificationRule{
+				Name:               req.Name,
+				Priority:           req.Priority,
+				Scope:              req.Scope,
+				ContentType:        req.ContentType,
+				ContentSubtype:     req.ContentSubtype,
+				NotificationSource: req.NotificationSource,
+				Active:             true,
+				Conditions:         req.Conditions,
+			},
+		}, nil
+	}
+
+	return &pipelinev1.CreateClassificationRuleResponse{Rule: rules[0]}, nil
+}
+
+// DeleteClassificationRule deletes a classification rule and its conditions.
+func (s *Service) DeleteClassificationRule(ctx context.Context, req *pipelinev1.DeleteClassificationRuleRequest) (*pipelinev1.DeleteClassificationRuleResponse, error) {
+	s.logger.Debug("DeleteClassificationRule called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("name", req.Name),
+	)
+
+	if req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "name is required")
+	}
+
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "database not available")
+	}
+
+	tenantID := req.TenantId
+	if tenantID == "" {
+		tenantID = s.defaultTenantID(ctx)
+	}
+
+	result, err := s.db.ExecContext(ctx, `
+		DELETE FROM classification_rules WHERE tenant_id = $1 AND name = $2
+	`, tenantID, req.Name)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to delete classification rule: %v", err)
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return nil, status.Errorf(codes.NotFound, "classification rule %q not found", req.Name)
+	}
+
+	s.logger.Info("Classification rule deleted",
+		logging.F("tenant_id", tenantID),
+		logging.F("name", req.Name),
+	)
+
+	return &pipelinev1.DeleteClassificationRuleResponse{}, nil
+}
+
+// CopyClassificationRules copies all rules from one tenant to another.
+func (s *Service) CopyClassificationRules(ctx context.Context, req *pipelinev1.CopyClassificationRulesRequest) (*pipelinev1.CopyClassificationRulesResponse, error) {
+	s.logger.Debug("CopyClassificationRules called",
+		logging.F("from_tenant_id", req.FromTenantId),
+		logging.F("to_tenant_id", req.ToTenantId),
+	)
+
+	if req.FromTenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "from_tenant_id is required")
+	}
+	if req.ToTenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "to_tenant_id is required")
+	}
+	if req.FromTenantId == req.ToTenantId {
+		return nil, status.Error(codes.InvalidArgument, "from_tenant_id and to_tenant_id must be different")
+	}
+
+	if s.db == nil {
+		return nil, status.Error(codes.Unavailable, "database not available")
+	}
+
+	// Load all rules + conditions from source tenant (including inactive).
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT
+			cr.name, cr.priority,
+			COALESCE(cr.content_type_scope, ''),
+			cr.content_type, cr.content_subtype,
+			COALESCE(cr.notification_source, ''),
+			cr.active,
+			cmc.field, cmc.match_type, cmc.value
+		FROM classification_rules cr
+		LEFT JOIN classification_match_conditions cmc ON cmc.rule_id = cr.id
+		WHERE cr.tenant_id = $1
+		ORDER BY cr.priority ASC, cr.id ASC, cmc.id ASC
+	`, req.FromTenantId)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to load source rules: %v", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	type condRow struct{ field, matchType, value string }
+	type ruleRow struct {
+		name, scope, ct, cst, ns string
+		priority                  int32
+		active                    bool
+		conditions                []condRow
+	}
+	var srcRules []ruleRow
+	ruleIndex := map[string]int{}
+
+	for rows.Next() {
+		var (
+			name, scope, ct, cst, ns     string
+			priority                      int32
+			active                        bool
+			condField, condOp, condV      sql.NullString
+		)
+		if err := rows.Scan(&name, &priority, &scope, &ct, &cst, &ns, &active, &condField, &condOp, &condV); err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to scan source rule: %v", err)
+		}
+
+		idx, exists := ruleIndex[name]
+		if !exists {
+			srcRules = append(srcRules, ruleRow{
+				name: name, priority: priority, scope: scope,
+				ct: ct, cst: cst, ns: ns, active: active,
+			})
+			idx = len(srcRules) - 1
+			ruleIndex[name] = idx
+		}
+		if condField.Valid {
+			srcRules[idx].conditions = append(srcRules[idx].conditions, condRow{
+				field: condField.String, matchType: condOp.String, value: condV.String,
+			})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to iterate source rules: %v", err)
+	}
+
+	if len(srcRules) == 0 {
+		return &pipelinev1.CopyClassificationRulesResponse{Copied: 0}, nil
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to begin transaction: %v", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	copied := int32(0)
+	for _, rule := range srcRules {
+		var ruleID int
+		err := tx.QueryRowContext(ctx, `
+			INSERT INTO classification_rules
+				(tenant_id, name, priority, content_type_scope, content_type, content_subtype, notification_source, active)
+			VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, NULLIF($7, ''), $8)
+			ON CONFLICT DO NOTHING
+			RETURNING id
+		`, req.ToTenantId, rule.name, rule.priority, rule.scope, rule.ct, rule.cst, rule.ns, rule.active).Scan(&ruleID)
+		if err == sql.ErrNoRows {
+			// Rule already exists in destination — skip.
+			continue
+		}
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to copy rule %q: %v", rule.name, err)
+		}
+
+		for _, cond := range rule.conditions {
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO classification_match_conditions (rule_id, field, match_type, value, case_sensitive)
+				VALUES ($1, $2, $3, $4, false)
+			`, ruleID, cond.field, cond.matchType, cond.value); err != nil {
+				return nil, status.Errorf(codes.Internal, "failed to copy condition for rule %q: %v", rule.name, err)
+			}
+		}
+		copied++
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to commit transaction: %v", err)
+	}
+
+	s.logger.Info("Classification rules copied",
+		logging.F("from_tenant_id", req.FromTenantId),
+		logging.F("to_tenant_id", req.ToTenantId),
+		logging.F("copied", copied),
+	)
+
+	return &pipelinev1.CopyClassificationRulesResponse{Copied: copied}, nil
+}
+
+// =============================================================================
 // Pipeline Routing RPCs
 // =============================================================================
 

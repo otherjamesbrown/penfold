@@ -157,6 +157,15 @@ func (m *mockPipelineClient) AuditPipelineCompleteness(ctx context.Context, in *
 func (m *mockPipelineClient) ComparePipelineRuns(ctx context.Context, in *pipelinev1.ComparePipelineRunsRequest, opts ...grpc.CallOption) (*pipelinev1.ComparePipelineRunsResponse, error) {
 	return nil, nil
 }
+func (m *mockPipelineClient) CreateClassificationRule(ctx context.Context, in *pipelinev1.CreateClassificationRuleRequest, opts ...grpc.CallOption) (*pipelinev1.CreateClassificationRuleResponse, error) {
+	return nil, nil
+}
+func (m *mockPipelineClient) DeleteClassificationRule(ctx context.Context, in *pipelinev1.DeleteClassificationRuleRequest, opts ...grpc.CallOption) (*pipelinev1.DeleteClassificationRuleResponse, error) {
+	return nil, nil
+}
+func (m *mockPipelineClient) CopyClassificationRules(ctx context.Context, in *pipelinev1.CopyClassificationRulesRequest, opts ...grpc.CallOption) (*pipelinev1.CopyClassificationRulesResponse, error) {
+	return nil, nil
+}
 func (m *mockPipelineClient) GetOperationalConfig(ctx context.Context, in *pipelinev1.GetOperationalConfigRequest, opts ...grpc.CallOption) (*pipelinev1.GetOperationalConfigResponse, error) {
 	return nil, nil
 }
