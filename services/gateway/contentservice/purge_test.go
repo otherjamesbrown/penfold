@@ -93,6 +93,10 @@ func (m *mockPurgeRepository) ClearErrorByContentID(ctx context.Context, content
 	return nil
 }
 
+func (m *mockPurgeRepository) ResolveProject(ctx context.Context, tenantID, identifier string) (int64, error) {
+	return 0, nil
+}
+
 // TestPurgeContentItem_RequiresConfirm verifies handler requires confirm=true.
 func TestPurgeContentItem_RequiresConfirm(t *testing.T) {
 	// This test verifies validation at compile time and runtime behavior

@@ -125,6 +125,11 @@ func (m *MockRepository) ListUnattributedContent(ctx context.Context, tenantID s
 	return args.Get(0).([]*UnattributedContentRecord), args.Get(1).(int64), args.Error(2)
 }
 
+func (m *MockRepository) ResolveProject(ctx context.Context, tenantID, identifier string) (int64, error) {
+	args := m.Called(ctx, tenantID, identifier)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 // newTestService creates a service with mock dependencies for testing.
 func newTestService(repo Repository) *Service {
 	logger := logging.NewLogger(nil)

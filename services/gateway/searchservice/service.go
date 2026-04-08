@@ -990,11 +990,12 @@ type resolvedFilter struct {
 	sources      []string
 	excludeIDs   []string
 	entityRoles  []resolvedEntityRole
-	impossible   bool // true if a filter can't match anything (e.g. entity not found)
+	projectID    *int64 // nil = no project filter
+	impossible   bool   // true if a filter can't match anything (e.g. entity not found)
 }
 
 // resolveFilters resolves FilterOptions into a resolvedFilter, performing entity
-// lookups for email/name-based EntityRoleFilters.
+// lookups for email/name-based EntityRoleFilters and project name-to-ID resolution.
 func (s *Service) resolveFilters(ctx context.Context, tenantID string, filters *searchv1.FilterOptions) (*resolvedFilter, error) {
 	if filters == nil {
 		return &resolvedFilter{}, nil
@@ -1035,7 +1036,43 @@ func (s *Service) resolveFilters(ctx context.Context, tenantID string, filters *
 		})
 	}
 
+	if filters.ProjectFilter != nil && *filters.ProjectFilter != "" {
+		projectID, err := s.resolveProject(ctx, tenantID, *filters.ProjectFilter)
+		if err != nil {
+			return nil, err
+		}
+		if projectID == 0 {
+			// Project not found — this filter can never match
+			rf.impossible = true
+			return rf, nil
+		}
+		rf.projectID = &projectID
+	}
+
 	return rf, nil
+}
+
+// resolveProject resolves a project identifier (name or numeric ID) to a project ID.
+// Returns 0 if the project is not found.
+func (s *Service) resolveProject(ctx context.Context, tenantID, identifier string) (int64, error) {
+	// Try as numeric ID first.
+	if id, err := strconv.ParseInt(identifier, 10, 64); err == nil {
+		var exists bool
+		err = s.db.QueryRow(ctx, "SELECT true FROM projects WHERE id = $1", id).Scan(&exists)
+		if err == nil && exists {
+			return id, nil
+		}
+	}
+	// Try by name (case-insensitive).
+	var id int64
+	err := s.db.QueryRow(ctx,
+		"SELECT id FROM projects WHERE tenant_id = $1 AND LOWER(name) = LOWER($2) LIMIT 1",
+		tenantID, identifier,
+	).Scan(&id)
+	if err != nil {
+		return 0, nil // not found
+	}
+	return id, nil
 }
 
 // resolveFilterEntity resolves an EntityRoleFilter's entity identifier to a database ID.
@@ -1104,6 +1141,10 @@ func (rf *resolvedFilter) buildSQL(tenantID string, nextParam int) (string, []in
 	}
 	if len(rf.excludeIDs) > 0 {
 		clauses = append(clauses, fmt.Sprintf("s.content_id != ALL(%s)", param(rf.excludeIDs)))
+	}
+
+	if rf.projectID != nil {
+		clauses = append(clauses, fmt.Sprintf("%s = ANY(s.attributed_project_ids)", param(*rf.projectID)))
 	}
 
 	for _, er := range rf.entityRoles {
