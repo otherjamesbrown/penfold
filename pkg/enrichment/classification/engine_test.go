@@ -998,9 +998,9 @@ func TestMatchCondition_AllMatchTypes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := matchCondition(tt.cond, tt.input)
+			got := EvalCondition(tt.cond, tt.input)
 			if got != tt.wantMatch {
-				t.Errorf("matchCondition(%v, %q) = %v, want %v", tt.cond, tt.input, got, tt.wantMatch)
+				t.Errorf("EvalCondition(%v, %q) = %v, want %v", tt.cond, tt.input, got, tt.wantMatch)
 			}
 		})
 	}
