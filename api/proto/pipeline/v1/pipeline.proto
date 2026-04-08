@@ -130,6 +130,12 @@ service PipelineService {
   // TestClassificationRule runs the classification engine against a content item.
   rpc TestClassificationRule(TestClassificationRuleRequest) returns (TestClassificationRuleResponse);
 
+  // CreateClassificationRule creates a new classification rule with conditions.
+  rpc CreateClassificationRule(CreateClassificationRuleRequest) returns (CreateClassificationRuleResponse);
+
+  // DeleteClassificationRule deletes a classification rule by name.
+  rpc DeleteClassificationRule(DeleteClassificationRuleRequest) returns (DeleteClassificationRuleResponse);
+
   // ListPipelineRoutes lists all pipeline routing rules.
   rpc ListPipelineRoutes(ListPipelineRoutesRequest) returns (ListPipelineRoutesResponse);
 
@@ -1473,6 +1479,57 @@ message TestClassificationRuleResponse {
 
   // Description of which condition matched.
   string matched_condition = 6;
+}
+
+// CreateClassificationRuleRequest creates a new classification rule.
+message CreateClassificationRuleRequest {
+  // Tenant ID (uses default if empty).
+  string tenant_id = 1;
+
+  // Rule name (must be unique within tenant).
+  string name = 2;
+
+  // Priority (lower = higher priority, evaluated first).
+  int32 priority = 3;
+
+  // Content type scope for matching.
+  string content_type_scope = 4;
+
+  // Content type to assign on match.
+  string content_type = 5;
+
+  // Content subtype to assign on match.
+  string content_subtype = 6;
+
+  // Notification source to assign on match.
+  string notification_source = 7;
+
+  // Match conditions (OR logic: any match triggers the rule).
+  repeated ClassificationMatchCondition conditions = 8;
+
+  // Whether this rule is active.
+  bool active = 9;
+}
+
+// CreateClassificationRuleResponse contains the created rule.
+message CreateClassificationRuleResponse {
+  // The created classification rule.
+  ClassificationRule rule = 1;
+}
+
+// DeleteClassificationRuleRequest deletes a rule by name.
+message DeleteClassificationRuleRequest {
+  // Tenant ID (uses default if empty).
+  string tenant_id = 1;
+
+  // Rule name to delete.
+  string name = 2;
+}
+
+// DeleteClassificationRuleResponse confirms deletion.
+message DeleteClassificationRuleResponse {
+  // Number of rules deleted.
+  int32 deleted_count = 1;
 }
 
 // =============================================================================

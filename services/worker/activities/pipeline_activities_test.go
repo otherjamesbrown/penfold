@@ -133,6 +133,12 @@ func (m *mockPipelineClient) GetClassificationRule(ctx context.Context, in *pipe
 func (m *mockPipelineClient) TestClassificationRule(ctx context.Context, in *pipelinev1.TestClassificationRuleRequest, opts ...grpc.CallOption) (*pipelinev1.TestClassificationRuleResponse, error) {
 	return nil, nil
 }
+func (m *mockPipelineClient) CreateClassificationRule(ctx context.Context, in *pipelinev1.CreateClassificationRuleRequest, opts ...grpc.CallOption) (*pipelinev1.CreateClassificationRuleResponse, error) {
+	return nil, nil
+}
+func (m *mockPipelineClient) DeleteClassificationRule(ctx context.Context, in *pipelinev1.DeleteClassificationRuleRequest, opts ...grpc.CallOption) (*pipelinev1.DeleteClassificationRuleResponse, error) {
+	return nil, nil
+}
 func (m *mockPipelineClient) ListPipelineRoutes(ctx context.Context, in *pipelinev1.ListPipelineRoutesRequest, opts ...grpc.CallOption) (*pipelinev1.ListPipelineRoutesResponse, error) {
 	return nil, nil
 }
