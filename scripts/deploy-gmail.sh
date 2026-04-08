@@ -58,6 +58,30 @@ deploy_config() {
     log_success "Systemd unit deployed"
 }
 
+ensure_gateway_env() {
+    local env_file="/etc/penfold/gateway.env"
+    local key="GMAIL_BACKEND_ADDRESS"
+    local value="localhost:50053"
+
+    log_info "Checking gateway env for ${key}..."
+
+    if ssh "$GMAIL_HOST" "grep -q '^${key}=' '${env_file}'" 2>/dev/null; then
+        log_success "${key} already present in ${env_file}"
+        return 0
+    fi
+
+    log_info "Adding ${key}=${value} to ${env_file}..."
+    ssh "$GMAIL_HOST" "echo '${key}=${value}' | sudo tee -a '${env_file}' > /dev/null"
+    log_success "Added ${key}=${value} to ${env_file}"
+
+    log_info "Restarting gateway to pick up new env var..."
+    if systemd_restart "$GMAIL_HOST" "penfold-gateway" 30; then
+        log_success "Gateway restarted"
+    else
+        log_warn "Gateway restart failed — check 'journalctl -u penfold-gateway' on ${GMAIL_HOST}"
+    fi
+}
+
 check_status() {
     log_info "Checking Gmail connector status..."
     echo ""
@@ -114,6 +138,9 @@ cmd_full_deploy() {
     fi
 
     NEW_COMMIT=$(get_deployed_commit "$GMAIL_HTTP_URL")
+
+    ensure_gateway_env
+    echo ""
 
     penf deploy record "penfold-gmail" \
         --commit "$NEW_COMMIT" \
