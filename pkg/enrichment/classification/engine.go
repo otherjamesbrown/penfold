@@ -97,6 +97,7 @@ func resolveField(field string, metadata map[string]string) string {
 }
 
 // EvalCondition checks whether a field value satisfies a match condition.
+// Exported for use by other packages (e.g. tenant context provider).
 func EvalCondition(cond MatchCondition, fieldValue string) bool {
 	v := fieldValue
 	condValue := cond.Value

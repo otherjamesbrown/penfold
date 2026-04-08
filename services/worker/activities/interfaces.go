@@ -580,3 +580,30 @@ type ConversationRepository interface {
 	// for the given number of days.
 	GetStaleActiveConversations(ctx context.Context, tenantID string, staleDays int, limit int) ([]ConversationForSummary, error)
 }
+
+// TenantContextRepository loads tenant context entries for the context provider.
+type TenantContextRepository interface {
+	GetActiveEntries(ctx context.Context, tenantID string) ([]TenantContextEntry, error)
+}
+
+// TenantContextEntry represents a personal reference context entry for a tenant.
+type TenantContextEntry struct {
+	ID           int
+	TenantID     string
+	Category     string
+	Label        string
+	Details      map[string]interface{} // unmarshalled from JSONB
+	AlwaysInject bool
+	Conditions   []TenantContextCondition
+}
+
+// TenantContextCondition is a trigger condition for a TenantContextEntry.
+// Field/MatchType/Value follow the same pattern as classification_match_conditions.
+type TenantContextCondition struct {
+	ID            int
+	ContextID     int
+	Field         string
+	MatchType     string
+	Value         string
+	CaseSensitive bool
+}
