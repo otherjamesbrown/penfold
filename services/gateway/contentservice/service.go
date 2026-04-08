@@ -34,6 +34,7 @@ import (
 type Repository interface {
 	GetByContentID(ctx context.Context, contentID string) (*ContentItemRecord, error)
 	ListByTenant(ctx context.Context, filter ListFilter) ([]*ContentItemRecord, error)
+	ResolveProject(ctx context.Context, tenantID, identifier string) (int64, error)
 	DeleteByContentID(ctx context.Context, contentID string) error
 	DeleteByFilters(ctx context.Context, tenantID string, sourceType, processingStatus *string) (int64, []string, error)
 	PurgeByContentID(ctx context.Context, contentID string) error
@@ -83,6 +84,7 @@ type ListFilter struct {
 	ProcessingStatus *string
 	ContentType      *contentv1.ContentType // filter by content type enum
 	SourceTag        *string                // filter by ingestion_metadata->>'source_tag'
+	ProjectID        *int64                 // filter by attributed project ID
 	PageSize         int
 	PageToken        string
 }
@@ -180,6 +182,29 @@ func newRepository(db *pgxpool.Pool, logger logging.Logger) Repository {
 		db:     db,
 		logger: logger,
 	}
+}
+
+// ResolveProject resolves a project identifier (name or numeric ID) to a project ID.
+// Returns 0 if the project is not found.
+func (r *repositoryImpl) ResolveProject(ctx context.Context, tenantID, identifier string) (int64, error) {
+	// Try as numeric ID first.
+	if id, err := strconv.ParseInt(identifier, 10, 64); err == nil {
+		var exists bool
+		err = r.db.QueryRow(ctx, "SELECT true FROM projects WHERE id = $1", id).Scan(&exists)
+		if err == nil && exists {
+			return id, nil
+		}
+	}
+	// Try by name (case-insensitive).
+	var id int64
+	err := r.db.QueryRow(ctx,
+		"SELECT id FROM projects WHERE tenant_id = $1 AND LOWER(name) = LOWER($2) LIMIT 1",
+		tenantID, identifier,
+	).Scan(&id)
+	if err != nil {
+		return 0, nil // not found
+	}
+	return id, nil
 }
 
 // GetByContentID retrieves a single source by content_id.
@@ -299,6 +324,13 @@ func (r *repositoryImpl) ListByTenant(ctx context.Context, filter ListFilter) ([
 	if filter.SourceTag != nil && *filter.SourceTag != "" {
 		whereClauses = append(whereClauses, fmt.Sprintf("s.ingestion_metadata->>'source_tag' = $%d", argCount))
 		args = append(args, *filter.SourceTag)
+		argCount++
+	}
+
+	// Optional project_id filter (attributed_project_ids GIN index)
+	if filter.ProjectID != nil {
+		whereClauses = append(whereClauses, fmt.Sprintf("$%d = ANY(s.attributed_project_ids)", argCount))
+		args = append(args, *filter.ProjectID)
 		argCount++
 	}
 
@@ -1560,6 +1592,18 @@ func (s *Service) ListContentItems(ctx context.Context, req *contentv1.ListConte
 	if req.SourceTag != nil {
 		st := *req.SourceTag
 		filter.SourceTag = &st
+	}
+
+	if req.ProjectFilter != nil && *req.ProjectFilter != "" {
+		projectID, err := s.repo.ResolveProject(ctx, tenantID, *req.ProjectFilter)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to resolve project: %v", err)
+		}
+		if projectID == 0 {
+			// Project not found — return empty list.
+			return &contentv1.ListContentItemsResponse{Items: nil}, nil
+		}
+		filter.ProjectID = &projectID
 	}
 
 	records, err := s.repo.ListByTenant(ctx, filter)

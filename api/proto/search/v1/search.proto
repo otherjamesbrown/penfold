@@ -220,6 +220,11 @@ message FilterOptions {
   // Filter by entity participation role.
   // Multiple entries are ANDed (all must match).
   repeated EntityRoleFilter entity_role_filters = 10;
+
+  // Filter by project name or ID.
+  // Matches content attributed to the specified project.
+  // Accepts project name (e.g., "Healthcare") or project ID (e.g., "6537").
+  optional string project_filter = 11;
 }
 
 // EntityRoleFilter specifies an entity and the participation roles to filter by.

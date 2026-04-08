@@ -521,6 +521,11 @@ message ListContentItemsRequest {
 
   // Filter by source tag from ingestion metadata (optional).
   optional string source_tag = 10;
+
+  // Filter by project name or ID (optional).
+  // Only returns items attributed to the specified project.
+  // Accepts project name (e.g., "Healthcare") or project ID (e.g., "6537").
+  optional string project_filter = 11;
 }
 
 // ListContentItemsResponse contains a paginated list of content items.
