@@ -147,10 +147,12 @@ func (s *GmailServer) SyncEmails(ctx context.Context, req *gmailv1.SyncEmailsReq
 				participantSeen[email] = true
 				participants = append(participants, email)
 			}
-			// Extract from address from "Name <email>" format
-			fromAddr := parsed.From
-			if idx := strings.Index(fromAddr, "<"); idx >= 0 {
-				fromAddr = strings.TrimSuffix(strings.TrimSpace(fromAddr[idx+1:]), ">")
+			// Extract from address and name from "Name <email>" format
+			fromAddr := strings.TrimSpace(parsed.From)
+			fromName := ""
+			if idx := strings.Index(parsed.From, "<"); idx >= 0 {
+				fromName = strings.TrimSpace(parsed.From[:idx])
+				fromAddr = strings.TrimSuffix(strings.TrimSpace(parsed.From[idx+1:]), ">")
 			}
 			addParticipant(fromAddr)
 			for _, addr := range parsed.To {
@@ -193,6 +195,9 @@ func (s *GmailServer) SyncEmails(ctx context.Context, req *gmailv1.SyncEmailsReq
 			metadata := map[string]interface{}{
 				"subject":          parsed.Subject,
 				"from":             parsed.From,
+				"from_address":     fromAddr,
+				"sender_email":     fromAddr,
+				"from_name":        fromName,
 				"thread_id":        parsed.ThreadID,
 				"labels":           parsed.Labels,
 				"gmail_message_id": msg.ID,
