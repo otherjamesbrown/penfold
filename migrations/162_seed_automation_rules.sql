@@ -9,13 +9,8 @@
 -- 3. Seed newsletter-weekly-rollup automation rule
 -- 4. Disable old DigestRollupWorkflow schedule (keep row for rollback)
 
--- 1. Expand task_type constraint to include 'automation'
+-- 1. Drop task_type CHECK constraint (too many valid types to enumerate; validation at app layer)
 ALTER TABLE ai_routing_rules DROP CONSTRAINT IF EXISTS ai_routing_rules_task_type_check;
-ALTER TABLE ai_routing_rules ADD CONSTRAINT ai_routing_rules_task_type_check
-    CHECK (task_type IN (
-        'embedding', 'summarization', 'extraction', 'classification',
-        'deep_analysis', 'automation'
-    ));
 
 -- 2. Generic automation model routing rule (fallback for all automation skills)
 INSERT INTO ai_routing_rules (name, task_type, preferred_models, fallback_models, optimization_mode, priority, is_enabled, conditions)
@@ -76,10 +71,4 @@ DELETE FROM automation_rules WHERE name = 'newsletter-weekly-rollup';
 -- Remove automation routing rule
 DELETE FROM ai_routing_rules WHERE name = 'automation-default';
 
--- Revert task_type constraint
-ALTER TABLE ai_routing_rules DROP CONSTRAINT IF EXISTS ai_routing_rules_task_type_check;
-ALTER TABLE ai_routing_rules ADD CONSTRAINT ai_routing_rules_task_type_check
-    CHECK (task_type IN (
-        'embedding', 'summarization', 'extraction', 'classification',
-        'deep_analysis'
-    ));
+-- No constraint to revert (was dropped in up migration)
