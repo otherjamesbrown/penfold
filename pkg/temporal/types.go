@@ -483,3 +483,29 @@ type JournalRollupResult struct {
 	OverviewDigestID string `json:"overview_digest_id,omitempty"`
 	Status           string `json:"status"`
 }
+
+// AutomationRuleWorkflowName is the registered name of AutomationRuleWorkflow.
+const AutomationRuleWorkflowName = "AutomationRuleWorkflow"
+
+// AutomationRuleWorkflowInput is the input for AutomationRuleWorkflow.
+type AutomationRuleWorkflowInput struct {
+	RuleID        string            `json:"rule_id"`
+	TenantID      string            `json:"tenant_id"`
+	TriggerType   string            `json:"trigger_type"`   // "cron", "event", "manual"
+	TriggerSource string            `json:"trigger_source"` // source_id for events, "cron" or "manual"
+	TriggerItem   *AutomationTriggerItem `json:"trigger_item,omitempty"`
+}
+
+// AutomationTriggerItem holds the content item that triggered an event rule.
+type AutomationTriggerItem struct {
+	SourceID      int64  `json:"source_id"`
+	TenantID      string `json:"tenant_id"`
+	ContentType   string `json:"content_type,omitempty"`
+	ContentSubtype string `json:"content_subtype,omitempty"`
+}
+
+// AutomationRuleWorkflowResult is the output of AutomationRuleWorkflow.
+type AutomationRuleWorkflowResult struct {
+	Status string `json:"status"` // "completed", "failed", "skipped"
+	Error  string `json:"error,omitempty"`
+}

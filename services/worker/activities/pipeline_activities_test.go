@@ -211,6 +211,9 @@ func (m *mockPipelineClient) RunAutomationRule(ctx context.Context, in *pipeline
 func (m *mockPipelineClient) ListAutomationRuleExecutions(ctx context.Context, in *pipelinev1.ListAutomationRuleExecutionsRequest, opts ...grpc.CallOption) (*pipelinev1.ListAutomationRuleExecutionsResponse, error) {
 	return nil, nil
 }
+func (m *mockPipelineClient) SuggestTenantContextTriggers(ctx context.Context, in *pipelinev1.SuggestTenantContextTriggersRequest, opts ...grpc.CallOption) (*pipelinev1.SuggestTenantContextTriggersResponse, error) {
+	return nil, nil
+}
 
 // Compile-time check that mockPipelineClient satisfies the interface.
 var _ pipelinev1.PipelineServiceClient = (*mockPipelineClient)(nil)
