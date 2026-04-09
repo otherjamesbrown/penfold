@@ -177,6 +177,27 @@ service PipelineService {
 
   // RemoveTenantContextCondition removes a trigger condition from a tenant context entry.
   rpc RemoveTenantContextCondition(RemoveTenantContextConditionRequest) returns (RemoveTenantContextConditionResponse);
+
+  // CreateAutomationRule creates a new automation rule.
+  rpc CreateAutomationRule(CreateAutomationRuleRequest) returns (CreateAutomationRuleResponse);
+
+  // ListAutomationRules lists all automation rules for a tenant.
+  rpc ListAutomationRules(ListAutomationRulesRequest) returns (ListAutomationRulesResponse);
+
+  // GetAutomationRule retrieves a single automation rule by ID.
+  rpc GetAutomationRule(GetAutomationRuleRequest) returns (GetAutomationRuleResponse);
+
+  // UpdateAutomationRule updates an existing automation rule.
+  rpc UpdateAutomationRule(UpdateAutomationRuleRequest) returns (UpdateAutomationRuleResponse);
+
+  // DeleteAutomationRule deletes an automation rule by ID.
+  rpc DeleteAutomationRule(DeleteAutomationRuleRequest) returns (DeleteAutomationRuleResponse);
+
+  // RunAutomationRule manually triggers an automation rule.
+  rpc RunAutomationRule(RunAutomationRuleRequest) returns (RunAutomationRuleResponse);
+
+  // ListAutomationRuleExecutions lists execution history for an automation rule.
+  rpc ListAutomationRuleExecutions(ListAutomationRuleExecutionsRequest) returns (ListAutomationRuleExecutionsResponse);
 }
 
 // =============================================================================
@@ -2003,4 +2024,257 @@ message RemoveTenantContextConditionRequest {
 message RemoveTenantContextConditionResponse {
   // Number of conditions deleted.
   int32 deleted_count = 1;
+}
+
+// =============================================================================
+// Automation Rule Messages
+// =============================================================================
+
+// AutomationRule represents a composable trigger → selector → skill → output rule.
+message AutomationRule {
+  // Unique rule ID.
+  string id = 1;
+
+  // Tenant ID.
+  string tenant_id = 2;
+
+  // Human-readable rule name.
+  string name = 3;
+
+  // Optional description.
+  string description = 4;
+
+  // Whether this rule is active.
+  bool enabled = 5;
+
+  // Trigger type: cron, event, or manual.
+  string trigger_type = 6;
+
+  // Trigger configuration as a JSON string (type-specific).
+  string trigger_config = 7;
+
+  // Selector configuration as a JSON string (what data to gather).
+  string selector_config = 8;
+
+  // Skill name referencing a skills/<name>.md file in the repo.
+  string skill_name = 9;
+
+  // Output configuration as a JSON string (delivery channels and chaining).
+  string output_config = 10;
+
+  // When the rule was created.
+  google.protobuf.Timestamp created_at = 11;
+
+  // When the rule was last updated.
+  google.protobuf.Timestamp updated_at = 12;
+
+  // Who created the rule.
+  string created_by = 13;
+}
+
+// AutomationRuleExecution records a single execution of an automation rule.
+message AutomationRuleExecution {
+  // Unique execution ID.
+  string id = 1;
+
+  // ID of the rule that was executed.
+  string rule_id = 2;
+
+  // Trigger type that caused this execution: cron, event, or manual.
+  string trigger_type = 3;
+
+  // Source of the trigger (content ID for events, 'cron', 'manual').
+  string trigger_source = 4;
+
+  // When the execution started.
+  google.protobuf.Timestamp started_at = 5;
+
+  // When the execution completed (nil if still running).
+  google.protobuf.Timestamp completed_at = 6;
+
+  // Execution status: running, completed, or failed.
+  string status = 7;
+
+  // Number of content items selected by the selector.
+  int32 items_selected = 8;
+
+  // Number of tokens consumed by the skill LLM call.
+  int32 skill_tokens_used = 9;
+
+  // Per-channel delivery status as a JSON string.
+  string delivery_status = 10;
+
+  // Results of any chained rule executions as a JSON string.
+  string chain_executions = 11;
+
+  // Error message if the execution failed.
+  string error = 12;
+}
+
+// CreateAutomationRuleRequest creates a new automation rule.
+message CreateAutomationRuleRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Human-readable rule name (must be unique within tenant).
+  string name = 2;
+
+  // Optional description.
+  string description = 3;
+
+  // Whether this rule is active.
+  bool enabled = 4;
+
+  // Trigger type: cron, event, or manual.
+  string trigger_type = 5;
+
+  // Trigger configuration as a JSON string.
+  string trigger_config = 6;
+
+  // Selector configuration as a JSON string.
+  string selector_config = 7;
+
+  // Skill name referencing a skills/<name>.md file in the repo.
+  string skill_name = 8;
+
+  // Output configuration as a JSON string.
+  string output_config = 9;
+
+  // Who is creating this rule.
+  string created_by = 10;
+}
+
+// CreateAutomationRuleResponse returns the created rule.
+message CreateAutomationRuleResponse {
+  // The created automation rule.
+  AutomationRule rule = 1;
+}
+
+// ListAutomationRulesRequest lists automation rules for a tenant.
+message ListAutomationRulesRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Optional filter: only return rules with this trigger type.
+  string trigger_type = 2;
+
+  // Optional filter: only return enabled or disabled rules (omit for all).
+  bool enabled_only = 3;
+}
+
+// ListAutomationRulesResponse returns matching automation rules.
+message ListAutomationRulesResponse {
+  // Matching automation rules.
+  repeated AutomationRule rules = 1;
+}
+
+// GetAutomationRuleRequest retrieves a single automation rule by ID.
+message GetAutomationRuleRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Rule ID.
+  string id = 2;
+}
+
+// GetAutomationRuleResponse returns the requested rule.
+message GetAutomationRuleResponse {
+  // The automation rule.
+  AutomationRule rule = 1;
+}
+
+// UpdateAutomationRuleRequest updates an existing automation rule.
+message UpdateAutomationRuleRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Rule ID to update.
+  string id = 2;
+
+  // Updated human-readable name.
+  string name = 3;
+
+  // Updated description.
+  string description = 4;
+
+  // Updated enabled state.
+  bool enabled = 5;
+
+  // Updated trigger type.
+  string trigger_type = 6;
+
+  // Updated trigger configuration as a JSON string.
+  string trigger_config = 7;
+
+  // Updated selector configuration as a JSON string.
+  string selector_config = 8;
+
+  // Updated skill name.
+  string skill_name = 9;
+
+  // Updated output configuration as a JSON string.
+  string output_config = 10;
+}
+
+// UpdateAutomationRuleResponse returns the updated rule.
+message UpdateAutomationRuleResponse {
+  // The updated automation rule.
+  AutomationRule rule = 1;
+}
+
+// DeleteAutomationRuleRequest deletes an automation rule by ID.
+message DeleteAutomationRuleRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Rule ID to delete.
+  string id = 2;
+}
+
+// DeleteAutomationRuleResponse confirms deletion.
+message DeleteAutomationRuleResponse {
+  // Number of rules deleted.
+  int32 deleted_count = 1;
+}
+
+// RunAutomationRuleRequest manually triggers an automation rule.
+message RunAutomationRuleRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Rule ID to run.
+  string id = 2;
+
+  // If true, show what would be selected and the rendered skill without executing.
+  bool dry_run = 3;
+}
+
+// RunAutomationRuleResponse returns the execution ID and dry-run details.
+message RunAutomationRuleResponse {
+  // Execution ID (empty for dry-run).
+  string execution_id = 1;
+
+  // For dry-run: number of items the selector would return.
+  int32 dry_run_items_selected = 2;
+
+  // For dry-run: the rendered skill prompt.
+  string dry_run_rendered_skill = 3;
+}
+
+// ListAutomationRuleExecutionsRequest lists execution history for a rule.
+message ListAutomationRuleExecutionsRequest {
+  // Tenant ID.
+  string tenant_id = 1;
+
+  // Rule ID to list executions for.
+  string rule_id = 2;
+
+  // Maximum number of executions to return.
+  int32 limit = 3;
+}
+
+// ListAutomationRuleExecutionsResponse returns execution history.
+message ListAutomationRuleExecutionsResponse {
+  // Execution records, newest first.
+  repeated AutomationRuleExecution executions = 1;
 }
