@@ -65,6 +65,26 @@ check_status() {
     fi
 }
 
+sync_skills() {
+    local skills_src="${PROJECT_ROOT}/skills"
+    local skills_dst="/opt/penfold/skills"
+
+    log_info "Syncing skill files to ${WORKER_HOST}:${skills_dst}..."
+
+    if is_local_host "$WORKER_HOST"; then
+        mkdir -p "$skills_dst"
+        # Copy only .md files from skills root (not subdirectories used by CoBuild)
+        find "$skills_src" -maxdepth 1 -name "*.md" -exec cp {} "$skills_dst/" \;
+        local count=$(find "$skills_dst" -maxdepth 1 -name "*.md" | wc -l | tr -d ' ')
+        log_success "Synced ${count} skill file(s) to ${skills_dst}"
+    else
+        ssh "$WORKER_HOST" "mkdir -p '${skills_dst}'"
+        find "$skills_src" -maxdepth 1 -name "*.md" -print0 | xargs -0 -I{} scp {} "${WORKER_HOST}:${skills_dst}/"
+        local count=$(ssh "$WORKER_HOST" "find '${skills_dst}' -maxdepth 1 -name '*.md' | wc -l | tr -d ' '" 2>/dev/null || echo "?")
+        log_success "Synced skill files to ${WORKER_HOST}:${skills_dst} (${count} files)"
+    fi
+}
+
 run_migrations() {
     log_info "Running database migrations..."
 
@@ -104,6 +124,10 @@ cmd_full_deploy() {
     echo ""
 
     deploy_binary
+    echo ""
+
+    # Sync skill files to worker host
+    sync_skills
     echo ""
 
     # Run migrations before restarting service

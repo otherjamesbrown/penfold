@@ -479,7 +479,7 @@ func (a *AutomationRuleActivities) lookupAutomationModel(ctx context.Context, te
 	taskType := "automation:" + skillName
 	var modelIDs []string
 	err := a.db.QueryRow(ctx, `
-		SELECT preferred_model_ids
+		SELECT preferred_models
 		FROM ai_routing_rules
 		WHERE task_type = $1 AND is_enabled = true
 		ORDER BY created_at DESC
@@ -488,7 +488,7 @@ func (a *AutomationRuleActivities) lookupAutomationModel(ctx context.Context, te
 	if err != nil || len(modelIDs) == 0 {
 		// Try the generic automation fallback
 		err = a.db.QueryRow(ctx, `
-			SELECT preferred_model_ids
+			SELECT preferred_models
 			FROM ai_routing_rules
 			WHERE task_type = 'automation' AND is_enabled = true
 			ORDER BY created_at DESC
