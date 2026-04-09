@@ -509,3 +509,38 @@ type AutomationRuleWorkflowResult struct {
 	Status string `json:"status"` // "completed", "failed", "skipped"
 	Error  string `json:"error,omitempty"`
 }
+
+// AutomationRuleInput is the input for AutomationRuleWorkflow.
+// Passed when a rule is triggered via cron, event, or manual invocation.
+type AutomationRuleInput struct {
+	// RuleID is the UUID of the automation rule to execute.
+	RuleID string `json:"rule_id"`
+
+	// TenantID is the tenant for DB queries and delivery.
+	TenantID string `json:"tenant_id"`
+
+	// TriggerType is 'cron', 'event', or 'manual'.
+	TriggerType string `json:"trigger_type"`
+
+	// TriggerSource is the source ID for events, 'cron' for scheduled, 'manual' for CLI.
+	TriggerSource string `json:"trigger_source,omitempty"`
+
+	// TriggerItem is the serialised content item that fired an event trigger.
+	// Nil for cron and manual triggers.
+	TriggerItem json.RawMessage `json:"trigger_item,omitempty"`
+
+	// ChainDepth tracks how many times this workflow has been chained.
+	// 0 for root invocations; incremented for each chain step.
+	ChainDepth int `json:"chain_depth"`
+}
+
+// AutomationRuleResult is the output of AutomationRuleWorkflow.
+type AutomationRuleResult struct {
+	ExecutionID    string            `json:"execution_id"`
+	ItemsSelected  int               `json:"items_selected"`
+	TokensUsed     int               `json:"tokens_used"`
+	DeliveryStatus map[string]string `json:"delivery_status"`
+	ChainsFired    int               `json:"chains_fired"`
+	Status         string            `json:"status"` // "completed" or "failed"
+	Error          string            `json:"error,omitempty"`
+}

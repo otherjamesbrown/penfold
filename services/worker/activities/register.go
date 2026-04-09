@@ -47,6 +47,7 @@ type Registrar struct {
 	journalRollupActivities           *JournalRollupActivities
 	preClassifyActivities             *PreClassifyActivities
 	eventTriggerActivities            *EventTriggerActivities
+	automationRuleActivities          *AutomationRuleActivities
 }
 
 // NewRegistrar creates a new activity registrar.
@@ -239,6 +240,12 @@ func (r *Registrar) WithDigestRollupActivities(dra *DigestRollupActivities) *Reg
 // WithJournalRollupActivities adds journal rollup activities to the registrar.
 func (r *Registrar) WithJournalRollupActivities(jra *JournalRollupActivities) *Registrar {
 	r.journalRollupActivities = jra
+	return r
+}
+
+// WithAutomationRuleActivities adds automation rule activities to the registrar.
+func (r *Registrar) WithAutomationRuleActivities(ara *AutomationRuleActivities) *Registrar {
+	r.automationRuleActivities = ara
 	return r
 }
 
@@ -621,6 +628,31 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		})
 	}
 
+	// Automation rule activities (AutomationRuleWorkflow — pf-f397ab)
+	if r.automationRuleActivities != nil {
+		w.RegisterActivityWithOptions(r.automationRuleActivities.LoadRuleConfig, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityARLoadRuleConfig,
+		})
+		w.RegisterActivityWithOptions(r.automationRuleActivities.ExecuteSelector, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityARExecuteSelector,
+		})
+		w.RegisterActivityWithOptions(r.automationRuleActivities.LoadAndRenderSkill, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityARLoadAndRenderSkill,
+		})
+		w.RegisterActivityWithOptions(r.automationRuleActivities.ExecuteSkill, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityARExecuteSkill,
+		})
+		w.RegisterActivityWithOptions(r.automationRuleActivities.DeliverOutput, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityARDeliverOutput,
+		})
+		w.RegisterActivityWithOptions(r.automationRuleActivities.ExecuteChains, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityARExecuteChains,
+		})
+		w.RegisterActivityWithOptions(r.automationRuleActivities.RecordExecution, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityARRecordExecution,
+		})
+	}
+
 	// Graph activities for Outlook and Teams sync workflows
 	r.registerGraphActivities(w)
 }
@@ -904,6 +936,11 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		// EvaluateEventTriggers
 		if r.eventTriggerActivities != nil {
 			count += 1
+		}
+		// LoadRuleConfig, ExecuteSelector, LoadAndRenderSkill, ExecuteSkill,
+		// DeliverOutput, ExecuteChains, RecordExecution
+		if r.automationRuleActivities != nil {
+			count += 7
 		}
 		return count
 	case config.AITaskQueue:

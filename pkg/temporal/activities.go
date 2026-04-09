@@ -95,6 +95,15 @@ const (
 
 	// Event trigger evaluation — post-pipeline hook for automation rules.
 	ActivityEvaluateEventTriggers = "EvaluateEventTriggers"
+
+	// Automation rule activities (AutomationRuleWorkflow — pf-084bad).
+	ActivityARLoadRuleConfig    = "AR_LoadRuleConfig"
+	ActivityARExecuteSelector   = "AR_ExecuteSelector"
+	ActivityARLoadAndRenderSkill = "AR_LoadAndRenderSkill"
+	ActivityARExecuteSkill      = "AR_ExecuteSkill"
+	ActivityARDeliverOutput     = "AR_DeliverOutput"
+	ActivityARExecuteChains     = "AR_ExecuteChains"
+	ActivityARRecordExecution   = "AR_RecordExecution"
 )
 
 // AI Task Queue activity names (4 unique activities).
