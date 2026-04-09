@@ -69,6 +69,10 @@ type Config struct {
 
 	// GatewayAddr is the gRPC address for the Gateway service (pipeline service).
 	GatewayAddr string
+
+	// SkillsPath is the directory containing automation rule skill .md files.
+	// Defaults to "./skills".
+	SkillsPath string
 }
 
 // Default configuration values.
@@ -82,6 +86,7 @@ const (
 	DefaultGracefulShutdownTimeout  = 30
 	DefaultLogLevel                 = "info"
 	DefaultEnvironment              = "dev"
+	DefaultSkillsPath               = "./skills"
 )
 
 // Load loads the configuration from environment variables.
@@ -181,6 +186,12 @@ func Load() (*Config, error) {
 		cfg.GatewayAddr = v
 	} else {
 		cfg.GatewayAddr = "dev02.brown.chat:50051"
+	}
+
+	if v := os.Getenv("WORKER_SKILLS_PATH"); v != "" {
+		cfg.SkillsPath = v
+	} else {
+		cfg.SkillsPath = DefaultSkillsPath
 	}
 
 	if err := cfg.Validate(); err != nil {

@@ -918,6 +918,22 @@ func main() {
 		logger.Info("Digest rollup activities initialized with database and AI client")
 	}
 
+	// Initialize Automation Rule Activities (composable trigger → selector → skill → output)
+	if dbPool != nil && aiClient != nil {
+		ruleRepo := activities.NewPostgresAutomationRuleRepository(dbPool)
+		arConfigReader := activities.NewPostgresOperationalConfigReader(dbPool)
+		automationRuleActivities := activities.NewAutomationRuleActivities(dbPool, ruleRepo, aiClient, arConfigReader, logger, cfg.SkillsPath)
+		arEmailCreds, arSenderAddr, err := loadEmailCredentials(ctx, arConfigReader, "c3170310-78bd-409c-b186-126f40bfa6ad")
+		if err != nil {
+			logger.Warn("Email delivery not configured for automation rules — email sends will be skipped", logging.F("error", err.Error()))
+		} else {
+			automationRuleActivities.WithEmailCredentials(arEmailCreds, arSenderAddr)
+			logger.Info("Automation rule email delivery configured", logging.F("sender", arSenderAddr))
+		}
+		activityRegistrar.WithAutomationRuleActivities(automationRuleActivities)
+		logger.Info("Automation rule activities initialized with database and AI client")
+	}
+
 	// Initialize Journal Rollup Activities (daily/weekly/overview journal generation)
 	if dbPool != nil && aiClient != nil {
 		digestRepo := digest.NewRepository(dbPool)

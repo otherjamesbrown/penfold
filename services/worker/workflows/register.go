@@ -107,6 +107,11 @@ func (r *Registrar) registerMainQueueWorkflows(w worker.Worker) {
 	w.RegisterWorkflowWithOptions(JournalRollupWorkflow, workflow.RegisterOptions{
 		Name: "JournalRollupWorkflow",
 	})
+
+	// Automation rule workflow (composable trigger → selector → skill → output — pf-f397ab)
+	w.RegisterWorkflowWithOptions(AutomationRuleWorkflow, workflow.RegisterOptions{
+		Name: "AutomationRuleWorkflow",
+	})
 }
 
 // registerAIQueueWorkflows registers workflows for the AI task queue.
@@ -161,7 +166,7 @@ func (r *Registrar) registerCommonWorkflows(w worker.Worker) {
 func (r *Registrar) WorkflowCount(taskQueue string) int {
 	switch taskQueue {
 	case config.MainTaskQueue:
-		return 14 // SLMPipelineWorkflow, ContentIngestionWorkflow, RelationshipDiscoveryWorkflow, DailyReviewWorkflow, BatchPipelineWorkflow, ConversationMaintenanceWorkflow, ConversationBackfillWorkflow, SessionLedgerConsolidationWorkflow, HeartbeatWorkflow, DigestWorkflow, WeeklyDigestWorkflow, JournalDigestWorkflow, DigestRollupWorkflow, JournalRollupWorkflow
+		return 15 // SLMPipelineWorkflow, ContentIngestionWorkflow, RelationshipDiscoveryWorkflow, DailyReviewWorkflow, BatchPipelineWorkflow, ConversationMaintenanceWorkflow, ConversationBackfillWorkflow, SessionLedgerConsolidationWorkflow, HeartbeatWorkflow, DigestWorkflow, WeeklyDigestWorkflow, JournalDigestWorkflow, DigestRollupWorkflow, JournalRollupWorkflow, AutomationRuleWorkflow
 	case config.AITaskQueue:
 		return 1 // AnalysisWorkflow
 	case config.EmailTaskQueue:
