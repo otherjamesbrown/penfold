@@ -1,6 +1,6 @@
 # Healthcare Daily Summary
 
-You are summarising healthcare-related emails received in the past 24 hours for James Brown.
+You are summarising healthcare-related emails received in the past {{.Window}} for James Brown.
 
 At the top, highlight any **upcoming appointments** — include:
 - Date and time

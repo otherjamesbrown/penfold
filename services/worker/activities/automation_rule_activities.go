@@ -222,10 +222,21 @@ func (a *AutomationRuleActivities) runQuery(
 
 	// Build query — use content_enrichment summary if available
 	args := []interface{}{tenantID, windowFrom, windowTo, limit}
-	contentTypeFilter := ""
+	var extraFilters string
 	if len(sel.ContentTypes) > 0 {
 		args = append(args, sel.ContentTypes)
-		contentTypeFilter = fmt.Sprintf("AND s.content_type = ANY($%d::text[])", len(args))
+		extraFilters += fmt.Sprintf(" AND s.content_type = ANY($%d::text[])", len(args))
+	}
+
+	// Parse query string for project: filter
+	if sel.Query != "" {
+		for _, part := range strings.Fields(sel.Query) {
+			if strings.HasPrefix(strings.ToLower(part), "project:") {
+				projectName := part[len("project:"):]
+				args = append(args, projectName)
+				extraFilters += fmt.Sprintf(" AND (SELECT id FROM projects WHERE name ILIKE $%d LIMIT 1) = ANY(s.attributed_project_ids)", len(args))
+			}
+		}
 	}
 
 	query := fmt.Sprintf(`
@@ -244,7 +255,7 @@ func (a *AutomationRuleActivities) runQuery(
 		  %s
 		ORDER BY s.source_timestamp DESC
 		LIMIT $4
-	`, contentTypeFilter)
+	`, extraFilters)
 
 	rows, err := a.db.Query(ctx, query, args...)
 	if err != nil {
