@@ -48,6 +48,20 @@ deploy_binary() {
     fi
 
     deploy_file "$BUILD_OUTPUT" "$WORKER_HOST" "$BINARY_PATH" "codesign --force --sign -"
+
+    # Reset macOS firewall entry to prevent the "Allow incoming connections" popup.
+    # When a binary is replaced, macOS invalidates the prior network permission
+    # because the ad-hoc signature changed. Re-adding it pre-approves the new binary.
+    if is_local_host "$WORKER_HOST"; then
+        local fw="/usr/libexec/ApplicationFirewall/socketfilterfw"
+        if [[ -x "$fw" ]]; then
+            sudo "$fw" --remove "$BINARY_PATH" 2>/dev/null || true
+            sudo "$fw" --add "$BINARY_PATH" 2>/dev/null || true
+            sudo "$fw" --unblockapp "$BINARY_PATH" 2>/dev/null || true
+            sudo xattr -rd com.apple.quarantine "$BINARY_PATH" 2>/dev/null || true
+            log_success "Firewall entry reset for ${BINARY_PATH}"
+        fi
+    fi
 }
 
 check_status() {

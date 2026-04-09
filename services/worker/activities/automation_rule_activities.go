@@ -642,10 +642,11 @@ func (a *AutomationRuleActivities) storeOutput(ctx context.Context, tenantID, ru
 // buildEmailSubject renders the email subject from an optional template or default.
 func buildEmailSubject(tmplStr, ruleName, windowFrom, windowTo string) string {
 	if tmplStr == "" {
-		if windowFrom != "" && windowTo != "" {
-			return fmt.Sprintf("%s — %s to %s", ruleName, windowFrom, windowTo)
-		}
-		return ruleName
+		// Format a friendly subject: "Healthcare Morning Summary - Wed 9 Apr"
+		friendly := strings.ReplaceAll(ruleName, "-", " ")
+		friendly = strings.Title(friendly)
+		today := time.Now().Format("Mon 2 Jan")
+		return fmt.Sprintf("%s - %s", friendly, today)
 	}
 	// Simple template with .Date
 	type subjectData struct{ Date string }
@@ -658,19 +659,20 @@ func buildEmailSubject(tmplStr, ruleName, windowFrom, windowTo string) string {
 	return buf.String()
 }
 
-// renderAutomationHTML renders the skill output as a simple HTML email.
+// renderAutomationHTML renders the skill output as an HTML email.
+// The skill prompt asks the LLM to output HTML directly, so we wrap it
+// in a container div but don't escape the content.
 func renderAutomationHTML(output, ruleName, windowFrom, windowTo string) string {
-	escaped := strings.ReplaceAll(htmlEscape(output), "\n", "<br>")
-	period := ""
-	if windowFrom != "" && windowTo != "" {
-		period = fmt.Sprintf(`<p style="color: #666; margin: 0 0 16px 0;">%s to %s</p>`,
-			htmlEscape(windowFrom), htmlEscape(windowTo))
-	}
-	return fmt.Sprintf(`<div style="font-family: -apple-system, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-  <h2 style="margin: 0 0 4px 0;">%s</h2>
-  %s
-  <div style="line-height: 1.5;">%s</div>
-</div>`, htmlEscape(ruleName), period, escaped)
+	// Strip markdown code fences if the LLM wrapped the HTML in them
+	body := strings.TrimSpace(output)
+	body = strings.TrimPrefix(body, "```html")
+	body = strings.TrimPrefix(body, "```")
+	body = strings.TrimSuffix(body, "```")
+	body = strings.TrimSpace(body)
+
+	return fmt.Sprintf(`<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333; line-height: 1.6;">
+%s
+</div>`, body)
 }
 
 // htmlEscape escapes special HTML characters in a string.
