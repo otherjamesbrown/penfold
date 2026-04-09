@@ -25,6 +25,7 @@ import (
 
 	pipelinev1 "github.com/otherjamesbrown/penfold/api/proto/pipeline/v1"
 	"github.com/otherjamesbrown/penfold/pkg/ai"
+	"github.com/otherjamesbrown/penfold/pkg/automation"
 	"github.com/otherjamesbrown/penfold/pkg/buildinfo"
 	pkgconfig "github.com/otherjamesbrown/penfold/pkg/config"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment"
@@ -1018,6 +1019,19 @@ func main() {
 		graphActivities := activities.NewGraphActivities(logger, tokenStore, ingestRepo, dbPool)
 		activityRegistrar.WithGraphActivities(graphActivities)
 		logger.Info("Graph activities initialized (Outlook + Teams sync)")
+	}
+
+	// Event trigger evaluation activities (post-pipeline hook for automation rules)
+	if dbPool != nil {
+		automationRepo := automation.NewPostgresRepository(dbPool)
+		eventTriggerActivities := activities.NewEventTriggerActivities(
+			automationRepo,
+			temporalClient,
+			cfg.TaskQueues[0], // Use the first (main) task queue
+			logger,
+		)
+		activityRegistrar.WithEventTriggerActivities(eventTriggerActivities)
+		logger.Info("Event trigger activities initialized")
 	}
 
 	workflowRegistrar := workflows.NewRegistrar()

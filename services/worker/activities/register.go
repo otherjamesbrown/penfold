@@ -46,6 +46,7 @@ type Registrar struct {
 	digestRollupActivities            *DigestRollupActivities
 	journalRollupActivities           *JournalRollupActivities
 	preClassifyActivities             *PreClassifyActivities
+	eventTriggerActivities            *EventTriggerActivities
 }
 
 // NewRegistrar creates a new activity registrar.
@@ -100,6 +101,12 @@ func (r *Registrar) WithTriageActivities(ta *TriageActivities) *Registrar {
 // WithPreClassifyActivities adds pre-classification activities to the registrar (pf-b375ad).
 func (r *Registrar) WithPreClassifyActivities(pa *PreClassifyActivities) *Registrar {
 	r.preClassifyActivities = pa
+	return r
+}
+
+// WithEventTriggerActivities adds event trigger evaluation activities to the registrar.
+func (r *Registrar) WithEventTriggerActivities(eta *EventTriggerActivities) *Registrar {
+	r.eventTriggerActivities = eta
 	return r
 }
 
@@ -375,6 +382,13 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 	if r.preClassifyActivities != nil {
 		w.RegisterActivityWithOptions(r.preClassifyActivities.PreClassify, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityPreClassify,
+		})
+	}
+
+	// Event trigger evaluation activities (post-pipeline hook for automation rules)
+	if r.eventTriggerActivities != nil {
+		w.RegisterActivityWithOptions(r.eventTriggerActivities.EvaluateEventTriggers, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityEvaluateEventTriggers,
 		})
 	}
 
@@ -886,6 +900,10 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		// FetchMeetingTranscripts, ProcessTranscriptContent, UpdateTranscriptSyncState, RollbackTranscriptSync
 		if r.graphActivities != nil {
 			count += 14
+		}
+		// EvaluateEventTriggers
+		if r.eventTriggerActivities != nil {
+			count += 1
 		}
 		return count
 	case config.AITaskQueue:

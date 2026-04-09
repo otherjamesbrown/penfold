@@ -408,6 +408,9 @@ func newFullRegistrar() *Registrar {
 		}).
 		WithStructuredExtractActivities(&StructuredExtractActivities{
 			logger: logger,
+		}).
+		WithEventTriggerActivities(&EventTriggerActivities{
+			logger: logger,
 		})
 }
 

@@ -92,6 +92,9 @@ const (
 
 	// Pre-classify — rule engine classification before triage (pf-b375ad shadow mode).
 	ActivityPreClassify = "PreClassify"
+
+	// Event trigger evaluation — post-pipeline hook for automation rules.
+	ActivityEvaluateEventTriggers = "EvaluateEventTriggers"
 )
 
 // AI Task Queue activity names (4 unique activities).
@@ -235,6 +238,8 @@ func AllMainQueueActivities() []string {
 		ActivityStructuredExtract,
 		// BuildStageContext — config-driven context assembly for any pipeline stage.
 		ActivityBuildStageContext,
+		// Event trigger evaluation
+		ActivityEvaluateEventTriggers,
 		// Graph API activities (Outlook + Teams sync + Transcript sync)
 		ActivityCheckGraphAuth,
 		ActivityFetchOutlookMessages,

@@ -785,6 +785,26 @@ type KickNextPendingInput struct {
 	Limit    int32  `json:"limit"` // Max items to kick (typically 1)
 }
 
+// EvaluateEventTriggersInput is the input for the EvaluateEventTriggers activity.
+// Fields are populated from pipeline workflow state at completion.
+type EvaluateEventTriggersInput struct {
+	TenantID       string `json:"tenant_id"`
+	SourceID       int64  `json:"source_id"`
+	ContentType    string `json:"content_type,omitempty"`
+	ContentSubtype string `json:"content_subtype,omitempty"`
+	SourceSystem   string `json:"source_system,omitempty"`
+	SenderEmail    string `json:"sender_email,omitempty"` // matched against "from" field
+	Subject        string `json:"subject,omitempty"`      // matched against "subject" field (regex)
+	Urgency        string `json:"urgency,omitempty"`      // from triage Importance, lowercased
+}
+
+// EvaluateEventTriggersOutput is the output from the EvaluateEventTriggers activity.
+type EvaluateEventTriggersOutput struct {
+	RulesEvaluated   int `json:"rules_evaluated"`
+	RulesMatched     int `json:"rules_matched"`
+	WorkflowsStarted int `json:"workflows_started"`
+}
+
 // KickNextPendingOutput is the output from the KickNextPending activity.
 type KickNextPendingOutput struct {
 	QueuedCount int64  `json:"queued_count"` // Number of items successfully queued
@@ -3285,6 +3305,41 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			RootSpanID: rootSpanID,
 		},
 	).Get(ctx, nil)
+
+	// Event trigger evaluation: evaluate automation rules for this completed content item.
+	// Best-effort — failures are logged but do not fail the pipeline.
+	eventCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Second,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval:    time.Second,
+			BackoffCoefficient: 2.0,
+			MaximumAttempts:    2,
+		},
+	})
+	var eventOutput EvaluateEventTriggersOutput
+	eventErr := workflow.ExecuteActivity(eventCtx, pkgtemporal.ActivityEvaluateEventTriggers, EvaluateEventTriggersInput{
+		TenantID:       input.TenantID,
+		SourceID:       input.SourceID,
+		ContentType:    input.ContentType,
+		ContentSubtype: triageOutput.ContentSubtype,
+		SourceSystem:   triageOutput.SourceSystem,
+		SenderEmail:    input.SenderEmail,
+		Subject:        input.Subject,
+		Urgency:        strings.ToLower(triageOutput.Importance),
+	}).Get(eventCtx, &eventOutput)
+	if eventErr != nil {
+		logger.Warn("Event trigger evaluation failed (non-blocking)",
+			"source_id", input.SourceID,
+			"error", eventErr,
+		)
+	} else if eventOutput.RulesMatched > 0 {
+		logger.Info("Event trigger evaluation completed",
+			"source_id", input.SourceID,
+			"rules_evaluated", eventOutput.RulesEvaluated,
+			"rules_matched", eventOutput.RulesMatched,
+			"workflows_started", eventOutput.WorkflowsStarted,
+		)
+	}
 
 	// Auto-drain: kick next pending item to maintain concurrency window
 	// This is best-effort — if it fails, the pipeline still succeeds
