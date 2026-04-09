@@ -240,7 +240,7 @@ func (a *AutomationRuleActivities) runQuery(
 		WHERE s.tenant_id = $1::uuid
 		  AND s.source_timestamp >= $2
 		  AND s.source_timestamp <= $3
-		  AND s.status = 'completed'
+		  AND s.processing_status = 'completed'
 		  %s
 		ORDER BY s.source_timestamp DESC
 		LIMIT $4
