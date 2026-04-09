@@ -59,6 +59,7 @@ import (
 	"github.com/otherjamesbrown/penfold/services/gateway/router"
 	"github.com/otherjamesbrown/penfold/pkg/ai"
 	"github.com/otherjamesbrown/penfold/pkg/assertions"
+	"github.com/otherjamesbrown/penfold/pkg/automation"
 	"github.com/otherjamesbrown/penfold/pkg/auth"
 	"github.com/otherjamesbrown/penfold/pkg/buildinfo"
 	"github.com/otherjamesbrown/penfold/pkg/classify"
@@ -608,15 +609,18 @@ func main() {
 	pipelinev1.RegisterPipelineServiceServer(grpcServer, pipelineSvc)
 	logger.Info("Registered PipelineService")
 
-	// Register ScheduleService for DB-driven schedule management.
+	// Register ScheduleService and wire automation rule dependencies into PipelineService.
+	automationRepo := automation.NewPostgresRepository(dbPool)
+	scheduleRepo := schedule.NewRepository(dbPool)
 	if temporalClient != nil {
-		scheduleRepo := schedule.NewRepository(dbPool)
 		temporalScheduler := schedule.NewTemporalScheduler(temporalClient, "penfold-main", logger)
 		scheduleSvc := scheduleservice.NewService(scheduleRepo, temporalScheduler, logger)
 		schedulev1.RegisterScheduleServiceServer(grpcServer, scheduleSvc)
 		logger.Info("Registered ScheduleService")
+		pipelineSvc.WithAutomationDeps(automationRepo, scheduleRepo, temporalScheduler)
 	} else {
 		logger.Warn("ScheduleService not registered (Temporal client not available)")
+		pipelineSvc.WithAutomationDeps(automationRepo, scheduleRepo, nil)
 	}
 
 	// Initialize router for backend service proxying.

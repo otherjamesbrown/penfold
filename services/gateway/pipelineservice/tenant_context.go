@@ -44,7 +44,7 @@ func (s *Service) CreateTenantContext(ctx context.Context, req *pipelinev1.Creat
 		tenantID = s.defaultTenantID(ctx)
 	}
 
-	details := req.Details
+	details := req.DetailsJson
 	if details == "" {
 		details = "{}"
 	}
@@ -174,7 +174,7 @@ func (s *Service) GetTenantContext(ctx context.Context, req *pipelinev1.GetTenan
 		tenantID = s.defaultTenantID(ctx)
 	}
 
-	entries, err := s.queryTenantContext(ctx, tenantID, req.Id)
+	entries, err := s.queryTenantContext(ctx, tenantID, int64(req.Id))
 	if err != nil {
 		s.logger.Error("Error getting tenant context", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to get tenant context: %v", err)
@@ -237,14 +237,11 @@ func (s *Service) AddTenantContextCondition(ctx context.Context, req *pipelinev1
 	if req.ContextId == 0 {
 		return nil, status.Error(codes.InvalidArgument, "context_id is required")
 	}
-	if req.Condition == nil {
-		return nil, status.Error(codes.InvalidArgument, "condition is required")
+	if req.Field == "" {
+		return nil, status.Error(codes.InvalidArgument, "field is required")
 	}
-	if req.Condition.Field == "" {
-		return nil, status.Error(codes.InvalidArgument, "condition.field is required")
-	}
-	if req.Condition.MatchType == "" {
-		return nil, status.Error(codes.InvalidArgument, "condition.match_type is required")
+	if req.MatchType == "" {
+		return nil, status.Error(codes.InvalidArgument, "match_type is required")
 	}
 
 	if s.db == nil {
@@ -272,13 +269,13 @@ func (s *Service) AddTenantContextCondition(ctx context.Context, req *pipelinev1
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO tenant_context_conditions (context_id, field, match_type, value, case_sensitive)
 		VALUES ($1, $2, $3, $4, $5)
-	`, req.ContextId, req.Condition.Field, req.Condition.MatchType, req.Condition.Value, req.Condition.CaseSensitive)
+	`, req.ContextId, req.Field, req.MatchType, req.Value, req.CaseSensitive)
 	if err != nil {
 		s.logger.Error("Error inserting tenant context condition", logging.Err(err))
 		return nil, status.Errorf(codes.Internal, "failed to add condition: %v", err)
 	}
 
-	entries, err := s.queryTenantContext(ctx, tenantID, req.ContextId)
+	entries, err := s.queryTenantContext(ctx, tenantID, int64(req.ContextId))
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "condition added but failed to fetch entry: %v", err)
 	}
@@ -374,17 +371,17 @@ func scanTenantContextRows(rows *sql.Rows) ([]*pipelinev1.TenantContextEntry, er
 
 	for rows.Next() {
 		var (
-			entryID      int64
-			category     string
-			label        string
-			details      string
-			alwaysInject bool
-			active       bool
-			condID       sql.NullInt64
-			condField    sql.NullString
+			entryID       int64
+			category      string
+			label         string
+			details       string
+			alwaysInject  bool
+			active        bool
+			condID        sql.NullInt64
+			condField     sql.NullString
 			condMatchType sql.NullString
-			condValue    sql.NullString
-			condCaseSens sql.NullBool
+			condValue     sql.NullString
+			condCaseSens  sql.NullBool
 		)
 
 		if err := rows.Scan(
@@ -397,10 +394,10 @@ func scanTenantContextRows(rows *sql.Rows) ([]*pipelinev1.TenantContextEntry, er
 		entry, exists := entryMap[entryID]
 		if !exists {
 			entry = &pipelinev1.TenantContextEntry{
-				Id:           entryID,
+				Id:           int32(entryID),
 				Category:     category,
 				Label:        label,
-				Details:      details,
+				DetailsJson:  details,
 				AlwaysInject: alwaysInject,
 				Active:       active,
 			}
@@ -410,10 +407,10 @@ func scanTenantContextRows(rows *sql.Rows) ([]*pipelinev1.TenantContextEntry, er
 
 		if condID.Valid {
 			entry.Conditions = append(entry.Conditions, &pipelinev1.TenantContextCondition{
-				Id:           condID.Int64,
-				Field:        condField.String,
-				MatchType:    condMatchType.String,
-				Value:        condValue.String,
+				Id:            int32(condID.Int64),
+				Field:         condField.String,
+				MatchType:     condMatchType.String,
+				Value:         condValue.String,
 				CaseSensitive: condCaseSens.Bool,
 			})
 		}
