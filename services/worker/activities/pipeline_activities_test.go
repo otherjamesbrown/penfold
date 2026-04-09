@@ -187,6 +187,27 @@ func (m *mockPipelineClient) AddTenantContextCondition(ctx context.Context, in *
 func (m *mockPipelineClient) RemoveTenantContextCondition(ctx context.Context, in *pipelinev1.RemoveTenantContextConditionRequest, opts ...grpc.CallOption) (*pipelinev1.RemoveTenantContextConditionResponse, error) {
 	return nil, nil
 }
+func (m *mockPipelineClient) CreateAutomationRule(ctx context.Context, in *pipelinev1.CreateAutomationRuleRequest, opts ...grpc.CallOption) (*pipelinev1.CreateAutomationRuleResponse, error) {
+	return nil, nil
+}
+func (m *mockPipelineClient) ListAutomationRules(ctx context.Context, in *pipelinev1.ListAutomationRulesRequest, opts ...grpc.CallOption) (*pipelinev1.ListAutomationRulesResponse, error) {
+	return nil, nil
+}
+func (m *mockPipelineClient) GetAutomationRule(ctx context.Context, in *pipelinev1.GetAutomationRuleRequest, opts ...grpc.CallOption) (*pipelinev1.GetAutomationRuleResponse, error) {
+	return nil, nil
+}
+func (m *mockPipelineClient) UpdateAutomationRule(ctx context.Context, in *pipelinev1.UpdateAutomationRuleRequest, opts ...grpc.CallOption) (*pipelinev1.UpdateAutomationRuleResponse, error) {
+	return nil, nil
+}
+func (m *mockPipelineClient) DeleteAutomationRule(ctx context.Context, in *pipelinev1.DeleteAutomationRuleRequest, opts ...grpc.CallOption) (*pipelinev1.DeleteAutomationRuleResponse, error) {
+	return nil, nil
+}
+func (m *mockPipelineClient) RunAutomationRule(ctx context.Context, in *pipelinev1.RunAutomationRuleRequest, opts ...grpc.CallOption) (*pipelinev1.RunAutomationRuleResponse, error) {
+	return nil, nil
+}
+func (m *mockPipelineClient) ListAutomationRuleExecutions(ctx context.Context, in *pipelinev1.ListAutomationRuleExecutionsRequest, opts ...grpc.CallOption) (*pipelinev1.ListAutomationRuleExecutionsResponse, error) {
+	return nil, nil
+}
 
 // Compile-time check that mockPipelineClient satisfies the interface.
 var _ pipelinev1.PipelineServiceClient = (*mockPipelineClient)(nil)
