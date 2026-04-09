@@ -211,7 +211,6 @@ func TestUpdateTimeoutConfig_Validation(t *testing.T) {
 	})
 
 	t.Run("missing updated_by", func(t *testing.T) {
-		// Empty updated_by defaults to "cli" — proceeds past validation to DB check
 		_, err := svc.UpdateTimeoutConfig(context.Background(), &pipelinev1.UpdateTimeoutConfigRequest{
 			Key:    "timeout.ai_client.request",
 			Value:  "30s",
@@ -220,11 +219,10 @@ func TestUpdateTimeoutConfig_Validation(t *testing.T) {
 		require.Error(t, err)
 		st, ok := status.FromError(err)
 		require.True(t, ok)
-		assert.Equal(t, codes.Unavailable, st.Code())
+		assert.Equal(t, codes.InvalidArgument, st.Code())
 	})
 
 	t.Run("missing reason", func(t *testing.T) {
-		// Empty reason defaults to "config update" — proceeds past validation to DB check
 		_, err := svc.UpdateTimeoutConfig(context.Background(), &pipelinev1.UpdateTimeoutConfigRequest{
 			Key:       "timeout.ai_client.request",
 			Value:     "30s",
@@ -233,7 +231,7 @@ func TestUpdateTimeoutConfig_Validation(t *testing.T) {
 		require.Error(t, err)
 		st, ok := status.FromError(err)
 		require.True(t, ok)
-		assert.Equal(t, codes.Unavailable, st.Code())
+		assert.Equal(t, codes.InvalidArgument, st.Code())
 	})
 
 	t.Run("invalid duration value", func(t *testing.T) {

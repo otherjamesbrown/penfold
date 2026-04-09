@@ -187,6 +187,9 @@ func (m *mockPipelineClient) AddTenantContextCondition(ctx context.Context, in *
 func (m *mockPipelineClient) RemoveTenantContextCondition(ctx context.Context, in *pipelinev1.RemoveTenantContextConditionRequest, opts ...grpc.CallOption) (*pipelinev1.RemoveTenantContextConditionResponse, error) {
 	return nil, nil
 }
+func (m *mockPipelineClient) SuggestTenantContextTriggers(ctx context.Context, in *pipelinev1.SuggestTenantContextTriggersRequest, opts ...grpc.CallOption) (*pipelinev1.SuggestTenantContextTriggersResponse, error) {
+	return nil, nil
+}
 func (m *mockPipelineClient) CreateAutomationRule(ctx context.Context, in *pipelinev1.CreateAutomationRuleRequest, opts ...grpc.CallOption) (*pipelinev1.CreateAutomationRuleResponse, error) {
 	return nil, nil
 }

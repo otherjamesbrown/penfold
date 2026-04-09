@@ -18,20 +18,25 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pipelinev1 "github.com/otherjamesbrown/penfold/api/proto/pipeline/v1"
+	"github.com/otherjamesbrown/penfold/pkg/automation"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/routing"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/pipeline"
+	"github.com/otherjamesbrown/penfold/pkg/schedule"
 	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 )
 
 // Service implements the PipelineService gRPC server.
 type Service struct {
 	pipelinev1.UnimplementedPipelineServiceServer
-	repo           *pipeline.Repository
-	logger         logging.Logger
-	temporalClient client.Client
-	db             *sql.DB
-	namespace      string
+	repo              *pipeline.Repository
+	logger            logging.Logger
+	temporalClient    client.Client
+	db                *sql.DB
+	namespace         string
+	automationRepo    automation.AutomationRuleRepository
+	scheduleRepo      *schedule.Repository
+	temporalScheduler *schedule.TemporalScheduler
 }
 
 // NewService creates a new pipeline service.
@@ -46,6 +51,15 @@ func NewService(repo *pipeline.Repository, logger logging.Logger, temporalClient
 		db:             db,
 		namespace:      namespace,
 	}
+}
+
+// WithAutomationDeps configures automation rule dependencies.
+// schedRepo and scheduler may be nil if Temporal is not available (cron schedule management will be skipped).
+func (s *Service) WithAutomationDeps(repo automation.AutomationRuleRepository, schedRepo *schedule.Repository, scheduler *schedule.TemporalScheduler) *Service {
+	s.automationRepo = repo
+	s.scheduleRepo = schedRepo
+	s.temporalScheduler = scheduler
+	return s
 }
 
 // GetStats retrieves overall pipeline statistics.
