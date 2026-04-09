@@ -242,6 +242,10 @@ func (l *logger) With(fields ...Field) Logger {
 func (l *logger) WithContext(ctx context.Context) Logger {
 	newLogger := l.zl.With()
 
+	if ctx == nil {
+		return &logger{zl: newLogger.Logger()}
+	}
+
 	// Extract trace_id from context if present
 	if traceID, ok := ctx.Value(TraceIDKey).(string); ok && traceID != "" {
 		newLogger = newLogger.Str("trace_id", traceID)
