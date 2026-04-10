@@ -106,6 +106,25 @@ type (
 		AttributedProjectIDs []int64 `json:"attributed_project_ids"`
 	}
 
+	// ClassifyProjectInput is the input for the ClassifyProject activity.
+	// This mirrors activities.ClassifyProjectInput for JSON deserialization.
+	ClassifyProjectInput struct {
+		TenantID     string  `json:"tenant_id"`
+		SourceID     int64   `json:"source_id"`
+		Subject      string  `json:"subject,omitempty"`
+		BodyText     string  `json:"body_text,omitempty"`
+		SenderEmail  string  `json:"sender_email,omitempty"`
+		AssertionIDs []int64 `json:"assertion_ids,omitempty"`
+	}
+
+	// ClassifyProjectOutput is the output from the ClassifyProject activity.
+	ClassifyProjectOutput struct {
+		ProjectIDs []int64 `json:"project_ids"`
+		Method     string  `json:"method"`
+		TokensUsed int     `json:"tokens_used"`
+		Confidence float64 `json:"confidence"`
+	}
+
 	// InstructionEvaluationInput is the input for the InstructionEvaluate activity.
 	InstructionEvaluationInput struct {
 		TenantID  string `json:"tenant_id"`
