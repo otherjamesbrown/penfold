@@ -24,6 +24,7 @@ func TestEval_Standard(t *testing.T) {
 	require.NoError(t, env.CleanupTestTenant(), "clean up stale test data")
 	require.NoError(t, env.LoadFixtures(), "load Acme Corp fixtures")
 	require.NoError(t, env.SeedClassificationRules(ctx), "seed classification rules")
+	require.NoError(t, env.SeedPersonalProjects(ctx), "seed personal projects")
 
 	lfEval := NewLangfuseEval("standard")
 	if err := lfEval.EnsureDataset(ctx); err != nil {
@@ -119,6 +120,19 @@ func TestEval_Standard(t *testing.T) {
 					t.Errorf("assertions: %v", err)
 				} else {
 					MatchAssertions(t, golden.Assertions, assertions)
+				}
+			}
+
+			// L2: Projects
+			if golden.Projects != nil {
+				t.Log("Checking projects...")
+				projects, err := getProjectsForSource(env, sourceID)
+				if err != nil {
+					t.Errorf("projects: %v", err)
+					results.L2Quality = append(results.L2Quality, MatchDetail{Check: "projects.exists", Pass: false, Message: err.Error()})
+				} else {
+					details := matchProjectsDetail(t, golden.Projects, projects)
+					results.L2Quality = append(results.L2Quality, details...)
 				}
 			}
 

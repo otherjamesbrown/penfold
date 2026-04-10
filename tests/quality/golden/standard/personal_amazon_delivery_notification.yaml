@@ -1,0 +1,24 @@
+email: emails/personal/amazon_delivery_notification.eml
+description: "Amazon delivery notification — should attribute to Home"
+last_verified: "2026-04-10"
+category: standard
+
+routing:
+  content_subtype: HUMAN
+  pipeline: standard
+  must_complete: [parse, triage, embed]
+
+triage:
+  importance:
+    one_of: [LOW, NONE]
+  category:
+    one_of: [PERSONAL, FYI, OTHER, LOW_PRIORITY, NOTIFICATION]
+
+projects:
+  must_find:
+    - name_contains: "Home"
+  max_count: 1
+
+intent:
+  description: "Amazon delivery notification for household item — should attribute to Home project."
+  value: none

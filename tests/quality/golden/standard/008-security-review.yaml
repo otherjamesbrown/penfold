@@ -25,6 +25,11 @@ assertions:
     - type: risk
       description_contains: "P1"
 
+projects:
+  must_find:
+    - name_contains: "Security Audit"
+  max_count: 2
+
 intent:
   description: "Security audit with critical findings — P1 items need EOM resolution, DRI assigned."
   value: high

@@ -36,6 +36,11 @@ assertions:
   must_not_find:
     - type: security_incident
 
+projects:
+  must_find:
+    - name_contains: "Portal"
+  max_count: 2
+
 intent:
   description: "Executive response to risk escalation — 4 decisions with cross-project impact."
   value: high

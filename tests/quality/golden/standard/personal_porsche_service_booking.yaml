@@ -1,0 +1,26 @@
+email: emails/personal/porsche_service_booking.eml
+description: "Porsche service booking — should attribute to Cars (keyword 'Porsche' not in basic list)"
+last_verified: "2026-04-10"
+category: standard
+
+routing:
+  content_subtype: HUMAN
+  pipeline: standard
+  must_complete: [parse, triage, embed]
+
+triage:
+  importance:
+    one_of: [LOW, NONE]
+  category:
+    one_of: [PERSONAL, FYI, OTHER, LOW_PRIORITY]
+
+projects:
+  must_find:
+    - name_contains: "Cars"
+  must_not_find:
+    - name_contains: "Healthcare"
+  max_count: 1
+
+intent:
+  description: "Porsche service booking — tests that LLM correctly identifies vehicle service content as Cars, even without exact keyword match."
+  value: low

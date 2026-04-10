@@ -1,0 +1,24 @@
+email: emails/personal/anthropic_api_update.eml
+description: "Anthropic API changelog — should attribute to AI project"
+last_verified: "2026-04-10"
+category: standard
+
+routing:
+  content_subtype: HUMAN
+  pipeline: standard
+  must_complete: [parse, triage, embed]
+
+triage:
+  importance:
+    one_of: [LOW, MEDIUM]
+  category:
+    one_of: [PERSONAL, FYI, OTHER, LOW_PRIORITY]
+
+projects:
+  must_find:
+    - name_contains: "AI"
+  max_count: 1
+
+intent:
+  description: "Anthropic API changelog — clear AI/LLM content, should attribute to AI project."
+  value: low

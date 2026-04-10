@@ -1,0 +1,24 @@
+email: emails/personal/linkedin_job_alert.eml
+description: "LinkedIn job alert — should attribute to Job Search"
+last_verified: "2026-04-10"
+category: standard
+
+routing:
+  content_subtype: HUMAN
+  pipeline: standard
+  must_complete: [parse, triage, embed]
+
+triage:
+  importance:
+    one_of: [LOW, MEDIUM]
+  category:
+    one_of: [PERSONAL, FYI, OTHER, ACTION_REQUIRED, LOW_PRIORITY]
+
+projects:
+  must_find:
+    - name_contains: "Job Search"
+  max_count: 1
+
+intent:
+  description: "LinkedIn job recommendations — clear job search content, should attribute to Job Search project."
+  value: low

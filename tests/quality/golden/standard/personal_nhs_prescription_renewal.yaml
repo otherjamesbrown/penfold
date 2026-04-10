@@ -1,0 +1,24 @@
+email: emails/personal/nhs_prescription_renewal.eml
+description: "NHS repeat prescription request confirmation — should attribute to Healthcare"
+last_verified: "2026-04-10"
+category: standard
+
+routing:
+  content_subtype: HUMAN
+  pipeline: standard
+  must_complete: [parse, triage, embed]
+
+triage:
+  importance:
+    one_of: [LOW, MEDIUM]
+  category:
+    one_of: [PERSONAL, FYI, OTHER, ACTION_REQUIRED, LOW_PRIORITY]
+
+projects:
+  must_find:
+    - name_contains: "Healthcare"
+  max_count: 1
+
+intent:
+  description: "NHS repeat prescription — clear healthcare content, should reliably attribute to Healthcare project."
+  value: low

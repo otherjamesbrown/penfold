@@ -27,6 +27,11 @@ assertions:
     - type: decision
       description_contains: "Tiger Team"
 
+projects:
+  must_find:
+    - name_contains: "ML Recommendations"
+  max_count: 2
+
 intent:
   description: "New project kickoff — strategic initiative with clear milestones and team assignments."
   value: medium

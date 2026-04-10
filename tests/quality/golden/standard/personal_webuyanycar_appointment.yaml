@@ -1,0 +1,26 @@
+email: emails/personal/webuyanycar_appointment.eml
+description: "webuyanycar appointment confirmation — car valuation, NOT Healthcare"
+last_verified: "2026-04-10"
+category: standard
+
+routing:
+  content_subtype: HUMAN
+  pipeline: standard
+  must_complete: [parse, triage, embed]
+
+triage:
+  importance:
+    one_of: [LOW, NONE]
+  category:
+    one_of: [PERSONAL, FYI, SOCIAL, OTHER, LOW_PRIORITY]
+
+projects:
+  must_find:
+    - name_contains: "Cars"
+  must_not_find:
+    - name_contains: "Healthcare"
+  max_count: 2
+
+intent:
+  description: "Car valuation appointment from webuyanycar — should attribute to Cars, never Healthcare despite the word 'appointment'."
+  value: low

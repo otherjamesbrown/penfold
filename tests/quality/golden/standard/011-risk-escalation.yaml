@@ -33,6 +33,9 @@ assertions:
   must_not_find:
     - type: security_incident
 
+projects:
+  max_count: 2
+
 intent:
   description: "Risk escalation from PM — 3 named risks with financial impact, needs executive decision."
   value: high

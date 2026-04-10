@@ -30,6 +30,9 @@ assertions:
     - type: action
       description_contains: "incident"
 
+projects:
+  max_count: 2
+
 intent:
   description: "Active P0 incident — requires immediate attention, war room coordination."
   value: high

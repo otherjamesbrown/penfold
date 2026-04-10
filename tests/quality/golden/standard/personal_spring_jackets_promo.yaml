@@ -1,0 +1,22 @@
+email: emails/personal/spring_jackets_promo.eml
+description: "Clothing promotional email — no project attribution expected"
+last_verified: "2026-04-10"
+category: standard
+
+routing:
+  content_subtype: HUMAN
+  pipeline: standard
+  must_complete: [parse, triage, embed]
+
+triage:
+  importance:
+    one_of: [LOW, NONE]
+  category:
+    one_of: [PERSONAL, FYI, SOCIAL, OTHER, LOW_PRIORITY]
+
+projects:
+  max_count: 0
+
+intent:
+  description: "Promotional fashion email — no project relevance, should not be attributed to any project."
+  value: none
