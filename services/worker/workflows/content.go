@@ -90,22 +90,6 @@ type (
 		MentionsCreated  int `json:"mentions_created"`
 	}
 
-	// AttributeProjectInput is the input for the AttributeProject activity.
-	AttributeProjectInput struct {
-		TenantID string `json:"tenant_id"`
-		SourceID int64  `json:"source_id"`
-		Subject  string `json:"subject,omitempty"`
-		BodyText string `json:"body_text,omitempty"`
-	}
-
-	// AttributeProjectOutput is the output from the AttributeProject activity.
-	AttributeProjectOutput struct {
-		AssertionsAttributed int     `json:"assertions_attributed"`
-		ProjectsMatched      int     `json:"projects_matched"`
-		AttributionSource    string  `json:"attribution_source"`
-		AttributedProjectIDs []int64 `json:"attributed_project_ids"`
-	}
-
 	// ClassifyProjectInput is the input for the ClassifyProject activity.
 	// This mirrors activities.ClassifyProjectInput for JSON deserialization.
 	ClassifyProjectInput struct {

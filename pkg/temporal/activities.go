@@ -44,7 +44,6 @@ const (
 	ActivityHeartbeatCheckWatchMatches     = "HeartbeatCheckWatchMatches"
 	ActivityHeartbeatCheckStaleContent     = "HeartbeatCheckStaleContent"
 	ActivityHeartbeatUpdateStatus          = "HeartbeatUpdateStatus"
-	ActivityAttributeProject               = "AttributeProject"
 	ActivityClassifyProject                = "ClassifyProject"
 	ActivityInstructionEvaluate            = "InstructionEvaluate"
 
@@ -216,7 +215,6 @@ func AllMainQueueActivities() []string {
 		ActivityHeartbeatCheckWatchMatches,
 		ActivityHeartbeatCheckStaleContent,
 		ActivityHeartbeatUpdateStatus,
-		ActivityAttributeProject,
 		ActivityClassifyProject,
 		ActivityInstructionEvaluate,
 		// Digest activities
