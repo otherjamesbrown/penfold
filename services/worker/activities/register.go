@@ -29,6 +29,7 @@ type Registrar struct {
 	personEnrichmentActivities *PersonEnrichmentActivities
 	projectTaggingActivities   *ProjectTaggingActivities
 	attributionActivities      *AttributionActivities
+	classifyProjectActivities  *ClassifyProjectActivities
 	threadActivities           *ThreadActivities
 	enrichmentActivities       *EnrichmentActivities
 	conversationActivities     *ConversationActivities
@@ -144,6 +145,12 @@ func (r *Registrar) WithProjectTaggingActivities(pta *ProjectTaggingActivities) 
 // WithAttributionActivities adds project attribution activities to the registrar.
 func (r *Registrar) WithAttributionActivities(aa *AttributionActivities) *Registrar {
 	r.attributionActivities = aa
+	return r
+}
+
+// WithClassifyProjectActivities adds LLM-based project classification activities to the registrar.
+func (r *Registrar) WithClassifyProjectActivities(cpa *ClassifyProjectActivities) *Registrar {
+	r.classifyProjectActivities = cpa
 	return r
 }
 
@@ -355,6 +362,13 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 	if r.attributionActivities != nil {
 		w.RegisterActivityWithOptions(r.attributionActivities.AttributeProject, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityAttributeProject,
+		})
+	}
+
+	// LLM-based project classification (replaces AttributeProject — pf-2091d5)
+	if r.classifyProjectActivities != nil {
+		w.RegisterActivityWithOptions(r.classifyProjectActivities.ClassifyProject, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityClassifyProject,
 		})
 	}
 
@@ -839,6 +853,10 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		}
 		// AttributeProject
 		if r.attributionActivities != nil {
+			count += 1
+		}
+		// ClassifyProject
+		if r.classifyProjectActivities != nil {
 			count += 1
 		}
 		// ParseEmail, ParseTranscript
