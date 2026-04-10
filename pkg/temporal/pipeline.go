@@ -34,7 +34,6 @@ var StageActivityMap = map[string][]string{
 	"summary":             {ActivityGenerateContentSummary},
 	"persist":             {ActivityPersistFindings},
 	"embed":               {ActivityGenerateContentEmbedding},
-	"attribute_project":      {ActivityAttributeProject},
 	"classify_project":       {ActivityClassifyProject},
 	"instruction_evaluate":   {ActivityInstructionEvaluate},
 	// structured extract stages: generic StructuredExtract + shared PersistExtractedData

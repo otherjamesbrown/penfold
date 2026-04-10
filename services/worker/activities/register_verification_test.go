@@ -12,7 +12,6 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/reviewqueue"
-	sourcemappings "github.com/otherjamesbrown/penfold/pkg/source_mappings"
 	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 	"github.com/otherjamesbrown/penfold/services/worker/config"
 )
@@ -209,33 +208,6 @@ func (r *regVerifyHeartbeatQuerier) CountStaleContent(context.Context, string, i
 	return 0, nil
 }
 
-type regVerifyAttributionRepo struct{}
-
-func (r *regVerifyAttributionRepo) FindMappingByIdentifier(context.Context, string, string) (*sourcemappings.SourceMapping, error) {
-	return nil, nil
-}
-func (r *regVerifyAttributionRepo) GetProjectsWithKeywords(context.Context, string) ([]*entities.Project, error) {
-	return nil, nil
-}
-func (r *regVerifyAttributionRepo) GetSourceMetadata(context.Context, int64) (string, string, error) {
-	return "", "", nil
-}
-func (r *regVerifyAttributionRepo) GetAssertionsForSource(context.Context, string, int64) ([]AssertionRef, error) {
-	return nil, nil
-}
-func (r *regVerifyAttributionRepo) UpdateAssertionAttribution(context.Context, int64, int64, string, float64) error {
-	return nil
-}
-func (r *regVerifyAttributionRepo) UpdateSourceAttributedProjects(context.Context, int64, []int64) error {
-	return nil
-}
-func (r *regVerifyAttributionRepo) GetMinConfidence(context.Context, string) (float64, error) {
-	return 0, nil
-}
-func (r *regVerifyAttributionRepo) CreateContentMention(context.Context, string, int64, string, string, int64) error {
-	return nil
-}
-
 type regVerifyConvRepo struct{}
 
 func (r *regVerifyConvRepo) UpsertConversation(context.Context, *Conversation) (string, error) {
@@ -289,7 +261,6 @@ var (
 	_ ReviewQueueStatsProvider   = (*regVerifyHeartbeatReviewQueue)(nil)
 	_ ScheduleUpdater            = (*regVerifyHeartbeatScheduleUpdater)(nil)
 	_ HeartbeatQuerier           = (*regVerifyHeartbeatQuerier)(nil)
-	_ AttributionRepository      = (*regVerifyAttributionRepo)(nil)
 )
 
 // newFullRegistrar creates a fully-configured Registrar with all activity types.
@@ -381,13 +352,9 @@ func newFullRegistrar() *Registrar {
 			scheduleRepo:    &regVerifyHeartbeatScheduleUpdater{},
 			querier:         &regVerifyHeartbeatQuerier{},
 		}).
-		WithAttributionActivities(&AttributionActivities{
-			logger: logger,
-			repo:   &regVerifyAttributionRepo{},
-		}).
 		WithClassifyProjectActivities(&ClassifyProjectActivities{
 			logger:     logger,
-			repo:       &regVerifyAttributionRepo{},
+			repo:       &mockClassifyProjectRepository{},
 			aiClient:   ai,
 			promptRepo: &mockPromptRepository{},
 		}).

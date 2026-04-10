@@ -203,7 +203,7 @@ func (a *ClassifyProjectActivities) classifyByKeyword(ctx context.Context, logge
 	var matchedProjectIDs []int64
 	for _, project := range projects {
 		for _, keyword := range project.Keywords {
-			if matchesKeywordInText(contentText, keyword) {
+			if matchesKeyword(contentText, keyword) {
 				matchedProjectIDs = append(matchedProjectIDs, project.ID)
 				break
 			}

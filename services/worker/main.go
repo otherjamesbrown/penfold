@@ -156,14 +156,13 @@ func (a *projectTaggingRepositoryAdapter) CreateContentMention(ctx context.Conte
 	return nil
 }
 
-// attributionRepositoryAdapter adapts existing repositories for attribution activities.
-type attributionRepositoryAdapter struct {
-	entityRepo   *entities.Repository
-	mentionsRepo *mentions.PostgresRepository
-	db           *pgxpool.Pool
+// classifyProjectAdapter adapts existing repositories for the ClassifyProject activity.
+type classifyProjectAdapter struct {
+	entityRepo *entities.Repository
+	db         *pgxpool.Pool
 }
 
-func (a *attributionRepositoryAdapter) FindMappingByIdentifier(ctx context.Context, tenantID, sourceIdentifier string) (*sourcemappings.SourceMapping, error) {
+func (a *classifyProjectAdapter) FindMappingByIdentifier(ctx context.Context, tenantID, sourceIdentifier string) (*sourcemappings.SourceMapping, error) {
 	query := `
 		SELECT id, tenant_id, project_id, source_type, source_identifier,
 			   match_type, confidence, notes, enabled, created_at, updated_at
@@ -200,40 +199,11 @@ func (a *attributionRepositoryAdapter) FindMappingByIdentifier(ctx context.Conte
 	return m, nil
 }
 
-func (a *attributionRepositoryAdapter) GetProjectsWithKeywords(ctx context.Context, tenantID string) ([]*entities.Project, error) {
+func (a *classifyProjectAdapter) GetProjectsWithKeywords(ctx context.Context, tenantID string) ([]*entities.Project, error) {
 	return a.entityRepo.GetProjectsWithKeywords(ctx, tenantID)
 }
 
-func (a *attributionRepositoryAdapter) GetSourceMetadata(ctx context.Context, sourceID int64) (string, string, error) {
-	query := `SELECT COALESCE(source_system, ''), COALESCE(ingestion_metadata->>'source_tag', '') FROM sources WHERE id = $1`
-	var sourceSystem, sourceTag string
-	err := a.db.QueryRow(ctx, query, sourceID).Scan(&sourceSystem, &sourceTag)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to get source metadata: %w", err)
-	}
-	return sourceSystem, sourceTag, nil
-}
-
-func (a *attributionRepositoryAdapter) GetAssertionsForSource(ctx context.Context, tenantID string, sourceID int64) ([]activities.AssertionRef, error) {
-	query := `SELECT id, COALESCE(description, ''), COALESCE(source_quote, '') FROM assertions WHERE tenant_id = $1 AND source_id = $2`
-	rows, err := a.db.Query(ctx, query, tenantID, sourceID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get assertions: %w", err)
-	}
-	defer rows.Close()
-
-	var refs []activities.AssertionRef
-	for rows.Next() {
-		var ref activities.AssertionRef
-		if err := rows.Scan(&ref.ID, &ref.Description, &ref.SourceQuote); err != nil {
-			return nil, fmt.Errorf("failed to scan assertion: %w", err)
-		}
-		refs = append(refs, ref)
-	}
-	return refs, rows.Err()
-}
-
-func (a *attributionRepositoryAdapter) UpdateAssertionAttribution(ctx context.Context, assertionID int64, projectID int64, source string, confidence float64) error {
+func (a *classifyProjectAdapter) UpdateAssertionAttribution(ctx context.Context, assertionID int64, projectID int64, source string, confidence float64) error {
 	query := `UPDATE assertions SET project_id = $1, attribution_source = $2, attribution_confidence = $3 WHERE id = $4`
 	_, err := a.db.Exec(ctx, query, projectID, source, confidence, assertionID)
 	if err != nil {
@@ -242,7 +212,7 @@ func (a *attributionRepositoryAdapter) UpdateAssertionAttribution(ctx context.Co
 	return nil
 }
 
-func (a *attributionRepositoryAdapter) UpdateSourceAttributedProjects(ctx context.Context, sourceID int64, projectIDs []int64) error {
+func (a *classifyProjectAdapter) UpdateSourceAttributedProjects(ctx context.Context, sourceID int64, projectIDs []int64) error {
 	query := `UPDATE sources SET attributed_project_ids = $1 WHERE id = $2`
 	_, err := a.db.Exec(ctx, query, projectIDs, sourceID)
 	if err != nil {
@@ -251,22 +221,7 @@ func (a *attributionRepositoryAdapter) UpdateSourceAttributedProjects(ctx contex
 	return nil
 }
 
-func (a *attributionRepositoryAdapter) GetMinConfidence(ctx context.Context, tenantID string) (float64, error) {
-	query := `SELECT value FROM pipeline_operational_config WHERE tenant_id = $1 AND key = 'attribution_min_confidence'`
-	var val string
-	err := a.db.QueryRow(ctx, query, tenantID).Scan(&val)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get min confidence: %w", err)
-	}
-	var conf float64
-	_, err = fmt.Sscanf(val, "%f", &conf)
-	if err != nil {
-		return 0, fmt.Errorf("failed to parse min confidence: %w", err)
-	}
-	return conf, nil
-}
-
-func (a *attributionRepositoryAdapter) CreateContentMention(ctx context.Context, tenantID string, contentID int64, entityType string, mentionedText string, resolvedEntityID int64) error {
+func (a *classifyProjectAdapter) CreateContentMention(ctx context.Context, tenantID string, contentID int64, entityType string, mentionedText string, resolvedEntityID int64) error {
 	var exists bool
 	err := a.db.QueryRow(ctx, `
 		SELECT EXISTS(
@@ -868,31 +823,23 @@ func main() {
 		logger.Info("Project tagging activities initialized")
 	}
 
-	// Initialize Attribution Activities (legacy keyword-based, kept for rollback)
-	if dbPool != nil && entitiesRepo != nil && mentionsRepo != nil {
-		attributionRepo := &attributionRepositoryAdapter{
-			entityRepo:   entitiesRepo,
-			mentionsRepo: mentionsRepo,
-			db:           dbPool,
+	// Initialize ClassifyProject Activities (LLM-based project classification)
+	if dbPool != nil && entitiesRepo != nil && aiClient != nil {
+		classifyProjectRepo := &classifyProjectAdapter{
+			entityRepo: entitiesRepo,
+			db:         dbPool,
 		}
-		attributionActivities := activities.NewAttributionActivities(logger, attributionRepo)
-		activityRegistrar.WithAttributionActivities(attributionActivities)
-		logger.Info("Attribution activities initialized")
-
-		// Initialize ClassifyProject Activities (LLM-based project classification)
-		if aiClient != nil {
-			promptRepo := pipeline.NewRepository(dbPool)
-			operConfigReader := activities.NewPostgresOperationalConfigReader(dbPool)
-			classifyProjectActivities := activities.NewClassifyProjectActivities(
-				logger,
-				attributionRepo, // reuse same adapter — satisfies ClassifyProjectRepository interface
-				aiClient,
-				promptRepo,
-				operConfigReader,
-			)
-			activityRegistrar.WithClassifyProjectActivities(classifyProjectActivities)
-			logger.Info("ClassifyProject activities initialized")
-		}
+		promptRepo := pipeline.NewRepository(dbPool)
+		operConfigReader := activities.NewPostgresOperationalConfigReader(dbPool)
+		classifyProjectActivities := activities.NewClassifyProjectActivities(
+			logger,
+			classifyProjectRepo,
+			aiClient,
+			promptRepo,
+			operConfigReader,
+		)
+		activityRegistrar.WithClassifyProjectActivities(classifyProjectActivities)
+		logger.Info("ClassifyProject activities initialized")
 	}
 
 	// Initialize Instruction Evaluation Activities (after attribute_project)
