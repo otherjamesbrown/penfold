@@ -1,0 +1,55 @@
+// Enrichment Service Protobuf Definitions
+// Provides gRPC service for LLM-based content enrichment operations including
+// project classification.
+
+syntax = "proto3";
+
+package penfold.ai.v1;
+
+option go_package = "github.com/otherjamesbrown/penfold/api/proto/ai/v1;aiv1";
+
+// =============================================================================
+// Service Definition
+// =============================================================================
+
+// EnrichmentService provides gRPC endpoints for LLM-based enrichment operations.
+service EnrichmentService {
+  // ClassifyProject uses an LLM to attribute an email to one or more tenant projects.
+  // Returns confidence-scored attributions for use in the pipeline stage 4.7.
+  rpc ClassifyProject(ClassifyProjectRequest) returns (ClassifyProjectResponse);
+}
+
+// =============================================================================
+// ClassifyProject Messages
+// =============================================================================
+
+// ClassifyProjectRequest contains the email content and candidate projects
+// for LLM-based project attribution.
+message ClassifyProjectRequest {
+  string tenant_id = 1;
+  string subject = 2;
+  string body_preview = 3;
+  string sender_email = 4;
+  repeated ProjectCandidate projects = 5;
+}
+
+// ProjectCandidate represents a project that could be attributed to the email.
+message ProjectCandidate {
+  int64 id = 1;
+  string name = 2;
+  string description = 3;
+  repeated string keyword_hints = 4;
+}
+
+// ClassifyProjectResponse contains the LLM-generated project attributions.
+message ClassifyProjectResponse {
+  repeated ProjectAttributionResult attributions = 1;
+  int32 tokens_used = 2;
+}
+
+// ProjectAttributionResult holds a single project attribution with confidence score.
+message ProjectAttributionResult {
+  int64 project_id = 1;
+  double confidence = 2;
+  string reason = 3;
+}
