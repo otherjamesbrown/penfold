@@ -1,0 +1,5 @@
+name: "pc-012-all-hands"
+description: "Company all-hands invite — no project content, should return empty"
+category: noise
+email: emails/project_classification/pc-012-all-hands.eml
+expected_projects: []

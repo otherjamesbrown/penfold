@@ -1,0 +1,5 @@
+name: "pc-013-ooo-reply"
+description: "Out-of-office auto-reply — no project content, should return empty"
+category: noise
+email: emails/project_classification/pc-013-ooo-reply.eml
+expected_projects: []

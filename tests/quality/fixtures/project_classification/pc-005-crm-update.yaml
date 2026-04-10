@@ -1,0 +1,6 @@
+name: "pc-005-crm-update"
+description: "CRM Integration go-live notification — project keyword in subject and body"
+category: single_project_clear
+email: emails/project_classification/pc-005-crm-update.eml
+expected_projects:
+  - "Sales CRM Integration"

@@ -1,0 +1,20 @@
+From: david.park@acme.com
+To: jennifer.lee@acme.com
+Subject: Portal Redesign feeds Enterprise Dashboard - alignment needed
+Date: Wed, 15 Jan 2026 13:00:00 -0800
+Message-ID: <pc-008@acme.com>
+Content-Type: text/plain; charset="UTF-8"
+
+Jen,
+
+We need to align on the shared component library between Portal Redesign
+and Enterprise Dashboard before the Q1 sprint planning.
+
+The Portal Redesign design system is the foundation that Enterprise
+Dashboard will build on top of. If Portal Redesign ships the nav
+components late, Enterprise Dashboard misses its March milestone.
+
+Can we schedule a joint design review for both Portal Redesign and
+Enterprise Dashboard stakeholders next week?
+
+David

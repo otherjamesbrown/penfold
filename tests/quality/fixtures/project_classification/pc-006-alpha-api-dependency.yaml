@@ -1,0 +1,7 @@
+name: "pc-006-alpha-api-dependency"
+description: "Project Alpha blocked on API v3 — genuine two-project overlap"
+category: multi_project_clear
+email: emails/project_classification/pc-006-alpha-api-dependency.eml
+expected_projects:
+  - "Project Alpha"
+  - "API v3"

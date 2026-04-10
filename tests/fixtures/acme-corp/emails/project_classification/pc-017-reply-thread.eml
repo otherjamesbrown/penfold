@@ -1,0 +1,22 @@
+From: kevin.wilson@acme.com
+To: ashley.white@acme.com
+Subject: Re: Mobile App v2 - Feedback on Nav Patterns
+Date: Wed, 08 Jan 2026 09:00:00 -0800
+Message-ID: <pc-017@acme.com>
+In-Reply-To: <pc-002@acme.com>
+References: <pc-002@acme.com>
+Content-Type: text/plain; charset="UTF-8"
+
+Ashley,
+
+Updated mockups attached. I've reworked the tablet layout based on
+Rachel's research — split-pane view with collapsible sidebar.
+
+Let me know if this addresses your concerns.
+
+Kevin
+
+---
+On Jan 7, Ashley White wrote:
+> Following up on the Mobile App v2 design review from yesterday.
+> The nav drawer approach works well on phones but feels cluttered on tablets.

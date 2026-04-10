@@ -1,0 +1,19 @@
+From: brandon.harris@acme.com
+To: jessica.martinez@acme.com
+Subject: ML Recommendations needs Data Pipeline Optimization milestone
+Date: Tue, 14 Jan 2026 10:00:00 -0800
+Message-ID: <pc-007@acme.com>
+Content-Type: text/plain; charset="UTF-8"
+
+Jess,
+
+The ML Recommendations team is blocked on the ETL throughput improvements.
+
+Our training pipeline consumes the same data feeds that Data Pipeline
+Optimization is restructuring. Until Data Pipeline Optimization completes
+the Kafka migration, we cannot run the nightly model retraining jobs at scale.
+
+Can you prioritise the Kafka work in Data Pipeline Optimization this sprint
+so ML Recommendations can unblock by end of month?
+
+Brandon

@@ -1,0 +1,8 @@
+name: "pc-020-channel-mapped-crm"
+description: "Edge: channel mapping fast path — generic deploy notification attributed to CRM Integration via source mapping"
+category: channel_mapping
+email: emails/project_classification/pc-020-channel-mapped-crm.eml
+expected_projects:
+  - "Sales CRM Integration"
+expect_method: "channel_mapping"
+source_identifier: "acme-channel-crm"

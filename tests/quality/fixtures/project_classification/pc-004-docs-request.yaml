@@ -1,0 +1,6 @@
+name: "pc-004-docs-request"
+description: "Documentation Refresh request — project name in subject and body"
+category: single_project_clear
+email: emails/project_classification/pc-004-docs-request.eml
+expected_projects:
+  - "Documentation Refresh"

@@ -1,0 +1,8 @@
+name: "pc-019-channel-mapped-alpha"
+description: "Edge: channel mapping fast path — generic build summary attributed to Project Alpha via source mapping"
+category: channel_mapping
+email: emails/project_classification/pc-019-channel-mapped-alpha.eml
+expected_projects:
+  - "Project Alpha"
+expect_method: "channel_mapping"
+source_identifier: "acme-channel-alpha"

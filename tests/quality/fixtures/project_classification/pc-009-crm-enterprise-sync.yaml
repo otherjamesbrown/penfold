@@ -1,0 +1,7 @@
+name: "pc-009-crm-enterprise-sync"
+description: "CRM Integration API needed by Enterprise Dashboard — genuine two-project overlap"
+category: multi_project_clear
+email: emails/project_classification/pc-009-crm-enterprise-sync.eml
+expected_projects:
+  - "Sales CRM Integration"
+  - "Enterprise Dashboard"

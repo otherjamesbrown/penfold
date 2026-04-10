@@ -1,0 +1,18 @@
+From: nicole.davis@acme.com
+To: marcus.r@acme.com
+Subject: CRM Integration - Salesforce Sync Go Live
+Date: Fri, 10 Jan 2026 08:30:00 -0800
+Message-ID: <pc-005@acme.com>
+Content-Type: text/plain; charset="UTF-8"
+
+Marcus,
+
+The CRM Integration Salesforce sync is ready for production.
+
+We completed UAT with three enterprise accounts yesterday and all
+bidirectional sync scenarios passed. The CRM Integration go-live
+is scheduled for next Tuesday at 6am PST.
+
+Please give approval by EOD today.
+
+Nicole

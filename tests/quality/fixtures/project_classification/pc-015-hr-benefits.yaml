@@ -1,0 +1,5 @@
+name: "pc-015-hr-benefits"
+description: "HR benefits enrollment reminder — no project content, should return empty"
+category: noise
+email: emails/project_classification/pc-015-hr-benefits.eml
+expected_projects: []

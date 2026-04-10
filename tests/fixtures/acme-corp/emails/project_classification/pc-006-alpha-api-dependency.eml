@@ -1,0 +1,19 @@
+From: emily.watson@acme.com
+To: john.smith@acme.com
+Cc: michael.brown@acme.com
+Subject: Project Alpha blocked on API v3 auth endpoints
+Date: Mon, 13 Jan 2026 09:15:00 -0800
+Message-ID: <pc-006@acme.com>
+Content-Type: text/plain; charset="UTF-8"
+
+John,
+
+The Project Alpha auth integration is currently blocked waiting on
+the API v3 RBAC endpoints that Mike is building.
+
+Without those endpoints, we cannot complete the SSO flow in Project Alpha.
+Mike estimates the API v3 work is 1 week out.
+
+Can we unblock this? Project Alpha and API v3 are tightly coupled for Q1.
+
+Emily

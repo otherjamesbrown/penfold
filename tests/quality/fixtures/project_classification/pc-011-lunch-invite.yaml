@@ -1,0 +1,5 @@
+name: "pc-011-lunch-invite"
+description: "Lunch invite — no project content, should return empty"
+category: noise
+email: emails/project_classification/pc-011-lunch-invite.eml
+expected_projects: []

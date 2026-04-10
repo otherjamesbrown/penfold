@@ -1,0 +1,7 @@
+name: "pc-008-portal-enterprise"
+description: "Portal Redesign feeds Enterprise Dashboard — genuine two-project overlap"
+category: multi_project_clear
+email: emails/project_classification/pc-008-portal-enterprise.eml
+expected_projects:
+  - "Customer Portal Redesign"
+  - "Enterprise Dashboard"

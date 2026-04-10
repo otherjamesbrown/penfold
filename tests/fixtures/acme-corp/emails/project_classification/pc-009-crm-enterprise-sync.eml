@@ -1,0 +1,20 @@
+From: nicole.davis@acme.com
+To: jennifer.lee@acme.com
+Subject: CRM Integration data for Enterprise Dashboard widgets
+Date: Thu, 16 Jan 2026 11:00:00 -0800
+Message-ID: <pc-009@acme.com>
+Content-Type: text/plain; charset="UTF-8"
+
+Jen,
+
+The Enterprise Dashboard team needs the CRM Integration API spec
+finalised before they can build the account health widgets.
+
+Specifically, Enterprise Dashboard requires the following endpoints
+from CRM Integration:
+- GET /accounts/:id/health-score
+- GET /accounts/:id/recent-activity
+
+Can CRM Integration commit to having these ready by January 24?
+
+Nicole
