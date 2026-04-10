@@ -1,0 +1,19 @@
+From: sarah.chen@acme.com
+To: john.smith@acme.com
+Subject: Project Alpha - Q1 Status Check
+Date: Mon, 06 Jan 2026 09:00:00 -0800
+Message-ID: <pc-001@acme.com>
+Content-Type: text/plain; charset="UTF-8"
+
+Hi John,
+
+Quick status check on Project Alpha before the WBR tomorrow.
+
+The team is making solid progress on the platform migration. We're on track
+for the Q1 MVP deadline, though Emily flagged a minor dependency on the
+gRPC work that should resolve by end of week.
+
+Can you confirm the Project Alpha budget is still green?
+
+Thanks,
+Sarah

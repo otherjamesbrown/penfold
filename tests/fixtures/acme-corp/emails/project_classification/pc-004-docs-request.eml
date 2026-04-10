@@ -1,0 +1,19 @@
+From: stephanie.clark@acme.com
+To: michael.brown@acme.com
+Subject: Documentation Refresh - REST API Examples Needed
+Date: Thu, 09 Jan 2026 10:00:00 -0800
+Message-ID: <pc-004@acme.com>
+Content-Type: text/plain; charset="UTF-8"
+
+Mike,
+
+Working through the Documentation Refresh backlog this week.
+
+I need code examples for the REST endpoints you shipped last sprint.
+The existing docs are stale and the Documentation Refresh milestone
+requires all public endpoints to have runnable examples.
+
+Could you share the snippets by Monday?
+
+Thanks,
+Steph

@@ -1,0 +1,6 @@
+name: "pc-003-security-findings"
+description: "Security Audit remediation update — audit keyword in subject and body"
+category: single_project_clear
+email: emails/project_classification/pc-003-security-findings.eml
+expected_projects:
+  - "Security Audit 2026"

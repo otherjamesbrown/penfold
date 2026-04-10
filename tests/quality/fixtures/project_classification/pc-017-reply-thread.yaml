@@ -1,0 +1,6 @@
+name: "pc-017-reply-thread"
+description: "Edge: reply email where project name appears in quoted thread body"
+category: edge_case
+email: emails/project_classification/pc-017-reply-thread.eml
+expected_projects:
+  - "Mobile App v2"

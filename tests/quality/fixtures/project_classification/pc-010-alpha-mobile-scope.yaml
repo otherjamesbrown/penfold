@@ -1,0 +1,7 @@
+name: "pc-010-alpha-mobile-scope"
+description: "Project Alpha mobile scope question involving Mobile App v2 — genuine two-project overlap"
+category: multi_project_clear
+email: emails/project_classification/pc-010-alpha-mobile-scope.eml
+expected_projects:
+  - "Project Alpha"
+  - "Mobile App v2"

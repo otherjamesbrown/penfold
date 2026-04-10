@@ -1,0 +1,6 @@
+name: "pc-016-short-subject-only"
+description: "Edge: very short body, project name only in subject line"
+category: edge_case
+email: emails/project_classification/pc-016-short-subject-only.eml
+expected_projects:
+  - "Project Alpha"

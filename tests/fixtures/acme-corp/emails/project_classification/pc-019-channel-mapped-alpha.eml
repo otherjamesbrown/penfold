@@ -1,0 +1,15 @@
+From: build-system@acme.com
+To: engineering@acme.com
+Subject: Weekly build summary
+Date: Mon, 27 Jan 2026 07:00:00 -0800
+Message-ID: <pc-019@acme.com>
+Content-Type: text/plain; charset="UTF-8"
+
+Weekly CI/CD build summary for the engineering team.
+
+Builds this week: 142
+Pass rate: 98.6%
+Mean build time: 4m 32s
+Flaky tests fixed: 3
+
+No action required. This is an automated summary.

@@ -1,0 +1,6 @@
+name: "pc-002-mobile-design"
+description: "Mobile App v2 design feedback — project name in subject and body"
+category: single_project_clear
+email: emails/project_classification/pc-002-mobile-design.eml
+expected_projects:
+  - "Mobile App v2"

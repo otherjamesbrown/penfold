@@ -1,0 +1,5 @@
+name: "pc-014-generic-update"
+description: "Vague Q1 planning email with no project names — should return empty"
+category: noise
+email: emails/project_classification/pc-014-generic-update.eml
+expected_projects: []

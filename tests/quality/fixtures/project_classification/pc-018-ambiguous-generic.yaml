@@ -1,0 +1,5 @@
+name: "pc-018-ambiguous-generic"
+description: "Edge: ambiguous email mentioning 'initiative' and 'progress' with no project names — should return empty"
+category: edge_case
+email: emails/project_classification/pc-018-ambiguous-generic.eml
+expected_projects: []

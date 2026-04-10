@@ -1,0 +1,18 @@
+From: ashley.white@acme.com
+To: kevin.wilson@acme.com
+Subject: Mobile App v2 - Feedback on Nav Patterns
+Date: Tue, 07 Jan 2026 11:30:00 -0800
+Message-ID: <pc-002@acme.com>
+Content-Type: text/plain; charset="UTF-8"
+
+Kevin,
+
+Following up on the Mobile App v2 design review from yesterday.
+
+The nav drawer approach works well on phones but feels cluttered on
+tablets. Rachel's user research suggests 70% of enterprise users access
+the app on iPads. Worth revisiting for the tablet layout.
+
+Can you send me the updated Mobile App v2 mockups by Thursday?
+
+Ashley

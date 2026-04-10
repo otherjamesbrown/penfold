@@ -1,0 +1,20 @@
+From: john.smith@acme.com
+To: sarah.chen@acme.com
+Cc: ashley.white@acme.com
+Subject: Project Alpha mobile scope clarification
+Date: Fri, 17 Jan 2026 09:00:00 -0800
+Message-ID: <pc-010@acme.com>
+Content-Type: text/plain; charset="UTF-8"
+
+Sarah, Ashley,
+
+Clarification on the Project Alpha mobile requirements.
+
+The original scope included a Mobile App v2 companion feature for
+field technicians. Ashley - does the Mobile App v2 roadmap have
+capacity for the Project Alpha integration in Q1?
+
+If not, we need to descope the mobile piece from Project Alpha
+and address it in a follow-on milestone.
+
+John

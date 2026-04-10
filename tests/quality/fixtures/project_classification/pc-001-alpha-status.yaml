@@ -1,0 +1,6 @@
+name: "pc-001-alpha-status"
+description: "Project Alpha status check — project name in subject and body"
+category: single_project_clear
+email: emails/project_classification/pc-001-alpha-status.eml
+expected_projects:
+  - "Project Alpha"

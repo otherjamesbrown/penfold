@@ -1,0 +1,7 @@
+name: "pc-007-ml-data-dependency"
+description: "ML Recommendations depends on Data Pipeline Optimization — genuine two-project overlap"
+category: multi_project_clear
+email: emails/project_classification/pc-007-ml-data-dependency.eml
+expected_projects:
+  - "ML Recommendations"
+  - "Data Pipeline Optimization"
