@@ -385,6 +385,12 @@ func newFullRegistrar() *Registrar {
 			logger: logger,
 			repo:   &regVerifyAttributionRepo{},
 		}).
+		WithClassifyProjectActivities(&ClassifyProjectActivities{
+			logger:     logger,
+			repo:       &regVerifyAttributionRepo{},
+			aiClient:   ai,
+			promptRepo: &mockPromptRepository{},
+		}).
 		WithGraphActivities(&GraphActivities{
 			logger: logger,
 		}).

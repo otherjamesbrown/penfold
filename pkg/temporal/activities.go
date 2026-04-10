@@ -45,6 +45,7 @@ const (
 	ActivityHeartbeatCheckStaleContent     = "HeartbeatCheckStaleContent"
 	ActivityHeartbeatUpdateStatus          = "HeartbeatUpdateStatus"
 	ActivityAttributeProject               = "AttributeProject"
+	ActivityClassifyProject                = "ClassifyProject"
 	ActivityInstructionEvaluate            = "InstructionEvaluate"
 
 	// Digest activities for daily/weekly digest generation
@@ -216,6 +217,7 @@ func AllMainQueueActivities() []string {
 		ActivityHeartbeatCheckStaleContent,
 		ActivityHeartbeatUpdateStatus,
 		ActivityAttributeProject,
+		ActivityClassifyProject,
 		ActivityInstructionEvaluate,
 		// Digest activities
 		ActivityGatherDigestData,

@@ -8,7 +8,7 @@ func TestAllMainQueueActivities(t *testing.T) {
 	activities := AllMainQueueActivities()
 
 	// Count updated to reflect all activities including graph, digest (daily/weekly/journal), rollup, newsletter, structured extract, BuildStageContext, event triggers, etc.
-	expectedCount := 82
+	expectedCount := 83
 	if len(activities) != expectedCount {
 		t.Errorf("Expected %d main queue activities, got %d", expectedCount, len(activities))
 	}
