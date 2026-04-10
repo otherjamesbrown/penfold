@@ -33,6 +33,14 @@ Content arrives (email / transcript / slack)
    Sentiment, strategic insights, risk mapping, synthesis
        |
        v
+   Stage 4.5: Persist Findings (code logic - validation + database writes)
+   Validate Stage 4 output, store assertions, supersede old versions
+       |
+       v
+   Stage 4.7: Classify Project (small LLM - always runs)
+   Attribute content to 0-2 projects via gemini-flash + channel mapping
+       |
+       v
    Stage 5: Embed and Index (SLM for embeddings, database for storage)
    Generate vector embeddings, update search index
 ```
@@ -129,6 +137,26 @@ Validates and stores Stage 4 output back into the knowledge base.
 
 **Outputs**: assertions table (risks, decisions, actions, commitments), product_events, mention_patterns, review queue items for unknown entities.
 
+### Stage 4.7: Classify Project (LLM)
+
+Attributes content to zero, one, or two projects. **Runs for all content regardless of triage skip decisions** — personal emails (e.g. healthcare, family) and low-importance items still get project attribution even though they skip Stage 4.
+
+**Two-signal stack:**
+1. **Channel mapping fast path** — if `project_source_mappings` has an entry for the sender (e.g. a mailing list mapped to a project), use that directly (confidence 0.95). Skips the LLM call.
+2. **LLM classification** — otherwise, sends the subject, first ~500 chars of body, and the tenant's project list (with descriptions and keyword hints) to a small LLM. The model returns 0-2 project IDs with confidence scores and a reason.
+
+**Model**: `gemini-2.5-flash` (configured via `ai_routing_rules` with `task_type=classify_project`). Falls back to `gemini-2.0-flash`.
+
+**Token profile**: ~700-1000 input, ~100 output per call. A full classification costs ~$0.0001.
+
+**Prompt constraint**: the LLM is explicitly instructed to pick AT MOST 2 projects and return an empty list when nothing clearly fits — it must not default to any project. Keyword lists are passed as *hints* to help disambiguate, not as matchers.
+
+**Why LLM not keywords**: the previous keyword-matching approach over-attributed ambiguous terms. An "appointment" email from webuyanycar matched Healthcare's `appointment` keyword; a Substack article matched 4 unrelated projects. The LLM understands context — e.g. that "Juniper router issues" is network infrastructure (MTC for Akamai) even though "Juniper" isn't in MTC's keyword list.
+
+**Outputs**: writes to `sources.attributed_project_ids` (int array, 0-2 elements) and `assertions.attributed_project_id` (first project, for single-project fields). Audit trail in `content_mentions`.
+
+**Implementation**: `services/worker/activities/classify_project_activities.go`, `services/ai/server/classify_project.go`. Prompt stored in `prompt_templates` table (stage: `classify_project`).
+
 ### Stage 5: Embed and Index (SLM)
 
 Generates vector embeddings for semantic search. Uses local `mxbai-embed-large-v1` (1024 dimensions) on Apple Silicon.
@@ -204,8 +232,9 @@ Content becomes useful before the full pipeline completes:
 | T+10s | Stage 2 (Extract) | Entity-based search ("emails mentioning Dan Spataro"), basic embedding, semantic search |
 | T+15s | Stage 3 (Enrich) | Relationship-based search ("emails about CLIC project") |
 | T+30-60s | Stage 4 (Analyze) | Deep analysis, sentiment, insights, summary embeddings |
+| T+60-75s | Stage 4.7 (Classify Project) | Content attributed to projects; project-filtered queries work |
 
-**Resilience**: Stages 0-3 run locally. If Gemini is down, search, entity extraction, and classification all work. Stage 4 queues via Temporal and processes when the API recovers.
+**Resilience**: Stages 0-3 run locally. If Gemini is down, search, entity extraction, and classification all work. Stages 4 and 4.7 queue via Temporal and process when the API recovers.
 
 ## Trust and Seniority Weighting
 

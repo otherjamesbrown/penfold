@@ -118,6 +118,11 @@ Content arrives (email / transcript / slack)
    Sentiment, strategic insights, risk mapping, synthesis
        |
        v
+   Stage 4.7: Classify Project
+   (Small LLM - runs for all content, even PERSONAL/LOW)
+   Attribute to 0-2 projects via gemini-flash + channel mapping
+       |
+       v
    Stage 5: Embed and Index
    (SLM for embeddings, database for storage)
    Generate vector embeddings, update search index
@@ -494,6 +499,57 @@ Not every email that reaches Stage 4 needs the most expensive model:
 | Anything + LOW that reached Stage 4 | Gemini Flash | Lower stakes, save cost |
 
 The `ai_routing_rules` table and `ModelRouter` in `services/ai/router/router.go` already support this kind of task-based routing. The `DefaultModelSelector` has `ModelMappings` by request type. We extend this to include the triage metadata (category + importance) in the routing decision.
+
+---
+
+## Stage 4.7: Classify Project (Small LLM)
+
+**What it does:** Attributes each content item to zero, one, or two projects. Writes to `sources.attributed_project_ids` and `assertions.attributed_project_id`.
+
+**Why it's a separate stage:** Stage 4 (Deep Analyze) is skipped for `PERSONAL` category emails, `INTERNAL_COMMS + LOW`, and any content flagged `contribution=NONE/LOW`. But personal emails still need project attribution — an NHS prescription reminder is PERSONAL but belongs to the Healthcare project, a delivery notification is low-contribution but belongs to Home. Stage 4.7 **runs for every content item regardless of triage skip decisions**, so attribution coverage is complete.
+
+**Why LLM, not keyword matching:** The previous approach was pure keyword matching against `projects.keywords`. This over-attributed ambiguous terms (an "appointment" email from webuyanycar matched Healthcare's `appointment` keyword; a Substack article matched 4 unrelated projects) and under-attributed content that didn't contain exact keywords ("Juniper router issues" is MTC-relevant networking work but didn't match MTC's keyword list). A small LLM with the project descriptions understands context.
+
+### Two-signal stack
+
+1. **Channel mapping fast path** — if the sender matches a row in `project_source_mappings` (e.g. a mailing list dedicated to a project), use that attribution directly at confidence 0.95. No LLM call.
+2. **LLM classification** — otherwise, send subject + first ~500 chars of body + project list (with descriptions and keyword hints) to a small LLM.
+
+### The prompt
+
+```
+You are classifying an email into James's personal projects.
+
+Projects (id | name | description | keyword hints):
+{{.ProjectList}}
+
+Rules:
+- Pick AT MOST 2 projects. Only pick a project if you are confident it is genuinely about that project's subject matter.
+- If nothing fits well, return an empty list. DO NOT default to any project.
+- Keyword hints are just hints — use judgement. An "appointment" email from webuyanycar is NOT healthcare; it's a car valuation.
+- Return JSON: {"projects": [{"id": 123, "confidence": 0.8, "reason": "dental appointment at Oxford Smile Clinics"}]}
+
+Email:
+From: {{.From}}
+Subject: {{.Subject}}
+Body preview: {{.BodyPreview}}
+```
+
+Stored in `prompt_templates` (stage: `classify_project`). The constraint "pick AT MOST 2" + "empty list when uncertain" is critical — it prevents the LLM from defaulting to a best guess.
+
+### Model selection
+
+Task type `classify_project` routes to `gemini-2.5-flash` (fallback: `gemini-2.0-flash`), configured via `ai_routing_rules`. This is a high-volume, low-stakes task where flash is sufficient — the prompt is ~700-1000 input tokens and the output is ~100 tokens. A full classification costs around $0.0001.
+
+### Implementation
+
+- `services/worker/activities/classify_project_activities.go` — worker activity that loads projects, calls the AI service, writes results
+- `services/ai/server/classify_project.go` — AI service handler that loads the prompt, selects the model, parses the JSON response
+- `api/proto/ai/v1/enrichment.proto` — `ClassifyProject` RPC with `ClassifyProjectRequest/Response`
+
+### Cleanup
+
+This stage replaces the legacy `AttributeProject` activity. The old keyword-matching code (`services/worker/activities/attribution.go`, `distributeAssertions`, `matchesKeywordInText`) has been removed. `project_source_mappings` and `GetProjectsWithKeywords` are retained — the mappings feed the channel-mapping fast path, and the keyword arrays now serve as *hints* to the LLM rather than as matchers.
 
 ---
 
