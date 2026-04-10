@@ -868,7 +868,7 @@ func main() {
 		logger.Info("Project tagging activities initialized")
 	}
 
-	// Initialize Attribution Activities
+	// Initialize Attribution Activities (legacy keyword-based, kept for rollback)
 	if dbPool != nil && entitiesRepo != nil && mentionsRepo != nil {
 		attributionRepo := &attributionRepositoryAdapter{
 			entityRepo:   entitiesRepo,
@@ -878,6 +878,21 @@ func main() {
 		attributionActivities := activities.NewAttributionActivities(logger, attributionRepo)
 		activityRegistrar.WithAttributionActivities(attributionActivities)
 		logger.Info("Attribution activities initialized")
+
+		// Initialize ClassifyProject Activities (LLM-based project classification)
+		if aiClient != nil {
+			promptRepo := pipeline.NewRepository(dbPool)
+			operConfigReader := activities.NewPostgresOperationalConfigReader(dbPool)
+			classifyProjectActivities := activities.NewClassifyProjectActivities(
+				logger,
+				attributionRepo, // reuse same adapter — satisfies ClassifyProjectRepository interface
+				aiClient,
+				promptRepo,
+				operConfigReader,
+			)
+			activityRegistrar.WithClassifyProjectActivities(classifyProjectActivities)
+			logger.Info("ClassifyProject activities initialized")
+		}
 	}
 
 	// Initialize Instruction Evaluation Activities (after attribute_project)
