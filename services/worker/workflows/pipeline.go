@@ -3005,45 +3005,46 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 		}
 	}
 
-	// Stage 4.7: Attribute Project (assertion-level project attribution)
-	if stageInPipeline(stageConfigMap, "attribute_project") {
-		updateStatus("attributing_projects", "AttributeProject")
-		attrStage := stageByStatus("attributing_projects")
+	// Stage 4.7: Classify Project (LLM-based, always runs)
+	if stageInPipeline(stageConfigMap, "classify_project") {
+		updateStatus("classifying_project", "ClassifyProject")
+		classifyStage := stageByStatus("classifying_project")
 		logger.Info("pipeline stage starting",
 			"source_id", input.SourceID,
-			"stage", attrStage.Name,
+			"stage", classifyStage.Name,
 			"stage_number", "4.7",
 			"total_steps", state.status.TotalSteps,
 		)
-		attrStart := workflow.Now(ctx)
+		classifyStart := workflow.Now(ctx)
 
-		var attrOutput AttributeProjectOutput
-		ctxAttr := workflow.WithActivityOptions(ctx, fastOpts)
-		err = workflow.ExecuteActivity(ctxAttr, pkgtemporal.ActivityAttributeProject, AttributeProjectInput{
-			TenantID: input.TenantID,
-			SourceID: input.SourceID,
-			Subject:  input.Subject,
-			BodyText: input.BodyText,
-		}).Get(ctx, &attrOutput)
+		var classifyOut ClassifyProjectOutput
+		ctxClassify := workflow.WithActivityOptions(ctx, fastOpts)
+		err = workflow.ExecuteActivity(ctxClassify, pkgtemporal.ActivityClassifyProject, ClassifyProjectInput{
+			TenantID:    input.TenantID,
+			SourceID:    input.SourceID,
+			Subject:     input.Subject,
+			BodyText:    input.BodyText,
+			SenderEmail: input.SenderEmail,
+		}).Get(ctx, &classifyOut)
 		if err != nil {
-			logger.Warn("pipeline stage failed (non-blocking)",
+			logger.Error("pipeline stage failed (non-blocking)",
 				"source_id", input.SourceID,
-				"stage", attrStage.Name,
+				"stage", classifyStage.Name,
 				"stage_number", "4.7",
-				"duration_ms", workflow.Now(ctx).Sub(attrStart).Milliseconds(),
+				"duration_ms", workflow.Now(ctx).Sub(classifyStart).Milliseconds(),
 				"status", "failed",
 				"error", err.Error(),
 			)
 		} else {
 			logger.Info("pipeline stage completed",
 				"source_id", input.SourceID,
-				"stage", attrStage.Name,
+				"stage", classifyStage.Name,
 				"stage_number", "4.7",
-				"duration_ms", workflow.Now(ctx).Sub(attrStart).Milliseconds(),
+				"duration_ms", workflow.Now(ctx).Sub(classifyStart).Milliseconds(),
 				"status", "completed",
-				"assertions_attributed", attrOutput.AssertionsAttributed,
-				"projects_matched", attrOutput.ProjectsMatched,
-				"attribution_source", attrOutput.AttributionSource,
+				"method", classifyOut.Method,
+				"project_ids", classifyOut.ProjectIDs,
+				"tokens_used", classifyOut.TokensUsed,
 			)
 		}
 	}
