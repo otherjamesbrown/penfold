@@ -1,0 +1,24 @@
+email: emails/personal/ayla_school_update.eml
+description: "School newsletter mentioning Ayla — should attribute to Family"
+last_verified: "2026-04-10"
+category: standard
+
+routing:
+  content_subtype: HUMAN
+  pipeline: standard
+  must_complete: [parse, triage, embed]
+
+triage:
+  importance:
+    one_of: [LOW, MEDIUM]
+  category:
+    one_of: [PERSONAL, FYI, OTHER, ACTION_REQUIRED, LOW_PRIORITY]
+
+projects:
+  must_find:
+    - name_contains: "Family"
+  max_count: 1
+
+intent:
+  description: "School newsletter for Ayla — should reliably attribute to Family project via parents evening and school context."
+  value: low

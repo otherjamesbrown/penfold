@@ -494,6 +494,63 @@ func (env *QualityEnv) SeedClassificationRules(ctx context.Context) error {
 	return nil
 }
 
+// SeedPersonalProjects seeds personal-context projects for testing project classification.
+// These projects mirror the james-personal tenant configuration, enabling quality tests
+// to validate correct attribution and rejection of over-attribution.
+// Safe to call multiple times — uses ON CONFLICT DO NOTHING.
+func (env *QualityEnv) SeedPersonalProjects(ctx context.Context) error {
+	type personalProject struct {
+		name        string
+		description string
+		keywords    []string
+	}
+
+	projects := []personalProject{
+		{
+			name:        "Healthcare",
+			description: "Medical appointments, NHS prescriptions, dental, optical care, and health admin",
+			keywords:    []string{"nhs", "prescription", "dental", "dentist", "clinic", "gp", "optician", "medical", "appointment reminder"},
+		},
+		{
+			name:        "Cars",
+			description: "Vehicle maintenance, MOT, car insurance, buying and selling vehicles",
+			keywords:    []string{"webuyanycar", "porsche", "audi", "car insurance", "mot", "service booking", "vehicle", "garage"},
+		},
+		{
+			name:        "Home",
+			description: "Home deliveries, utilities, broadband, household purchases",
+			keywords:    []string{"delivery notification", "amazon order", "utility bill", "broadband", "household"},
+		},
+		{
+			name:        "Family",
+			description: "Family communications, school updates, children's activities",
+			keywords:    []string{"school", "ayla", "parents evening", "nursery", "family update"},
+		},
+		{
+			name:        "AI",
+			description: "Artificial intelligence tools, LLMs, Claude, OpenAI, Anthropic product updates",
+			keywords:    []string{"anthropic", "claude", "openai", "llm", "chatgpt", "artificial intelligence"},
+		},
+		{
+			name:        "Job Search",
+			description: "Job applications, LinkedIn alerts, recruitment, career opportunities",
+			keywords:    []string{"linkedin", "job offer", "hiring manager", "application", "interview", "recruiter"},
+		},
+	}
+
+	for _, p := range projects {
+		_, err := env.DB.Exec(ctx, `
+			INSERT INTO projects (tenant_id, name, description, keywords)
+			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (tenant_id, name) DO NOTHING
+		`, env.TenantID, p.name, p.description, p.keywords)
+		if err != nil {
+			return fmt.Errorf("seed personal project %s: %w", p.name, err)
+		}
+	}
+	return nil
+}
+
 // FixturePath returns the full path to a fixture file.
 func (env *QualityEnv) FixturePath(relativePath string) string {
 	return filepath.Join(env.FixtureDir, relativePath)

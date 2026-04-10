@@ -28,6 +28,9 @@ assertions:
     - type: issue
       description_contains: "autoscaling"
 
+projects:
+  max_count: 2
+
 intent:
   description: "Post-incident review — action items with DRI assignments, Q1 SLA goal."
   value: high

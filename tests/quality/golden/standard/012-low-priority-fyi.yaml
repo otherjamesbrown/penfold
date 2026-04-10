@@ -24,6 +24,9 @@ assertions:
     - type: issue
       description_contains: "incident"
 
+projects:
+  max_count: 0
+
 intent:
   description: "Casual lunch invite — no business value, should not extract risks or decisions."
   value: none

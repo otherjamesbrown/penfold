@@ -1,0 +1,31 @@
+From: noreply@anthropic.com
+To: james@brown.chat
+Subject: Anthropic API changelog: Claude 3.5 Sonnet improvements + new tool use features
+Date: Mon, 20 Jan 2026 18:00:00 +0000
+Message-ID: <eval-anthropic-001@anthropic.com>
+Content-Type: text/plain; charset="UTF-8"
+
+Anthropic Developer Updates
+
+What's new in the API this month:
+
+CLAUDE 3.5 SONNET — IMPROVED
+The latest version of Claude 3.5 Sonnet shows significant improvements in:
+- Multi-step tool use and agentic tasks
+- Code generation accuracy (up 12% on SWE-bench)
+- Reduced hallucination in long-context tasks
+
+NEW: TOOL USE STREAMING
+You can now stream tool use responses, enabling lower latency for agentic workflows.
+See the updated docs: docs.anthropic.com/tool-use
+
+PROMPT CACHING UPDATE
+Cache TTL has been extended to 1 hour for all Claude models. This can reduce costs by up to 90% on repeated prompts with large context.
+
+NEW PRICING TIER
+Batch API pricing is now available for throughput-optimised use cases at 50% discount.
+
+Read the full changelog: docs.anthropic.com/changelog
+
+—
+The Anthropic Team

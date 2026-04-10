@@ -1,0 +1,26 @@
+email: emails/personal/dental_appointment.eml
+description: "Dental appointment confirmation — should attribute to Healthcare"
+last_verified: "2026-04-10"
+category: standard
+
+routing:
+  content_subtype: HUMAN
+  pipeline: standard
+  must_complete: [parse, triage, embed]
+
+triage:
+  importance:
+    one_of: [LOW, MEDIUM]
+  category:
+    one_of: [PERSONAL, FYI, OTHER, ACTION_REQUIRED, LOW_PRIORITY]
+
+projects:
+  must_find:
+    - name_contains: "Healthcare"
+  must_not_find:
+    - name_contains: "Cars"
+  max_count: 1
+
+intent:
+  description: "Dental appointment — unambiguous healthcare content, should attribute to Healthcare project only."
+  value: low

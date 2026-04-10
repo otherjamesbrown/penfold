@@ -1,0 +1,25 @@
+email: emails/personal/substack_political_article.eml
+description: "Substack political newsletter — no project attribution expected"
+last_verified: "2026-04-10"
+category: standard
+
+routing:
+  content_subtype: HUMAN
+  pipeline: standard
+  must_complete: [parse, triage, embed]
+
+triage:
+  importance:
+    one_of: [LOW, NONE]
+  category:
+    one_of: [PERSONAL, FYI, SOCIAL, OTHER, LOW_PRIORITY]
+
+projects:
+  max_count: 1
+  must_not_find:
+    - name_contains: "Healthcare"
+    - name_contains: "Cars"
+
+intent:
+  description: "Political newsletter — no personal project relevance, should not over-attribute to Healthcare just because NHS reform is mentioned."
+  value: none
