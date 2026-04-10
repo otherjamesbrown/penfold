@@ -286,6 +286,7 @@ func main() {
 		logger.Info("DB-backed routing registry wired into AI server")
 	}
 	aiv1.RegisterAICoordinatorServiceServer(grpcServer, aiServer)
+	aiv1.RegisterEnrichmentServiceServer(grpcServer, server.NewEnrichmentServer(aiServer))
 
 	// Enable gRPC reflection for debugging
 	if cfg.IsDevelopment() {
