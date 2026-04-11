@@ -384,6 +384,10 @@ func newFullRegistrar() *Registrar {
 		}).
 		WithEventTriggerActivities(&EventTriggerActivities{
 			logger: logger,
+		}).
+		WithKBTriageActivities(&KBTriageActivities{
+			db:     nil, // nil db is safe for registration testing
+			logger: logger,
 		})
 }
 

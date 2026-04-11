@@ -39,6 +39,7 @@ type Registrar struct {
 	heartbeatActivities               *HeartbeatActivities
 	graphActivities                   *GraphActivities
 	instructionEvaluationActivities   *InstructionEvaluationActivities
+	kbTriageActivities                *KBTriageActivities
 	digestActivities                  *DigestActivities
 	newsletterExtractActivities       *NewsletterExtractActivities
 	notificationExtractActivities     *NotificationExtractActivities
@@ -246,6 +247,12 @@ func (r *Registrar) WithJournalRollupActivities(jra *JournalRollupActivities) *R
 // WithAutomationRuleActivities adds automation rule activities to the registrar.
 func (r *Registrar) WithAutomationRuleActivities(ara *AutomationRuleActivities) *Registrar {
 	r.automationRuleActivities = ara
+	return r
+}
+
+// WithKBTriageActivities adds KB triage activities to the registrar.
+func (r *Registrar) WithKBTriageActivities(kta *KBTriageActivities) *Registrar {
+	r.kbTriageActivities = kta
 	return r
 }
 
@@ -653,6 +660,25 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		})
 	}
 
+	// KB triage activities (KBTriageWorkflow — weekly KB gap triage)
+	if r.kbTriageActivities != nil {
+		w.RegisterActivityWithOptions(r.kbTriageActivities.ReadGaps, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityKBTriageReadGaps,
+		})
+		w.RegisterActivityWithOptions(r.kbTriageActivities.Analyze, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityKBTriageAnalyze,
+		})
+		w.RegisterActivityWithOptions(r.kbTriageActivities.CreateTask, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityKBTriageCreateTask,
+		})
+		w.RegisterActivityWithOptions(r.kbTriageActivities.AppendEscalation, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityKBTriageAppendEscalation,
+		})
+		w.RegisterActivityWithOptions(r.kbTriageActivities.CreateReport, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityKBTriageCreateReport,
+		})
+	}
+
 	// Graph activities for Outlook and Teams sync workflows
 	r.registerGraphActivities(w)
 }
@@ -941,6 +967,11 @@ func (r *Registrar) ActivityCount(taskQueue string) int {
 		// DeliverOutput, ExecuteChains, RecordExecution
 		if r.automationRuleActivities != nil {
 			count += 7
+		}
+		// KBTriage_ReadGaps, KBTriage_Analyze, KBTriage_CreateTask,
+		// KBTriage_AppendEscalation, KBTriage_CreateReport
+		if r.kbTriageActivities != nil {
+			count += 5
 		}
 		return count
 	case config.AITaskQueue:

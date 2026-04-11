@@ -104,6 +104,13 @@ const (
 	ActivityARDeliverOutput     = "AR_DeliverOutput"
 	ActivityARExecuteChains     = "AR_ExecuteChains"
 	ActivityARRecordExecution   = "AR_RecordExecution"
+
+	// KB triage activities (KBTriageWorkflow — weekly KB gap triage).
+	ActivityKBTriageReadGaps        = "KBTriage_ReadGaps"
+	ActivityKBTriageAnalyze         = "KBTriage_Analyze"
+	ActivityKBTriageCreateTask      = "KBTriage_CreateTask"
+	ActivityKBTriageAppendEscalation = "KBTriage_AppendEscalation"
+	ActivityKBTriageCreateReport    = "KBTriage_CreateReport"
 )
 
 // AI Task Queue activity names (4 unique activities).
@@ -249,6 +256,12 @@ func AllMainQueueActivities() []string {
 		ActivityBuildStageContext,
 		// Event trigger evaluation
 		ActivityEvaluateEventTriggers,
+		// KB triage activities (KBTriageWorkflow)
+		ActivityKBTriageReadGaps,
+		ActivityKBTriageAnalyze,
+		ActivityKBTriageCreateTask,
+		ActivityKBTriageAppendEscalation,
+		ActivityKBTriageCreateReport,
 		// Graph API activities (Outlook + Teams sync + Transcript sync)
 		ActivityCheckGraphAuth,
 		ActivityFetchOutlookMessages,

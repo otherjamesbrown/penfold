@@ -20,6 +20,7 @@ const (
 	WorkflowJournalDigest                  = "JournalDigestWorkflow"
 	WorkflowDigestRollup                   = "DigestRollupWorkflow"
 	WorkflowJournalRollup                  = "JournalRollupWorkflow"
+	WorkflowKBTriage                       = "KBTriageWorkflow"
 )
 
 // AI Task Queue workflow names.
