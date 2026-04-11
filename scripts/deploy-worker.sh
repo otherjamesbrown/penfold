@@ -47,21 +47,17 @@ deploy_binary() {
         return 1
     fi
 
-    deploy_file "$BUILD_OUTPUT" "$WORKER_HOST" "$BINARY_PATH" "codesign --force --sign -"
-
-    # Reset macOS firewall entry to prevent the "Allow incoming connections" popup.
-    # When a binary is replaced, macOS invalidates the prior network permission
-    # because the ad-hoc signature changed. Re-adding it pre-approves the new binary.
-    if is_local_host "$WORKER_HOST"; then
-        local fw="/usr/libexec/ApplicationFirewall/socketfilterfw"
-        if [[ -x "$fw" ]]; then
-            sudo "$fw" --remove "$BINARY_PATH" 2>/dev/null || true
-            sudo "$fw" --add "$BINARY_PATH" 2>/dev/null || true
-            sudo "$fw" --unblockapp "$BINARY_PATH" 2>/dev/null || true
-            sudo xattr -rd com.apple.quarantine "$BINARY_PATH" 2>/dev/null || true
-            log_success "Firewall entry reset for ${BINARY_PATH}"
-        fi
-    fi
+    # Stable --identifier keeps macOS TCC / Local Network Privacy permissions
+    # across rebuilds. Without it, the ad-hoc identifier includes a content
+    # hash (e.g. penfold-worker-<40 hex chars>) which changes on every build,
+    # so the OS treats each rebuild as a brand-new app and re-prompts for
+    # local network access — which blocks the worker from reaching Postgres
+    # on dev02 until a human clicks Allow.
+    #
+    # With a stable identifier, TCC matches the new binary against the
+    # existing grant. First deploy on a fresh machine still requires one
+    # popup to approve; subsequent rebuilds don't.
+    deploy_file "$BUILD_OUTPUT" "$WORKER_HOST" "$BINARY_PATH" "codesign --force --sign - --identifier com.penfold.worker"
 }
 
 check_status() {
