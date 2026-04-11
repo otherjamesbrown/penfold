@@ -48,6 +48,7 @@ type Registrar struct {
 	preClassifyActivities             *PreClassifyActivities
 	eventTriggerActivities            *EventTriggerActivities
 	automationRuleActivities          *AutomationRuleActivities
+	kbCanaryActivities                *KBCanaryActivities
 }
 
 // NewRegistrar creates a new activity registrar.
@@ -246,6 +247,12 @@ func (r *Registrar) WithJournalRollupActivities(jra *JournalRollupActivities) *R
 // WithAutomationRuleActivities adds automation rule activities to the registrar.
 func (r *Registrar) WithAutomationRuleActivities(ara *AutomationRuleActivities) *Registrar {
 	r.automationRuleActivities = ara
+	return r
+}
+
+// WithKBCanaryActivities adds KB canary activities to the registrar.
+func (r *Registrar) WithKBCanaryActivities(kca *KBCanaryActivities) *Registrar {
+	r.kbCanaryActivities = kca
 	return r
 }
 
@@ -655,6 +662,22 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 
 	// Graph activities for Outlook and Teams sync workflows
 	r.registerGraphActivities(w)
+
+	// KB canary activities (KBCanaryWorkflow — pf-89c379)
+	if r.kbCanaryActivities != nil {
+		w.RegisterActivityWithOptions(r.kbCanaryActivities.FetchCanaries, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityKBCanaryFetchCanaries,
+		})
+		w.RegisterActivityWithOptions(r.kbCanaryActivities.RunQuestion, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityKBCanaryRunQuestion,
+		})
+		w.RegisterActivityWithOptions(r.kbCanaryActivities.LogGap, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityKBCanaryLogGap,
+		})
+		w.RegisterActivityWithOptions(r.kbCanaryActivities.CreateSummary, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityKBCanaryCreateSummary,
+		})
+	}
 }
 
 // registerAIQueueActivities registers activities for the AI task queue.
