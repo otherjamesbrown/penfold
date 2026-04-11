@@ -544,3 +544,98 @@ type AutomationRuleResult struct {
 	Status         string            `json:"status"` // "completed" or "failed"
 	Error          string            `json:"error,omitempty"`
 }
+
+// KBDriftScanInput is the input for KBDriftScanWorkflow.
+type KBDriftScanInput struct {
+	TenantID   string `json:"tenant_id"`
+	ScheduleID string `json:"schedule_id"`
+}
+
+// KBDriftScanResult is the output of KBDriftScanWorkflow.
+type KBDriftScanResult struct {
+	ArticlesChecked  int    `json:"articles_checked"`
+	ArticlesPassed   int    `json:"articles_passed"`
+	ArticlesFailed   int    `json:"articles_failed"`
+	Layer2Checked    int    `json:"layer2_checked"`
+	GapsLogged       int    `json:"gaps_logged"`
+	Status           string `json:"status"` // "completed" or "failed"
+	Error            string `json:"error,omitempty"`
+}
+
+// KBArticle is a lightweight KB article descriptor returned by KB_ListArticles.
+type KBArticle struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
+// KBListArticlesInput is the input for KB_ListArticles activity.
+type KBListArticlesInput struct {
+	TenantID string `json:"tenant_id"`
+}
+
+// KBListArticlesOutput is the output of KB_ListArticles activity.
+type KBListArticlesOutput struct {
+	Articles []KBArticle `json:"articles"`
+}
+
+// KBFetchArticleInput is the input for KB_FetchArticle activity.
+type KBFetchArticleInput struct {
+	TenantID  string `json:"tenant_id"`
+	ArticleID string `json:"article_id"`
+}
+
+// KBFetchArticleOutput is the output of KB_FetchArticle activity.
+type KBFetchArticleOutput struct {
+	ArticleID   string `json:"article_id"`
+	Content     string `json:"content"`
+	PrevContent string `json:"prev_content,omitempty"` // previous version, used by Layer 2
+}
+
+// KBFactCheckInput is the input for KB_FactCheck activity (Layer 1 deterministic check).
+type KBFactCheckInput struct {
+	TenantID  string `json:"tenant_id"`
+	ArticleID string `json:"article_id"`
+	Content   string `json:"content"`
+}
+
+// KBFactCheckOutput is the output of KB_FactCheck activity.
+type KBFactCheckOutput struct {
+	Passed          bool     `json:"passed"`
+	ClaimsChecked   int      `json:"claims_checked"`
+	ClaimsVerified  int      `json:"claims_verified"`
+	BrokenClaims    []string `json:"broken_claims,omitempty"`
+}
+
+// KBLayer2JudgeInput is the input for KB_Layer2Judge activity (semantic drift check).
+type KBLayer2JudgeInput struct {
+	TenantID    string `json:"tenant_id"`
+	ArticleID   string `json:"article_id"`
+	Content     string `json:"content"`
+	PrevContent string `json:"prev_content"`
+}
+
+// KBLayer2JudgeOutput is the output of KB_Layer2Judge activity.
+type KBLayer2JudgeOutput struct {
+	Verdict string   `json:"verdict"` // "consistent", "inaccurate", "incomplete", "gaps_noted"
+	Issues  []string `json:"issues,omitempty"`
+}
+
+// KBAppendGapInput is the input for KB_AppendGap activity.
+type KBAppendGapInput struct {
+	TenantID    string `json:"tenant_id"`
+	ArticleID   string `json:"article_id"`
+	Category    string `json:"category"` // "drift-detected", "layer2-drift"
+	Description string `json:"description"`
+	Date        string `json:"date"` // YYYY-MM-DD
+}
+
+// KBWriteSummaryInput is the input for KB_WriteSummary activity.
+type KBWriteSummaryInput struct {
+	TenantID        string `json:"tenant_id"`
+	Date            string `json:"date"` // YYYY-MM-DD
+	ArticlesChecked int    `json:"articles_checked"`
+	ArticlesPassed  int    `json:"articles_passed"`
+	ArticlesFailed  int    `json:"articles_failed"`
+	Layer2Checked   int    `json:"layer2_checked"`
+	GapsLogged      int    `json:"gaps_logged"`
+}
