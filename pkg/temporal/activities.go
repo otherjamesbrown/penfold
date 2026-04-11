@@ -104,6 +104,14 @@ const (
 	ActivityARDeliverOutput     = "AR_DeliverOutput"
 	ActivityARExecuteChains     = "AR_ExecuteChains"
 	ActivityARRecordExecution   = "AR_RecordExecution"
+
+	// KB drift scan activities (KBDriftScanWorkflow — nightly out-of-band drift detection).
+	ActivityKBListArticles = "KB_ListArticles"
+	ActivityKBFetchArticle = "KB_FetchArticle"
+	ActivityKBFactCheck    = "KB_FactCheck"
+	ActivityKBLayer2Judge  = "KB_Layer2Judge"
+	ActivityKBAppendGap    = "KB_AppendGap"
+	ActivityKBWriteSummary = "KB_WriteSummary"
 )
 
 // AI Task Queue activity names (4 unique activities).
