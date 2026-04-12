@@ -1,362 +1,460 @@
-# Task: Add LLM-as-judge score reading to newsletter and notification eval tests
+# Task: Switch penfold pipeline config to built-in auto review
 
-**Task ID:** pf-2cb3e7
+**Task ID:** pf-a30052
 **Agent:** 
 
 ## Task Content
 
-## Wave 3 — depends on pf-056eaf (GetScores)
+## Scope
+Update the penfold repo’s `.cobuild/pipeline.yaml` to use built-in auto review instead of depending on Gemini. Keep the repo’s existing build, test, and deploy settings intact while adding the review block needed for cross-model review and PR comment posting.
 
-Update the existing newsletter and notification eval tests to read LLM-as-judge scores from Langfuse evaluators after pipeline processing. This gives LLM-as-judge coverage across all 3 content categories.
+## Acceptance Criteria
+- [ ] `/Users/james/github/otherjamesbrown/penfold/.cobuild/pipeline.yaml` sets review to `provider: auto` with cross-model review enabled.
+- [ ] Existing penfold build, test, and deploy settings remain unchanged outside the review block.
+- [ ] The final config is valid YAML.
+- [ ] Tests pass: `make test && make vet`
+- [ ] Build passes: `make build`
 
-## What to add
+## Code Locations
+- `.cobuild/pipeline.yaml` — replace the repo’s inherited broken Gemini default with built-in auto review.
 
-In both `tests/quality/newsletter_eval_test.go` and `tests/quality/notification_eval_test.go`, after the existing `RecordResult` call:
+## Wave
+4
 
-```go
-// LLM-as-judge: read Langfuse evaluator scores
-if lfEval != nil {
-    time.Sleep(10 * time.Second)
-    scores, err := lfEval.GetScores(ctx, traceID)
-    if err == nil {
-        for _, score := range scores {
-            t.Logf("  langfuse.%s: %.1f", score.Name, score.Value)
-            if score.Value < 3.0 {
-                t.Errorf("langfuse.%s: score %.1f below threshold 3.0", score.Name, score.Value)
-            }
-        }
-    }
-}
-```
+## Notes
+Target project is `penfold`, target repo is `penfold`. Blocked by the cobuild `process-review` integration task.
 
-Note: Soft-assert pattern — if no scores returned (evaluators not yet configured in Langfuse UI), log a warning but don't fail. This avoids breaking the test suite before evaluators are configured.
+## Design Context (from cb-32ed2a)
 
-## Code locations
-- `tests/quality/newsletter_eval_test.go` — ~12 lines added after RecordResult
-- `tests/quality/notification_eval_test.go` — same change
-
-## Acceptance criteria
-- [ ] Both test files compile with the new GetScores call
-- [ ] LLM-as-judge scores are logged when present
-- [ ] Tests don't fail when Langfuse evaluators are not configured (empty scores list)
-- [ ] Scores below 3.0 are flagged as test errors when evaluators are configured
-- [ ] `go build ./tests/quality/...` passes
-
-## Design Context (from pf-71f660)
-
-**Eval Framework Phase 3 — standard email evals + LLM-as-judge**
-
-# Eval Framework Phase 3 — Standard Email Evals + LLM-as-Judge
+**Built-in cross-model PR review — replace broken Gemini integration**
 
 ## Problem
 
-Standard human emails (the largest content category) have no eval coverage in the new framework. The legacy `TestQuality_ExtractionAccuracy` test exists but doesn't follow the eval framework pattern — no L1 routing checks, no Langfuse recording, no `EvalResults`, and it can't run alongside the category-specific eval tests (newsletter, notification) because it uses a different setup/teardown pattern.
+CoBuild's PR review step depends on Gemini Code Review, an external GitHub integration that posts review comments on PRs. As of 2026-04-12, Gemini has stopped reviewing PRs entirely — 11 consecutive PRs across cobuild and penfold received zero reviews. Every PR was merged via the CI-based fallback (CI passes → approve), which is effectively no review at all.
 
-Additionally, Phases 1-2 only use deterministic matchers (substring, count bounds). For subjective quality questions like "is this summary useful?" or "did the extraction capture the key business meaning?", we need LLM-as-judge evaluation. This should cover all content categories (standard, newsletter, notification), not just standard emails.
+The external dependency is fragile: we can't debug it, can't configure it, and can't control which model reviews the code. When it breaks, the entire quality gate disappears silently.
 
-## What Exists
+## Goal
 
-### Golden files (4, root of golden/ directory)
-- `002-incident-response.yaml` — P0 incident, HIGH importance, issues + people
-- `011-risk-escalation.yaml` — 3 explicit risks with people and projects
-- `012-low-priority-fyi.yaml` — Negative test: LOW importance, no assertions expected
-- `013-thread-with-decisions.yaml` — 4 labeled decisions with thread context
+Replace the external Gemini dependency with a built-in LLM review step that CoBuild controls end-to-end. The review model should be different from the model that wrote the code (cross-model review catches different classes of bugs).
 
-### Fixtures (13 .eml files, only 4 have golden files)
-001-project-update, 002-incident-response, 003-meeting-invite, 004-code-review, 005-project-kickoff, 006-sales-update, 007-documentation, 008-security-review, 009-mobile-update, 010-postmortem, 011-risk-escalation, 012-low-priority-fyi, 013-thread-with-decisions
+## Primary user
 
-### Matchers (in matchers.go)
-- `MatchTriage()` — importance + category (calls t.Error, no MatchDetail)
-- `MatchPeople()` — min/max count, must_find/must_not_find by name
-- `MatchAssertions()` — by type + description_contains
-- `MatchProjects()` — by name
-- `MatchPipelineStages()` — stage completion
+The orchestrator agent running \`cobuild process-review\`, and any developer who wants confidence that PRs are actually reviewed before merge.
 
-### Standard pipeline (15 stages in prod)
-parse → triage → summarize → extract_ner → extract_assertions → attribute_project → instruction_evaluate → extract_semantic → resolve → enrich_entities → analyze → persist → embed
+## Success criteria
 
-Key difference from newsletter/notification: standard emails extract to the `assertions` and `people` tables, not to `content_enrichment.extracted_data` JSON.
+1. \`cobuild process-review <task-id>\` calls an LLM with the PR diff + task spec + parent design context and gets a structured approve/request-changes verdict with findings.
+2. Cross-model by default: code written by Codex (gpt-5.4) is reviewed by Claude (sonnet), and vice versa. Configurable override.
+3. Review findings are posted as a PR comment (visible in GitHub) and recorded in the pipeline gate.
+4. If the review model is unavailable, falls back to CI-only (current behavior) with a warning.
+5. Existing \`gemini-github\` provider still works as an option for repos that have a working Gemini integration.
+6. Review completes in under 2 minutes for typical PRs (< 500 lines changed).
 
-### Langfuse infrastructure
-- Self-hosted Langfuse 3 on dev02:3000
-- `CreateScore()` API implemented in `pkg/langfuse/client.go`
-- `langfuse_eval.go` records L1/L2/L3 scores on pipeline traces
-- Datasets per category (`eval-newsletter`, `eval-notification`)
+## Non-goals
 
-## Design
+- Building a full code review UI. The review is a single LLM call that produces a structured verdict, not an interactive review session.
+- Replacing human review. This is an automated first pass. Human review can still be required via GitHub branch protection.
+- Supporting every LLM provider. v1 supports claude (Anthropic API) and openai (for Codex-model review). Ollama/local is a future enhancement.
+- Reviewing PRs outside CoBuild's pipeline. This is for \`cobuild process-review\`, not a general GitHub review bot.
 
-### Part A: Migrate standard email evals to new framework
+## Technical approach
 
-#### A1. Move golden files into `golden/standard/` subdirectory
+### New package: internal/review/
 
-Relocate existing 4 files and add `routing:` section + `category: standard`:
+A \`Reviewer\` interface with provider implementations:
 
-```yaml
-email: emails/002-incident-response.eml
-description: "P0 incident report — API Gateway degradation affecting 15% of requests"
-last_verified: "2026-03-26"
-category: standard
-
-routing:
-  content_subtype: HUMAN
-  pipeline: standard
-  must_complete: [parse, triage, extract_ner, extract_assertions, extract_semantic, embed]
-  must_not_run: [newsletter_extract]
-
-triage:
-  importance:
-    one_of: [HIGH, CRITICAL]
-  category:
-    one_of: [RISK_ISSUE, INCIDENT, OPERATIONAL]
-
-people:
-  min_count: 2
-  must_find:
-    - name_contains: "Daniel"
-
-assertions:
-  min_count: 1
-  must_find:
-    - type: issue
-      description_contains: "API"
-```
-
-#### A2. Add 4 new golden files (8 total)
-
-**001-project-update.yaml** — Project Alpha MVP status, Q1 deadline risk
-- Triage: MEDIUM, PROJECT_UPDATE
-- People: John, Sarah (min 2)
-- Assertions: risk (Q1 deadline), action (sync meeting)
-
-**005-project-kickoff.yaml** — ML Tiger Team formation, executive-approved
-- Triage: HIGH, PROJECT_UPDATE/DECISION
-- People: Brandon, Jessica, Lisa (min 3)
-- Assertions: decision (Tiger Team approved), action (kickoff meeting)
-
-**008-security-review.yaml** — Annual security audit, 2 P1 critical items
-- Triage: HIGH/CRITICAL, RISK_ISSUE/SECURITY
-- People: Daniel, Emily, Rob (min 3)
-- Assertions: risk (P1 auth), risk (P1 CI/CD), action (ADR). Must NOT flag K8s as issue (passed audit).
-
-**010-postmortem.yaml** — P0 API Gateway incident, 3 enterprise SLA breaches
-- Triage: HIGH/CRITICAL, INCIDENT
-- People: Robert, Dan, Steph (min 3)
-- Assertions: issue (SLA breach), issue (autoscaling root cause), action (runbook update), action (gradual rollout)
-
-#### A3. Create `standard_eval_test.go`
-
-Same pattern as newsletter/notification:
-1. Setup: EnsureTenantExists, CleanupTestTenant, SeedClassificationRules
-2. Discover golden files from `golden/standard/`
-3. For each: ingest → kick → wait → L1 routing → L2 quality → Langfuse recording
-
-#### A4. Refactor existing matchers to return `MatchDetail`
-
-Wrap `MatchTriage`, `MatchPeople`, `MatchAssertions`, `MatchProjects` to produce structured results for Langfuse scoring. Create `MatchStandardExtract()` that orchestrates all four and returns `[]MatchDetail`.
-
-#### A5. Seed standard pipeline for eval tenant
-
-Add to `SeedClassificationRules`:
-- Pipeline routing: `HUMAN` → `standard`
-- Pipeline definitions: 15 stages matching prod (stage_order, stage_kind, timeouts)
-
-Note: HUMAN is the default subtype when no classification rules match, so no classification rules needed — just routing and definitions.
-
-#### A6. Retire legacy test runner
-
-Remove `TestQuality_ExtractionAccuracy` from `quality_test.go` once `TestEval_Standard` covers all 8 golden files.
-
-### Part B: LLM-as-Judge via Langfuse Evaluators
-
-#### Approach: Langfuse built-in evaluators
-
-Use Langfuse's native evaluator feature rather than calling Claude directly from test code. This means:
-
-1. **Define evaluator templates in Langfuse UI** (dev02:3000) — each template specifies a prompt, scoring rubric, and target model
-2. **Langfuse runs evaluators automatically** on matching traces — when a pipeline trace is created, Langfuse evaluates it and records scores
-3. **Our test code reads scores** via the existing `GetTraces()` API — no LLM calls from Go code
-4. **Evaluator prompts are tunable from the UI** — no code changes needed to adjust evaluation criteria
-
-#### Model: Claude Sonnet
-
-Use `claude-sonnet-4-6` for LLM-as-judge. Sonnet provides better judgment quality than Haiku for nuanced extraction evaluation, and the cost is acceptable since evaluators only run on eval traces (not production volume).
-
-Langfuse needs an Anthropic API key configured as an LLM provider to call Claude. Check if this is already set up in the Langfuse instance.
-
-#### Evaluator definitions (configure in Langfuse UI)
-
-**Evaluator 1: Extraction Completeness** (all categories)
-```
-Name: extraction_completeness
-Model: claude-sonnet-4-6
-Score: 1-5 scale
-Trigger: traces with tag "eval-*"
-
-Prompt:
-You are evaluating an email processing pipeline's extraction quality.
-
-## Email Content
-{{input}}
-
-## Extracted Data
-{{output}}
-
-Rate the extraction completeness on a 1-5 scale:
-1 - Major items missing, extraction is not useful
-2 - Several important items missing
-3 - Key items captured but some gaps
-4 - Nearly complete, minor omissions only
-5 - All important items captured accurately
-
-Score only the COMPLETENESS — whether important facts from the email
-appear in the extraction. Do not penalise for extra information.
-
-Return your score as a single integer (1-5) on the first line,
-followed by a brief explanation.
-```
-
-**Evaluator 2: Triage Accuracy** (all categories)
-```
-Name: triage_accuracy
-Model: claude-sonnet-4-6
-Score: 1-5 scale
-Trigger: traces with tag "eval-*"
-
-Prompt:
-You are evaluating whether an email was triaged correctly.
-
-## Email Content
-{{input}}
-
-## Triage Result
-Importance: {{importance}}
-Category: {{category}}
-
-Rate the triage accuracy on a 1-5 scale:
-1 - Completely wrong importance AND category
-2 - One dimension (importance or category) is significantly wrong
-3 - Roughly correct but could be better calibrated
-4 - Good classification, minor quibble at most
-5 - Perfect classification
-
-Return your score as a single integer (1-5) on the first line,
-followed by a brief explanation.
-```
-
-**Evaluator 3: Summary Usefulness** (newsletter + standard)
-```
-Name: summary_usefulness
-Model: claude-sonnet-4-6
-Score: 1-5 scale
-Trigger: traces with tag "eval-newsletter-*" or "eval-standard-*"
-
-Prompt:
-You are evaluating whether a content summary would be useful to a
-VP of Products who manages multiple teams and projects.
-
-## Original Content
-{{input}}
-
-## Generated Summary
-{{summary}}
-
-Rate usefulness on a 1-5 scale:
-1 - Summary is misleading or useless
-2 - Summary exists but misses the key points
-3 - Captures main topic but lacks actionable detail
-4 - Good summary, highlights what matters to an executive
-5 - Excellent — concise, actionable, highlights risks and decisions
-
-Return your score as a single integer (1-5) on the first line,
-followed by a brief explanation.
-```
-
-#### Integration with test harness
-
-The Go test code doesn't call the LLM — it reads Langfuse scores after processing:
-
-```go
-// After pipeline completes and deterministic checks run:
-if lfEval != nil {
-    // Wait briefly for Langfuse evaluators to run
-    time.Sleep(10 * time.Second)
-
-    // Read LLM-as-judge scores from Langfuse
-    scores, err := lfEval.GetScores(ctx, traceID)
-    if err == nil {
-        for _, score := range scores {
-            t.Logf("  langfuse.%s: %.1f", score.Name, score.Value)
-            if score.Value < 3.0 {
-                t.Errorf("langfuse.%s: score %.1f below threshold 3.0", score.Name, score.Value)
-            }
-        }
-    }
+\`\`\`go
+type ReviewResult struct {
+    Verdict  string   // "approve" or "request-changes"
+    Findings []Finding
+    Summary  string
 }
-```
 
-This requires adding `GetScores()` to the Langfuse client — a simple GET on `/api/public/scores?traceId={id}`.
+type Finding struct {
+    File     string
+    Line     int
+    Severity string // "critical", "suggestion", "nit"
+    Body     string
+}
 
-#### Coverage: all categories
+type Reviewer interface {
+    Review(ctx context.Context, input ReviewInput) (*ReviewResult, error)
+}
+\`\`\`
 
-LLM-as-judge evaluators run on ALL eval traces (newsletter, notification, standard) via the `eval-*` tag trigger. Category-specific evaluators (like summary_usefulness) use more specific tag patterns.
+Providers:
+- \`claude.go\` — calls Anthropic API (claude-sonnet-4-6 default). Uses the Go SDK (\`github.com/anthropics/anthropic-sdk-go\`).
+- \`openai.go\` — calls OpenAI API (gpt-5.4 default). Uses the Go SDK (\`github.com/openai/openai-go\`).
+- \`external.go\` — waits for external review comments (current Gemini behavior, preserved for backwards compat).
 
-### Part C: Implementation order
+### ReviewInput construction
 
-| Wave | What | Depends on |
-|------|------|------------|
-| 1 | Move golden files to `golden/standard/`, add routing sections | Nothing |
-| 1 | Add 4 new golden files | Nothing |
-| 2 | Refactor matchers to return MatchDetail | Wave 1 |
-| 2 | Seed standard pipeline definitions | Nothing |
-| 2 | Configure Langfuse LLM provider (Anthropic API key) | Nothing |
-| 3 | Create `standard_eval_test.go` | Waves 1-2 |
-| 3 | Define Langfuse evaluator templates in UI | Wave 2 (LLM provider) |
-| 3 | Add `GetScores()` to Langfuse client | Nothing |
-| 4 | Integrate LLM-as-judge scores into eval tests | Wave 3 |
-| 4 | Retire legacy `quality_test.go` | Wave 3 |
-| 5 | Integration test: full run all categories | Waves 1-4 |
+\`process-review\` already fetches the PR diff via \`gh pr diff\`. The review input combines:
+- PR diff (from \`gh pr diff <number>\`)
+- Task spec (from the work item content)
+- Parent design context (from the parent design shard)
+- Acceptance criteria extracted from the task
+
+### Cross-model resolution
+
+The dispatch runtime and model are recorded in \`pipeline_sessions\`. \`process-review\` reads the session record to determine what model wrote the code, then picks the opposite family:
+
+| Code written by | Reviewed by |
+|----------------|-------------|
+| codex / gpt-* | claude / sonnet |
+| claude-code / claude-* | openai / gpt-5.4 |
+| unknown | claude / sonnet (default) |
+
+Override via \`review.model\` in pipeline.yaml if you want a specific reviewer.
+
+### Config
+
+\`\`\`yaml
+review:
+    provider: auto            # auto | claude | openai | external
+    model: ""                 # empty = cross-model auto-select
+    cross_model: true         # pick opposite model family from dispatch
+    post_comments: true       # post findings as PR comments
+    ci_mode: pr-only
+    wait_for_ci: true
+    timeout: 120s             # max time for LLM review call
+\`\`\`
+
+\`provider: auto\` (default) uses cross-model selection. \`provider: external\` preserves the current wait-for-Gemini behavior.
+
+### Integration with process-review
+
+In \`internal/cmd/review.go\`, the flow becomes:
+
+1. Fetch PR diff and CI status (existing)
+2. If \`provider != external\`: call the built-in reviewer with diff + task context
+3. Post findings as PR comment via \`gh pr comment\`
+4. Record gate verdict from reviewer result
+5. If approve + CI green: merge
+6. If request-changes: append findings to task, re-dispatch
+
+### API keys
+
+- Anthropic: \`ANTHROPIC_API_KEY\` env var (already set on dev01 for Claude Code)
+- OpenAI: \`OPENAI_API_KEY\` env var (already set for Codex)
+
+No new credential management needed.
+
+### Review prompt
+
+The prompt follows a structured template:
+
+\`\`\`
+You are reviewing a PR for a CoBuild pipeline task.
+
+## Task
+{task title and spec}
+
+## Parent Design
+{design context, if any}
+
+## PR Diff
+{full diff}
+
+## Instructions
+Review this PR against its task spec. For each issue found, report:
+- File and line number
+- Severity: critical (blocks merge), suggestion (should fix), nit (optional)
+- What's wrong and how to fix it
+
+If the code correctly implements the spec with no critical issues, approve.
+Output JSON: {"verdict": "approve"|"request-changes", "findings": [...], "summary": "..."}
+\`\`\`
+
+## Test strategy
+
+1. Unit test for cross-model resolution: verify codex-dispatched tasks get claude reviewer, claude-dispatched get openai.
+2. Unit test for ReviewInput construction: verify diff, task spec, and design context are correctly assembled.
+3. Integration test: mock the LLM API, verify process-review posts a comment and records the gate.
+4. Regression test: \`provider: external\` still waits for GitHub review comments (current behavior).
+5. End-to-end: run a task through CoBuild with \`provider: auto\`, verify the cross-model review happens and findings are posted.
+
+## Acceptance criteria
+
+1. \`cobuild process-review\` with \`provider: auto\` calls an LLM and gets a verdict without waiting for Gemini.
+2. Cross-model selection works: codex PRs reviewed by claude, claude PRs reviewed by openai.
+3. Findings posted as GitHub PR comment with file/line references.
+4. Gate recorded in pipeline_gates with the LLM review verdict and findings.
+5. Fallback to CI-only works when the review model API is unreachable.
+6. \`provider: external\` still works for repos with Gemini.
+7. All other CoBuild-using projects (penfold, context-palace, penf-cli, mycroft) updated to use \`provider: auto\`.
+
+## Work location
+
+- \`internal/review/review.go\` — Reviewer interface, ReviewInput, ReviewResult types
+- \`internal/review/claude.go\` — Anthropic API implementation
+- \`internal/review/openai.go\` — OpenAI API implementation
+- \`internal/review/external.go\` — current Gemini-wait behavior (extracted from review.go)
+- \`internal/review/cross_model.go\` — model family detection and cross-model selection
+- \`internal/cmd/review.go\` — integrate Reviewer into process-review flow
+- \`internal/config/config.go\` — review config fields
+- Pipeline.yaml in cobuild, penfold, context-palace, penf-cli, mycroft repos
 
 ## Dependencies
 
-- Phase 1/2 infrastructure — done
-- Worker running with standard pipeline — blocked by pf-b36282 (PreClassify duplicate, filed)
-- Anthropic API key in Langfuse — needs verification/setup
-- Standard pipeline routing for eval tenant — Part A5
+- \`github.com/anthropics/anthropic-sdk-go\` — Anthropic API client
+- \`github.com/openai/openai-go\` — OpenAI API client
+- Both are standard Go SDKs, no vendoring issues expected.
 
-## Success Criteria
+## Related
 
-- [ ] 8 standard email golden files with routing + extraction expectations
-- [ ] `TestEval_Standard` runs all golden files with L1 + L2 + Langfuse recording
-- [ ] Existing matchers produce `MatchDetail` for scoring
-- [ ] Standard pipeline definitions seeded for eval tenant
-- [ ] Langfuse evaluators configured: extraction_completeness, triage_accuracy, summary_usefulness
-- [ ] LLM-as-judge scores (from Langfuse evaluators) read and asserted in eval tests
-- [ ] LLM-as-judge covers all 3 categories (standard, newsletter, notification)
-- [ ] Legacy `quality_test.go` retired
+- cb-a3bf71 (CoBuild v0.1)
+- Gemini outage observed 2026-04-12: 11 PRs across cobuild/penfold with zero reviews
 
-## Scope Boundaries
+---
+*Appended by agent-mycroft at 2026-04-12 10:32 UTC*
 
-**Not included:**
-- CLIC thread evaluation (cross-email assertion rollup) — future phase
-- Digest contribution (L3) — Phase 4
-- Automated scheduling/CI — Phase 4
-- Real James email fixtures (staying with Acme Corp synthetic for standard emails)
-- Langfuse evaluator config API in Go SDK (configure via UI instead)
+## Decomposition
+
+Spec to target map:
+- Built-in reviewer package, cross-model selection, review input assembly,  integration, and cobuild pipeline config rollout -> project CoBuild — pipeline automation for turning designs into working code.
+
+Orchestrates agents through structured pipelines with enforced stage gates.
+
+COMMANDS:
+  setup                          Register repo for pipeline automation
+  poller                         Poll for triggers, spawn M sessions
+  init-skills                    Copy default skills into repo
+  insights                       Analyze pipeline execution data
+  improve                        Suggest pipeline improvements
+
+  init <shard-id>                Initialize pipeline on a design
+  show <shard-id>                Display pipeline state
+  gate <shard-id> <gate-name>    Record a gate verdict
+  review <shard-id>              Phase 1 readiness review
+  decompose <shard-id>           Phase 2 decomposition
+  audit <shard-id>               Show pipeline audit trail
+  lock/unlock/lock-check <id>    Pipeline lock management
+
+  dispatch <task-id>             Dispatch task to agent via tmux
+  complete <task-id>             Post-agent completion bookkeeping
+
+  work-item (wi)                 Work item operations via connector
+    show <id>                    Show a work item
+    list                         List work items
+    links <id>                   Show relationships
+    status <id> <status>         Update status
+    append <id> --body "..."     Append content
+    create --type <t> --title    Create a work item
+    label add <id> <label>       Add a label
+    links add <from> <to> <type> Create a relationship
+
+CONFIGURATION:
+  Uses ~/.cobuild/config.yaml and .cobuild.yaml for project/agent.
+  Legacy ~/.cxp/ and .cxp.yaml paths are also supported.
+
+Usage:
+  cobuild [command]
+
+Available Commands:
+  admin          System health, cleanup, and maintenance
+  audit          Show pipeline audit trail
+  complete       Post-agent completion: push, create PR, mark needs-review
+  completion     Generate the autocompletion script for the specified shell
+  dashboard      Pipeline analytics dashboard
+  decompose      Record Phase 2 decomposition verdict
+  deploy         Deploy services affected by a design's merged changes
+  dispatch       Dispatch a task to an agent via tmux
+  dispatch-wave  Dispatch the next wave of ready tasks for a design
+  explain        Show the full pipeline in human-readable form
+  gate           Record a pipeline gate verdict
+  help           Help about any command
+  improve        Suggest pipeline improvements based on execution patterns
+  init           Initialize pipeline metadata on a design shard
+  init-skills    Copy or update default pipeline skills in the repo
+  insights       Analyze pipeline execution data and produce a report
+  investigate    Record bug investigation verdict
+  kb-sync        Run the kb-sync phase: sync KB articles affected by a merged work item
+  lock           Acquire pipeline lock
+  lock-check     Check pipeline lock status
+  merge          Merge an approved task PR and close the task
+  merge-design   Analyse conflicts and merge all task PRs for a design
+  next           Print the single next concrete command for a pipeline
+  poller         Continuously poll for actionable pipeline state and dispatch agents
+  process-review Process Gemini code review and merge or re-dispatch for fixes
+  retro          Run a pipeline retrospective on a completed design
+  review         Record Phase 1 readiness review verdict
+  run            Submit a work item for autonomous processing by the poller
+  scan           Generate a project anatomy file — file index with descriptions and token estimates
+  setup          Register current repo for pipeline automation
+  show           Display current pipeline state
+  status         Show all active pipelines and their state
+  unlock         Release pipeline lock
+  update         Update pipeline state on a design shard
+  update-agents  Generate or update AGENTS.md from current skills and config
+  version        Print version information
+  wait           Wait for tasks to reach a target status
+  work-item      Work item operations via the connector
+
+Flags:
+      --agent string     Override agent identity
+      --config string    Override config file path
+      --debug            Verbose logging
+  -h, --help             help for cobuild
+  -o, --output string    Output format (text|json|yaml) (default "text")
+      --project string   Override project from config
+
+Use "cobuild [command] --help" for more information about a command., repo CoBuild — pipeline automation for turning designs into working code.
+
+Orchestrates agents through structured pipelines with enforced stage gates.
+
+COMMANDS:
+  setup                          Register repo for pipeline automation
+  poller                         Poll for triggers, spawn M sessions
+  init-skills                    Copy default skills into repo
+  insights                       Analyze pipeline execution data
+  improve                        Suggest pipeline improvements
+
+  init <shard-id>                Initialize pipeline on a design
+  show <shard-id>                Display pipeline state
+  gate <shard-id> <gate-name>    Record a gate verdict
+  review <shard-id>              Phase 1 readiness review
+  decompose <shard-id>           Phase 2 decomposition
+  audit <shard-id>               Show pipeline audit trail
+  lock/unlock/lock-check <id>    Pipeline lock management
+
+  dispatch <task-id>             Dispatch task to agent via tmux
+  complete <task-id>             Post-agent completion bookkeeping
+
+  work-item (wi)                 Work item operations via connector
+    show <id>                    Show a work item
+    list                         List work items
+    links <id>                   Show relationships
+    status <id> <status>         Update status
+    append <id> --body "..."     Append content
+    create --type <t> --title    Create a work item
+    label add <id> <label>       Add a label
+    links add <from> <to> <type> Create a relationship
+
+CONFIGURATION:
+  Uses ~/.cobuild/config.yaml and .cobuild.yaml for project/agent.
+  Legacy ~/.cxp/ and .cxp.yaml paths are also supported.
+
+Usage:
+  cobuild [command]
+
+Available Commands:
+  admin          System health, cleanup, and maintenance
+  audit          Show pipeline audit trail
+  complete       Post-agent completion: push, create PR, mark needs-review
+  completion     Generate the autocompletion script for the specified shell
+  dashboard      Pipeline analytics dashboard
+  decompose      Record Phase 2 decomposition verdict
+  deploy         Deploy services affected by a design's merged changes
+  dispatch       Dispatch a task to an agent via tmux
+  dispatch-wave  Dispatch the next wave of ready tasks for a design
+  explain        Show the full pipeline in human-readable form
+  gate           Record a pipeline gate verdict
+  help           Help about any command
+  improve        Suggest pipeline improvements based on execution patterns
+  init           Initialize pipeline metadata on a design shard
+  init-skills    Copy or update default pipeline skills in the repo
+  insights       Analyze pipeline execution data and produce a report
+  investigate    Record bug investigation verdict
+  kb-sync        Run the kb-sync phase: sync KB articles affected by a merged work item
+  lock           Acquire pipeline lock
+  lock-check     Check pipeline lock status
+  merge          Merge an approved task PR and close the task
+  merge-design   Analyse conflicts and merge all task PRs for a design
+  next           Print the single next concrete command for a pipeline
+  poller         Continuously poll for actionable pipeline state and dispatch agents
+  process-review Process Gemini code review and merge or re-dispatch for fixes
+  retro          Run a pipeline retrospective on a completed design
+  review         Record Phase 1 readiness review verdict
+  run            Submit a work item for autonomous processing by the poller
+  scan           Generate a project anatomy file — file index with descriptions and token estimates
+  setup          Register current repo for pipeline automation
+  show           Display current pipeline state
+  status         Show all active pipelines and their state
+  unlock         Release pipeline lock
+  update         Update pipeline state on a design shard
+  update-agents  Generate or update AGENTS.md from current skills and config
+  version        Print version information
+  wait           Wait for tasks to reach a target status
+  work-item      Work item operations via the connector
+
+Flags:
+      --agent string     Override agent identity
+      --config string    Override config file path
+      --debug            Verbose logging
+  -h, --help             help for cobuild
+  -o, --output string    Output format (text|json|yaml) (default "text")
+      --project string   Override project from config
+
+Use "cobuild [command] --help" for more information about a command.
+- Repo config rollout for penfold -> project , repo 
+- Repo config rollout for penf-cli -> project , repo 
+- Repo config rollout for context-palace -> project , repo 
+- Repo config rollout for mycroft -> project , repo 
+
+9 tasks across 4 waves:
+
+Wave 1:
+-  — Add built-in review core types, config, and cross-model resolution
+
+Wave 2:
+-  — Assemble review input and prompt from diff, task, and design context (blocked by )
+-  — Implement Claude, OpenAI, and external reviewer providers (blocked by )
+
+Wave 3:
+-  — Integrate built-in reviewer flow into process-review (blocked by , )
+
+Wave 4:
+-  — Switch cobuild pipeline config to built-in auto review (blocked by )
+-  — Switch penfold pipeline config to built-in auto review (blocked by )
+-  — Switch penf-cli pipeline config to built-in auto review (blocked by )
+-  — Switch context-palace pipeline config to built-in auto review (blocked by )
+-  — Add mycroft pipeline config for built-in auto review (blocked by )
+
+Context check:
+- Added 
+- Added 
+- Refreshed  with Generated /Users/james/worktrees/cobuild/cb-32ed2a/.cobuild/context/always/anatomy.md (157 files, 351723 total estimated tokens)
 
 
 ---
-*Appended by agent-mycroft at 2026-03-26 18:48 UTC*
+*Appended by agent-mycroft at 2026-04-12 10:32 UTC*
 
-## Auto-completion evidence
+## Decomposition Summary (corrected)
 
-Commit: 438d2839 [pf-71f660] Auto-commit remaining changes
-PR: https://github.com/otherjamesbrown/penfold/pull/80
+The previous decomposition append was malformed by shell command substitution. Use this section as the authoritative decomposition record.
 
-### Files changed
-```
-.cobuild/last-prompt.md | 907 +++++++++++++++++++++++++++++++++++++++++++++---
- 1 file changed, 868 insertions(+), 39 deletions(-)
-```
+Spec to target map:
+- Built-in reviewer package, cross-model selection, review input assembly, process-review integration, and cobuild pipeline config rollout -> project cobuild, repo cobuild
+- Repo config rollout for penfold -> project penfold, repo penfold
+- Repo config rollout for penf-cli -> project penfold, repo penf-cli
+- Repo config rollout for context-palace -> project context-palace, repo context-palace
+- Repo config rollout for mycroft -> project mycroft, repo mycroft
+
+9 tasks across 4 waves:
+
+Wave 1:
+- cb-ec76d3 — Add built-in review core types, config, and cross-model resolution
+
+Wave 2:
+- cb-d77848 — Assemble review input and prompt from diff, task, and design context (blocked by cb-ec76d3)
+- cb-75ab97 — Implement Claude, OpenAI, and external reviewer providers (blocked by cb-ec76d3)
+
+Wave 3:
+- cb-5a4ce0 — Integrate built-in reviewer flow into process-review (blocked by cb-d77848, cb-75ab97)
+
+Wave 4:
+- cb-396778 — Switch cobuild pipeline config to built-in auto review (blocked by cb-5a4ce0)
+- pf-a30052 — Switch penfold pipeline config to built-in auto review (blocked by cb-5a4ce0)
+- pf-b43e77 — Switch penf-cli pipeline config to built-in auto review (blocked by cb-5a4ce0)
+- cp-0273b8 — Switch context-palace pipeline config to built-in auto review (blocked by cb-5a4ce0)
+- my-e84fbf — Add mycroft pipeline config for built-in auto review (blocked by cb-5a4ce0)
+
+Context check:
+- Added .cobuild/context/always/architecture.md
+- Added .cobuild/context/implement/coding-patterns.md
+- Refreshed .cobuild/context/always/anatomy.md with cobuild scan
 
 ## Instructions
 
@@ -364,9 +462,7 @@ Implement this task following the acceptance criteria above.
 
 ### On completion
 
-1. Run tests: `make test && make vet`
-2. Build: `make build`
-3. **Run `cobuild complete pf-2cb3e7`** -- this commits remaining changes, pushes, creates the PR, appends evidence, and marks the task needs-review. Do this as your LAST action.
+1. **Run `cobuild complete pf-a30052`** -- this commits remaining changes, pushes, creates the PR, appends evidence, and marks the task needs-review. Do this as your LAST action.
 
 **IMPORTANT RULES:**
 - NEVER use raw `git merge` or `git push` to main — always use `cobuild complete` which creates a PR

@@ -642,11 +642,10 @@ func (a *AutomationRuleActivities) storeOutput(ctx context.Context, tenantID, ru
 // buildEmailSubject renders the email subject from an optional template or default.
 func buildEmailSubject(tmplStr, ruleName, windowFrom, windowTo string) string {
 	if tmplStr == "" {
-		// Format a friendly subject: "Healthcare Morning Summary - Wed 9 Apr"
-		friendly := strings.ReplaceAll(ruleName, "-", " ")
-		friendly = strings.Title(friendly)
-		today := time.Now().Format("Mon 2 Jan")
-		return fmt.Sprintf("%s - %s", friendly, today)
+		if windowFrom != "" && windowTo != "" {
+			return fmt.Sprintf("%s — %s to %s", ruleName, windowFrom, windowTo)
+		}
+		return ruleName
 	}
 	// Simple template with .Date
 	type subjectData struct{ Date string }
@@ -669,10 +668,17 @@ func renderAutomationHTML(output, ruleName, windowFrom, windowTo string) string 
 	body = strings.TrimPrefix(body, "```")
 	body = strings.TrimSuffix(body, "```")
 	body = strings.TrimSpace(body)
+	body = strings.ReplaceAll(body, "\n", "<br>")
+
+	header := fmt.Sprintf("<h1>%s</h1>", htmlEscape(ruleName))
+	if windowFrom != "" && windowTo != "" {
+		header += fmt.Sprintf("<p>%s to %s</p>", htmlEscape(windowFrom), htmlEscape(windowTo))
+	}
 
 	return fmt.Sprintf(`<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333; line-height: 1.6;">
 %s
-</div>`, body)
+%s
+</div>`, header, body)
 }
 
 // htmlEscape escapes special HTML characters in a string.
@@ -820,4 +826,3 @@ func arNullableString(s string) interface{} {
 	}
 	return s
 }
-
