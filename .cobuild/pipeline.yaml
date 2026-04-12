@@ -44,3 +44,7 @@ context:
         - name: design-context
           source: parent-design
           when: dispatch
+
+kb_sync:
+    enabled: true
+    # No root_article — searches all KB articles in the penfold project
