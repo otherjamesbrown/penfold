@@ -11,6 +11,13 @@ test:
     - make test
     - make vet
 
+review:
+    provider: auto
+    cross_model: true
+    post_comments: true
+    ci_mode: pr-only
+    wait_for_ci: true
+
 deploy:
     services:
         - name: gateway
