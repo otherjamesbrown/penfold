@@ -2,6 +2,23 @@
 
 Penfold is James's institutional-memory system. This repository contains the backend services, workflow execution, shared packages, tests, and migrations that power ingestion, enrichment, retrieval, and agent-facing operations.
 
+## Context
+
+Penfold is one of four **operator instruments** James is building to support a senior engineering role at a PE-backed company. See `~/SYSTEMS.md` for cross-project data flows and ownership boundaries.
+
+**Operator instruments:**
+- **Penfold** (this repo) -- email, Teams, meeting transcripts → unified institutional memory
+- **[Mycroft](https://github.com/otherjamesbrown/mycroft)** -- GitLab/GitHub metrics + code scanning for velocity, quality, secure coding
+- **Moneypenny** -- consolidates disparate facts into a single queryable source
+- **M-Intel** -- topic research and hypothesis generation with evidence grading
+
+**Infrastructure:**
+- **[Context Palace](https://github.com/otherjamesbrown/context-palace)** -- work tracking + KB for AI agents (`cxp` CLI)
+- **[CoBuild](https://github.com/otherjamesbrown/cobuild)** -- design → decompose → implement → review → deploy automation
+
+**Client:**
+- **[penf-cli](https://github.com/otherjamesbrown/penf-cli)** -- command-line interface for this repo's gRPC services. Shares the `pf-` Context Palace namespace.
+
 ## Start Here
 
 For AI-agent onboarding, the preferred retrieval order is:
