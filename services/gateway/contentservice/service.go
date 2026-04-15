@@ -140,7 +140,8 @@ type ProjectContentRecord struct {
 	SourceID              int64
 	ContentID             string
 	Title                 string
-	CreatedAt             time.Time
+	CreatedAt             time.Time // ingestion timestamp
+	EventAt               time.Time // email Date / meeting start / document last-modified
 	AttributionSource     string
 	AttributionConfidence float32
 	ContentType           string
@@ -1133,26 +1134,36 @@ func (r *repositoryImpl) ListProjectContent(ctx context.Context, tenantID string
 		pageSize = 50
 	}
 
+	// Use source_timestamp (email Date / meeting start) for filtering and ordering.
+	// Fall back to created_at (ingest time) when source_timestamp is NULL.
+	// Wrap in a subquery so the outer ORDER BY event_at DESC takes effect after
+	// DISTINCT ON deduplication (DISTINCT ON requires s.id first in ORDER BY).
 	query := `
-		SELECT DISTINCT ON (s.id)
-		  s.id AS source_id,
-		  COALESCE(s.content_id, '') AS content_id,
-		  COALESCE(s.ingestion_metadata->>'subject', s.ingestion_metadata->>'title', s.content_id, '') AS title,
-		  s.created_at,
-		  COALESCE(a.attribution_source, '') AS attribution_source,
-		  COALESCE(a.attribution_confidence, 0.0) AS attribution_confidence,
-		  COALESCE(ce.content_type::text, s.source_system) AS content_type
-		FROM sources s
-		JOIN assertions a ON a.source_id = s.id
-		  AND a.project_id = $2
-		  AND a.is_current = true
-		  AND a.tenant_id = $1
-		LEFT JOIN content_enrichment ce ON ce.source_id = s.id
-		WHERE s.tenant_id = $1
-		  AND ($3::timestamptz IS NULL OR s.created_at >= $3)
-		  AND ($4::timestamptz IS NULL OR s.created_at <= $4)
-		  AND (s.is_deleted IS NULL OR s.is_deleted = false)
-		ORDER BY s.id, s.created_at DESC
+		SELECT source_id, content_id, title, created_at, event_at,
+		       attribution_source, attribution_confidence, content_type
+		FROM (
+		  SELECT DISTINCT ON (s.id)
+		    s.id AS source_id,
+		    COALESCE(s.content_id, '') AS content_id,
+		    COALESCE(s.ingestion_metadata->>'subject', s.ingestion_metadata->>'title', s.content_id, '') AS title,
+		    s.created_at,
+		    COALESCE(s.source_timestamp, s.created_at) AS event_at,
+		    COALESCE(a.attribution_source, '') AS attribution_source,
+		    COALESCE(a.attribution_confidence, 0.0) AS attribution_confidence,
+		    COALESCE(ce.content_type::text, s.source_system) AS content_type
+		  FROM sources s
+		  JOIN assertions a ON a.source_id = s.id
+		    AND a.project_id = $2
+		    AND a.is_current = true
+		    AND a.tenant_id = $1
+		  LEFT JOIN content_enrichment ce ON ce.source_id = s.id
+		  WHERE s.tenant_id = $1
+		    AND ($3::timestamptz IS NULL OR COALESCE(s.source_timestamp, s.created_at) >= $3)
+		    AND ($4::timestamptz IS NULL OR COALESCE(s.source_timestamp, s.created_at) <= $4)
+		    AND (s.is_deleted IS NULL OR s.is_deleted = false)
+		  ORDER BY s.id
+		) deduped
+		ORDER BY event_at DESC
 		LIMIT $5 OFFSET $6
 	`
 
@@ -1170,6 +1181,7 @@ func (r *repositoryImpl) ListProjectContent(ctx context.Context, tenantID string
 			&rec.ContentID,
 			&rec.Title,
 			&rec.CreatedAt,
+			&rec.EventAt,
 			&rec.AttributionSource,
 			&rec.AttributionConfidence,
 			&rec.ContentType,
@@ -1193,8 +1205,8 @@ func (r *repositoryImpl) ListProjectContent(ctx context.Context, tenantID string
 		  AND a.is_current = true
 		  AND a.tenant_id = $1
 		WHERE s.tenant_id = $1
-		  AND ($3::timestamptz IS NULL OR s.created_at >= $3)
-		  AND ($4::timestamptz IS NULL OR s.created_at <= $4)
+		  AND ($3::timestamptz IS NULL OR COALESCE(s.source_timestamp, s.created_at) >= $3)
+		  AND ($4::timestamptz IS NULL OR COALESCE(s.source_timestamp, s.created_at) <= $4)
 		  AND (s.is_deleted IS NULL OR s.is_deleted = false)
 	`
 
@@ -2665,6 +2677,7 @@ func (s *Service) ListProjectContent(ctx context.Context, req *contentv1.ListPro
 			ContentId:             rec.ContentID,
 			Title:                 rec.Title,
 			CreatedAt:             timestamppb.New(rec.CreatedAt),
+			EventAt:               timestamppb.New(rec.EventAt),
 			AttributionSource:     rec.AttributionSource,
 			AttributionConfidence: rec.AttributionConfidence,
 			ContentType:           rec.ContentType,

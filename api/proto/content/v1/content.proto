@@ -976,10 +976,11 @@ message ProjectContentItem {
   int64 source_id = 1;
   string content_id = 2;
   string title = 3;
-  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp created_at = 4; // ingestion timestamp (pipeline diagnostics)
   string attribution_source = 5;
   float attribution_confidence = 6;
   string content_type = 7;
+  google.protobuf.Timestamp event_at = 8; // email Date / meeting start / document last-modified
 }
 
 message ListProjectContentResponse {
