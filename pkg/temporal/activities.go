@@ -120,6 +120,10 @@ const (
 	ActivityKBCanaryRunQuestion   = "KBCanaryRunQuestion"
 	ActivityKBCanaryLogGap        = "KBCanaryLogGap"
 	ActivityKBCanaryCreateSummary = "KBCanaryCreateSummary"
+
+	// GmailSyncTicker activity (GmailSyncTickerWorkflow — pf-830415).
+	// Calls gateway SyncEmails RPC for a single tenant; registered on penfold-main.
+	ActivityGmailSyncTick = "GmailSyncTick"
 )
 
 // AI Task Queue activity names (4 unique activities).

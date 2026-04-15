@@ -208,6 +208,12 @@ type GmailSyncResult struct {
 	SyncedAt       time.Time `json:"synced_at"`
 }
 
+// GmailSyncTickerInput is the input for GmailSyncTickerWorkflow.
+// Only tenant_id is required — SyncEmails resolves OAuth and sync state internally.
+type GmailSyncTickerInput struct {
+	TenantID string `json:"tenant_id"`
+}
+
 // AnalysisInput is the input for content analysis workflows.
 type AnalysisInput struct {
 	TenantID     string   `json:"tenant_id"`
