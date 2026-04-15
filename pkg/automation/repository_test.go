@@ -214,14 +214,12 @@ func TestAutomationRuleExecution_Fields(t *testing.T) {
 		Status:        "completed",
 		ItemsSelected: &itemsSelected,
 		SkillTokensUsed: &tokensUsed,
-		DeliveryStatus: map[string]interface{}{
-			"email": "delivered",
+		DeliveryStatus: []DeliveryResult{
+			{Channel: "email", Status: "sent:msg-abc"},
 		},
-		ChainExecutions: []ChainExecution{
-			{Rule: "conflict-check", Status: "completed"},
-		},
-		Error:     "",
-		CreatedAt: startedAt,
+		ChainExecutions: json.RawMessage(`{"chains_fired":0}`),
+		Error:           "",
+		CreatedAt:       startedAt,
 	}
 
 	assert.Equal(t, execID, exec.ID)
@@ -230,9 +228,42 @@ func TestAutomationRuleExecution_Fields(t *testing.T) {
 	assert.Equal(t, 10, *exec.ItemsSelected)
 	assert.Equal(t, 1500, *exec.SkillTokensUsed)
 	assert.NotNil(t, exec.CompletedAt)
-	assert.Equal(t, "delivered", exec.DeliveryStatus["email"])
-	require.Len(t, exec.ChainExecutions, 1)
-	assert.Equal(t, "conflict-check", exec.ChainExecutions[0].Rule)
+	require.Len(t, exec.DeliveryStatus, 1)
+	assert.Equal(t, "email", exec.DeliveryStatus[0].Channel)
+	assert.Equal(t, "sent:msg-abc", exec.DeliveryStatus[0].Status)
+	assert.NotEmpty(t, exec.ChainExecutions)
+}
+
+// TestDeliveryStatus_GoldenRow verifies that delivery_status JSON written by the worker
+// (a JSON array of {channel, status} objects) round-trips through the read model without error.
+// This is the canonical shape stored in automation_rule_executions.delivery_status.
+func TestDeliveryStatus_GoldenRow(t *testing.T) {
+	// Golden JSON — exactly what RecordExecution activity writes to the DB.
+	goldenJSON := `[{"channel":"store","status":"ok:d5e2f1"},{"channel":"email","status":"sent:msg-abc"}]`
+
+	var ds []DeliveryResult
+	require.NoError(t, json.Unmarshal([]byte(goldenJSON), &ds), "must unmarshal array into []DeliveryResult")
+	require.Len(t, ds, 2)
+	assert.Equal(t, "store", ds[0].Channel)
+	assert.Equal(t, "ok:d5e2f1", ds[0].Status)
+	assert.Equal(t, "email", ds[1].Channel)
+	assert.Equal(t, "sent:msg-abc", ds[1].Status)
+
+	// Verify old map shape is rejected — guards against regression.
+	goldenMapJSON := `{"store":"ok:d5e2f1","email":"sent:msg-abc"}`
+	var ds2 []DeliveryResult
+	err := json.Unmarshal([]byte(goldenMapJSON), &ds2)
+	assert.Error(t, err, "old map shape must not silently unmarshal into []DeliveryResult")
+}
+
+// TestChainExecutions_GoldenRow verifies that chain_executions JSON written by the worker
+// (currently {"chains_fired":N}) round-trips through json.RawMessage without error.
+func TestChainExecutions_GoldenRow(t *testing.T) {
+	goldenJSON := `{"chains_fired":2}`
+
+	exec := &AutomationRuleExecution{}
+	require.NoError(t, json.Unmarshal([]byte(goldenJSON), &exec.ChainExecutions))
+	assert.Equal(t, json.RawMessage(goldenJSON), exec.ChainExecutions)
 }
 
 // TestMarshalNullable verifies nil and non-nil marshalling.

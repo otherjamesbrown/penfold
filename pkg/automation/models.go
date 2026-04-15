@@ -2,6 +2,7 @@
 package automation
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,6 +25,13 @@ type AutomationRule struct {
 	CreatedBy      string
 }
 
+// DeliveryResult is a single per-channel delivery outcome stored in AutomationRuleExecution.
+// Canonical JSON shape: [{"channel":"store","status":"ok:123"},{"channel":"email","status":"sent:abc"}]
+type DeliveryResult struct {
+	Channel string `json:"channel"`
+	Status  string `json:"status"`
+}
+
 // AutomationRuleExecution records a single execution of an automation rule.
 type AutomationRuleExecution struct {
 	ID              uuid.UUID
@@ -35,8 +43,12 @@ type AutomationRuleExecution struct {
 	Status          string // "running", "completed", "failed"
 	ItemsSelected   *int
 	SkillTokensUsed *int
-	DeliveryStatus  map[string]interface{}
-	ChainExecutions []ChainExecution
+	// DeliveryStatus holds per-channel delivery outcomes as a JSON array.
+	// Written by the worker as []DeliverOutputResult; read back as []DeliveryResult.
+	DeliveryStatus  []DeliveryResult
+	// ChainExecutions stores opaque chain metadata (currently {"chains_fired":N}).
+	// Kept as RawMessage to survive write-path schema evolution without a re-migration.
+	ChainExecutions json.RawMessage
 	Error           string
 	CreatedAt       time.Time
 }
