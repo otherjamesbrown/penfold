@@ -113,15 +113,6 @@ func (r *Registrar) registerMainQueueWorkflows(w worker.Worker) {
 		Name: "AutomationRuleWorkflow",
 	})
 
-	// KB drift scan workflow (nightly out-of-band drift detection — cp-cb935b)
-	w.RegisterWorkflowWithOptions(KBDriftScanWorkflow, workflow.RegisterOptions{
-		Name: "KBDriftScanWorkflow",
-	})
-
-	// KB canary workflow (daily retrieval quality test — pf-89c379)
-	w.RegisterWorkflowWithOptions(KBCanaryWorkflow, workflow.RegisterOptions{
-		Name: "KBCanaryWorkflow",
-	})
 }
 
 // registerAIQueueWorkflows registers workflows for the AI task queue.
@@ -176,7 +167,7 @@ func (r *Registrar) registerCommonWorkflows(w worker.Worker) {
 func (r *Registrar) WorkflowCount(taskQueue string) int {
 	switch taskQueue {
 	case config.MainTaskQueue:
-		return 17 // SLMPipelineWorkflow, ContentIngestionWorkflow, RelationshipDiscoveryWorkflow, DailyReviewWorkflow, BatchPipelineWorkflow, ConversationMaintenanceWorkflow, ConversationBackfillWorkflow, SessionLedgerConsolidationWorkflow, HeartbeatWorkflow, DigestWorkflow, WeeklyDigestWorkflow, JournalDigestWorkflow, DigestRollupWorkflow, JournalRollupWorkflow, AutomationRuleWorkflow, KBDriftScanWorkflow, KBCanaryWorkflow
+		return 15 // SLMPipelineWorkflow, ContentIngestionWorkflow, RelationshipDiscoveryWorkflow, DailyReviewWorkflow, BatchPipelineWorkflow, ConversationMaintenanceWorkflow, ConversationBackfillWorkflow, SessionLedgerConsolidationWorkflow, HeartbeatWorkflow, DigestWorkflow, WeeklyDigestWorkflow, JournalDigestWorkflow, DigestRollupWorkflow, JournalRollupWorkflow, AutomationRuleWorkflow
 	case config.AITaskQueue:
 		return 1 // AnalysisWorkflow
 	case config.EmailTaskQueue:
