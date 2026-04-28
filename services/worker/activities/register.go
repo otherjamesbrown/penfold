@@ -49,6 +49,7 @@ type Registrar struct {
 	eventTriggerActivities            *EventTriggerActivities
 	automationRuleActivities          *AutomationRuleActivities
 	kbCanaryActivities                *KBCanaryActivities
+	gmailSyncTickerActivities         *GmailSyncTickerActivities
 }
 
 // NewRegistrar creates a new activity registrar.
@@ -253,6 +254,12 @@ func (r *Registrar) WithAutomationRuleActivities(ara *AutomationRuleActivities) 
 // WithKBCanaryActivities adds KB canary activities to the registrar.
 func (r *Registrar) WithKBCanaryActivities(kca *KBCanaryActivities) *Registrar {
 	r.kbCanaryActivities = kca
+	return r
+}
+
+// WithGmailSyncTickerActivities adds the Gmail sync ticker activity to the registrar.
+func (r *Registrar) WithGmailSyncTickerActivities(gsta *GmailSyncTickerActivities) *Registrar {
+	r.gmailSyncTickerActivities = gsta
 	return r
 }
 
@@ -676,6 +683,13 @@ func (r *Registrar) registerMainQueueActivities(w worker.Worker) {
 		})
 		w.RegisterActivityWithOptions(r.kbCanaryActivities.CreateSummary, activity.RegisterOptions{
 			Name: pkgtemporal.ActivityKBCanaryCreateSummary,
+		})
+	}
+
+	// GmailSyncTicker activity (GmailSyncTickerWorkflow — pf-830415)
+	if r.gmailSyncTickerActivities != nil {
+		w.RegisterActivityWithOptions(r.gmailSyncTickerActivities.GmailSyncTick, activity.RegisterOptions{
+			Name: pkgtemporal.ActivityGmailSyncTick,
 		})
 	}
 }

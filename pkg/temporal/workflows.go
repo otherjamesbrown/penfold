@@ -7,6 +7,7 @@ package temporal
 // Main Task Queue workflow names.
 const (
 	WorkflowSLMPipeline               = "SLMPipelineWorkflow"
+	WorkflowGmailSyncTicker           = "GmailSyncTickerWorkflow"
 	WorkflowContentIngestion          = "ContentIngestionWorkflow"
 	WorkflowRelationshipDiscovery     = "RelationshipDiscoveryWorkflow"
 	WorkflowDailyReview               = "DailyReviewWorkflow"

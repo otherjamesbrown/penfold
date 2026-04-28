@@ -23,6 +23,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
+	gmailv1 "github.com/otherjamesbrown/penfold/api/proto/gmailv1"
 	pipelinev1 "github.com/otherjamesbrown/penfold/api/proto/pipeline/v1"
 	"github.com/otherjamesbrown/penfold/pkg/ai"
 	"github.com/otherjamesbrown/penfold/pkg/automation"
@@ -531,8 +532,10 @@ func main() {
 		}
 	}
 
-	// Create gateway pipeline client for KickNextPending auto-drain
+	// Create gateway pipeline client for KickNextPending auto-drain,
+	// and Gmail connector client for GmailSyncTickerWorkflow (pf-830415).
 	var pipelineClient pipelinev1.PipelineServiceClient
+	var gatewayGmailClient gmailv1.GmailConnectorServiceClient
 	if cfg.GatewayAddr != "" {
 		gwConn, err := grpc.NewClient(cfg.GatewayAddr,
 			grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})),
@@ -542,7 +545,8 @@ func main() {
 		} else {
 			defer gwConn.Close() //nolint:errcheck
 			pipelineClient = pipelinev1.NewPipelineServiceClient(gwConn)
-			logger.Info("Gateway pipeline client created",
+			gatewayGmailClient = gmailv1.NewGmailConnectorServiceClient(gwConn)
+			logger.Info("Gateway pipeline and Gmail clients created",
 				logging.F("gateway_addr", cfg.GatewayAddr),
 			)
 		}
@@ -1010,6 +1014,18 @@ func main() {
 		)
 		activityRegistrar.WithEventTriggerActivities(eventTriggerActivities)
 		logger.Info("Event trigger activities initialized")
+	}
+
+	// GmailSyncTicker activities (GmailSyncTickerWorkflow — pf-830415)
+	// Calls gateway SyncEmails RPC on behalf of the scheduler; requires gateway connection.
+	if gatewayGmailClient != nil {
+		gmailSyncTickerActivities := activities.NewGmailSyncTickerActivities(gatewayGmailClient, logger)
+		activityRegistrar.WithGmailSyncTickerActivities(gmailSyncTickerActivities)
+		logger.Info("GmailSyncTicker activities initialized",
+			logging.F("gateway_addr", cfg.GatewayAddr),
+		)
+	} else {
+		logger.Warn("GmailSyncTicker activities not initialized — gateway client unavailable (check GATEWAY_ADDR)")
 	}
 
 	workflowRegistrar := workflows.NewRegistrar()
