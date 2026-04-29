@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
@@ -313,6 +314,35 @@ func OutlookSyncWorkflow(ctx workflow.Context, input OutlookSyncInput) (*Outlook
 			case "created":
 				state.result.NewMessages++
 				state.createdSourceIDs = append(state.createdSourceIDs, processOutput.SourceID)
+
+				childWFID := pkgtemporal.GenerateIngestWorkflowID(input.TenantID, "outlook_mail", msg.MessageID)
+				childCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
+					WorkflowID:        childWFID,
+					TaskQueue:         "penfold-main",
+					ParentClosePolicy: enumspb.PARENT_CLOSE_POLICY_ABANDON,
+				})
+				future := workflow.ExecuteChildWorkflow(childCtx, SLMPipelineWorkflow, PipelineInput{
+					TenantID:  input.TenantID,
+					SourceID:  processOutput.SourceID,
+					ContentID: processOutput.ContentID,
+					JobID:     childWFID,
+				})
+				// Verify the child workflow was scheduled successfully.
+				// Under ABANDON policy we don't wait for the result, but we do
+				// need to know if scheduling failed.
+				if err := future.GetChildWorkflowExecution().Get(ctx, nil); err != nil {
+					logger.Error("Failed to start SLM pipeline",
+						"source_id", processOutput.SourceID,
+						"message_id", msg.MessageID,
+						"error", err,
+					)
+					// Continue processing — don't fail the whole sync over one message
+					continue
+				}
+				logger.Info("Started SLM pipeline for Outlook message",
+					"source_id", processOutput.SourceID,
+					"child_workflow_id", childWFID,
+				)
 			case "updated":
 				state.result.UpdatedMsgs++
 			case "skipped":
