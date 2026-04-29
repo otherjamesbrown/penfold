@@ -28,6 +28,7 @@ const (
 	TenantService_UpdateTenant_FullMethodName     = "/penfold.tenant.v1.TenantService/UpdateTenant"
 	TenantService_DeleteTenant_FullMethodName     = "/penfold.tenant.v1.TenantService/DeleteTenant"
 	TenantService_SetCurrentTenant_FullMethodName = "/penfold.tenant.v1.TenantService/SetCurrentTenant"
+	TenantService_RepairTenant_FullMethodName     = "/penfold.tenant.v1.TenantService/RepairTenant"
 )
 
 // TenantServiceClient is the client API for TenantService service.
@@ -49,6 +50,10 @@ type TenantServiceClient interface {
 	DeleteTenant(ctx context.Context, in *DeleteTenantRequest, opts ...grpc.CallOption) (*DeleteTenantResponse, error)
 	// SetCurrentTenant validates and sets the current tenant context.
 	SetCurrentTenant(ctx context.Context, in *SetCurrentTenantRequest, opts ...grpc.CallOption) (*SetCurrentTenantResponse, error)
+	// RepairTenant seeds default pipeline definitions, routing, and operational config
+	// for a tenant that is missing them. Safe to call on any tenant — all inserts are
+	// idempotent. Use this to fix tenants created before automatic seeding was in place.
+	RepairTenant(ctx context.Context, in *RepairTenantRequest, opts ...grpc.CallOption) (*RepairTenantResponse, error)
 }
 
 type tenantServiceClient struct {
@@ -119,6 +124,16 @@ func (c *tenantServiceClient) SetCurrentTenant(ctx context.Context, in *SetCurre
 	return out, nil
 }
 
+func (c *tenantServiceClient) RepairTenant(ctx context.Context, in *RepairTenantRequest, opts ...grpc.CallOption) (*RepairTenantResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RepairTenantResponse)
+	err := c.cc.Invoke(ctx, TenantService_RepairTenant_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TenantServiceServer is the server API for TenantService service.
 // All implementations must embed UnimplementedTenantServiceServer
 // for forward compatibility.
@@ -138,6 +153,10 @@ type TenantServiceServer interface {
 	DeleteTenant(context.Context, *DeleteTenantRequest) (*DeleteTenantResponse, error)
 	// SetCurrentTenant validates and sets the current tenant context.
 	SetCurrentTenant(context.Context, *SetCurrentTenantRequest) (*SetCurrentTenantResponse, error)
+	// RepairTenant seeds default pipeline definitions, routing, and operational config
+	// for a tenant that is missing them. Safe to call on any tenant — all inserts are
+	// idempotent. Use this to fix tenants created before automatic seeding was in place.
+	RepairTenant(context.Context, *RepairTenantRequest) (*RepairTenantResponse, error)
 	mustEmbedUnimplementedTenantServiceServer()
 }
 
@@ -165,6 +184,9 @@ func (UnimplementedTenantServiceServer) DeleteTenant(context.Context, *DeleteTen
 }
 func (UnimplementedTenantServiceServer) SetCurrentTenant(context.Context, *SetCurrentTenantRequest) (*SetCurrentTenantResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetCurrentTenant not implemented")
+}
+func (UnimplementedTenantServiceServer) RepairTenant(context.Context, *RepairTenantRequest) (*RepairTenantResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RepairTenant not implemented")
 }
 func (UnimplementedTenantServiceServer) mustEmbedUnimplementedTenantServiceServer() {}
 func (UnimplementedTenantServiceServer) testEmbeddedByValue()                       {}
@@ -295,6 +317,24 @@ func _TenantService_SetCurrentTenant_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TenantService_RepairTenant_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RepairTenantRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TenantServiceServer).RepairTenant(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TenantService_RepairTenant_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TenantServiceServer).RepairTenant(ctx, req.(*RepairTenantRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // TenantService_ServiceDesc is the grpc.ServiceDesc for TenantService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -325,6 +365,10 @@ var TenantService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetCurrentTenant",
 			Handler:    _TenantService_SetCurrentTenant_Handler,
+		},
+		{
+			MethodName: "RepairTenant",
+			Handler:    _TenantService_RepairTenant_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

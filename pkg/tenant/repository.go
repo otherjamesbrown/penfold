@@ -43,7 +43,8 @@ func slugify(name string) string {
 	return slug
 }
 
-// Create adds a new tenant.
+// Create adds a new tenant and seeds required default configuration.
+// The tenant row and all defaults are inserted in a single transaction.
 func (r *Repository) Create(ctx context.Context, input TenantInput) (*Tenant, error) {
 	slug := input.Slug
 	if slug == "" {
@@ -60,8 +61,14 @@ func (r *Repository) Create(ctx context.Context, input TenantInput) (*Tenant, er
 		settings = *input.Settings
 	}
 
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
 	var tenant Tenant
-	err := r.db.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		INSERT INTO tenants (id, display_name, slug, description, is_active, settings, name, owner_email)
 		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5::jsonb, $6, $7)
 		RETURNING id::text, display_name, slug, COALESCE(description, ''), is_active, COALESCE(settings::text, '{}'), created_at, updated_at
@@ -71,8 +78,8 @@ func (r *Repository) Create(ctx context.Context, input TenantInput) (*Tenant, er
 		input.Description,
 		isActive,
 		settings,
-		slug,        // Use slug as the name field (category)
-		"",          // owner_email - empty for now
+		slug, // Use slug as the name field (category)
+		"",   // owner_email - empty for now
 	).Scan(
 		&tenant.ID,
 		&tenant.Name,
@@ -90,7 +97,22 @@ func (r *Repository) Create(ctx context.Context, input TenantInput) (*Tenant, er
 		return nil, fmt.Errorf("create tenant: %w", err)
 	}
 
+	if err := SeedDefaults(ctx, tx, tenant.ID); err != nil {
+		return nil, fmt.Errorf("seed tenant defaults: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit tenant creation: %w", err)
+	}
+
 	return &tenant, nil
+}
+
+// SeedDefaults applies default pipeline definitions, routing, and operational config
+// to an existing tenant. Safe to run multiple times — all inserts are idempotent.
+// Use this to repair tenants created before automatic seeding was in place.
+func (r *Repository) SeedDefaults(ctx context.Context, tenantID string) error {
+	return SeedDefaults(ctx, r.db, tenantID)
 }
 
 // Get retrieves a tenant by ID (UUID).

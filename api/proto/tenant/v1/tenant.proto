@@ -33,6 +33,11 @@ service TenantService {
 
   // SetCurrentTenant validates and sets the current tenant context.
   rpc SetCurrentTenant(SetCurrentTenantRequest) returns (SetCurrentTenantResponse);
+
+  // RepairTenant seeds default pipeline definitions, routing, and operational config
+  // for a tenant that is missing them. Safe to call on any tenant — all inserts are
+  // idempotent. Use this to fix tenants created before automatic seeding was in place.
+  rpc RepairTenant(RepairTenantRequest) returns (RepairTenantResponse);
 }
 
 // =============================================================================
@@ -191,4 +196,19 @@ message SetCurrentTenantResponse {
 
   // Error message if not valid.
   string error = 3;
+}
+
+// RepairTenantRequest applies default configuration to an existing tenant.
+message RepairTenantRequest {
+  // ID of the tenant to repair (UUID or slug).
+  string tenant_ref = 1;
+}
+
+// RepairTenantResponse confirms the repair was applied.
+message RepairTenantResponse {
+  // Whether the repair was applied successfully.
+  bool repaired = 1;
+
+  // Tenant ID that was repaired.
+  string tenant_id = 2;
 }

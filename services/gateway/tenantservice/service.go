@@ -244,6 +244,36 @@ func (s *Service) SetCurrentTenant(ctx context.Context, req *tenantv1.SetCurrent
 	}, nil
 }
 
+// RepairTenant seeds default pipeline definitions, routing, and operational config
+// for a tenant that may be missing them (e.g. created before automatic seeding).
+func (s *Service) RepairTenant(ctx context.Context, req *tenantv1.RepairTenantRequest) (*tenantv1.RepairTenantResponse, error) {
+	s.logger.Debug("RepairTenant called", logging.F("tenant_ref", req.TenantRef))
+
+	if req.TenantRef == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_ref is required")
+	}
+
+	t, err := s.repo.GetByRef(ctx, req.TenantRef)
+	if err != nil {
+		s.logger.Error("Error getting tenant for repair", logging.Err(err))
+		return nil, status.Errorf(codes.Internal, "failed to lookup tenant: %v", err)
+	}
+	if t == nil {
+		return nil, status.Errorf(codes.NotFound, "tenant not found: %s", req.TenantRef)
+	}
+
+	if err := s.repo.SeedDefaults(ctx, t.ID); err != nil {
+		s.logger.Error("Error seeding tenant defaults", logging.Err(err), logging.F("tenant_id", t.ID))
+		return nil, status.Errorf(codes.Internal, "failed to seed tenant defaults: %v", err)
+	}
+
+	s.logger.Info("RepairTenant completed", logging.F("tenant_id", t.ID))
+	return &tenantv1.RepairTenantResponse{
+		Repaired: true,
+		TenantId: t.ID,
+	}, nil
+}
+
 // tenantToProto converts a tenant.Tenant to the proto format.
 func tenantToProto(t *tenant.Tenant) *tenantv1.Tenant {
 	if t == nil {
