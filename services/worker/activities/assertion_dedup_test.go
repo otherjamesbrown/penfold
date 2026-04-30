@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,7 +28,7 @@ func TestStoreAssertions_PreventsDuplicates_ExactMatch(t *testing.T) {
 	ctx := context.Background()
 
 	// Setup database connection
-	pool := setupTestDB(t)
+	pool := testutil.OpenDB(t)
 	defer pool.Close()
 
 	tenantID := testRunTenantID
@@ -128,7 +129,7 @@ func TestStoreAssertions_DifferentTypeAllowed(t *testing.T) {
 	ctx := context.Background()
 
 	// Setup database connection
-	pool := setupTestDB(t)
+	pool := testutil.OpenDB(t)
 	defer pool.Close()
 
 	tenantID := testRunTenantID
@@ -227,7 +228,7 @@ func TestStoreAssertions_DifferentQuoteAllowed(t *testing.T) {
 	ctx := context.Background()
 
 	// Setup database connection
-	pool := setupTestDB(t)
+	pool := testutil.OpenDB(t)
 	defer pool.Close()
 
 	tenantID := testRunTenantID
@@ -324,7 +325,7 @@ func TestStoreAssertions_FirstTimeCreates(t *testing.T) {
 	ctx := context.Background()
 
 	// Setup database connection
-	pool := setupTestDB(t)
+	pool := testutil.OpenDB(t)
 	defer pool.Close()
 
 	tenantID := testRunTenantID
@@ -423,7 +424,7 @@ func TestStoreAssertions_MultipleReprocessing(t *testing.T) {
 	ctx := context.Background()
 
 	// Setup database connection
-	pool := setupTestDB(t)
+	pool := testutil.OpenDB(t)
 	defer pool.Close()
 
 	tenantID := testRunTenantID
@@ -494,7 +495,7 @@ func TestStoreAssertions_DifferentSourcesAllowed(t *testing.T) {
 	ctx := context.Background()
 
 	// Setup database connection
-	pool := setupTestDB(t)
+	pool := testutil.OpenDB(t)
 	defer pool.Close()
 
 	tenantID := testRunTenantID

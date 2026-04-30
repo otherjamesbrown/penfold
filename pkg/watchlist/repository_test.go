@@ -3,12 +3,12 @@ package watchlist
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -120,53 +120,6 @@ func TestRepository_GetBriefingAssertions_LimitHandling(t *testing.T) {
 
 // ==================== Integration Test Helpers ====================
 
-// getEnvOrDefault returns the environment variable value or a default.
-func getEnvOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-// setupTestDB creates a test database connection.
-// It reads configuration from environment variables:
-//   - PENFOLD_DB_HOST (default: dev02.brown.chat)
-//   - PENFOLD_DB_PORT (default: 5432)
-//   - PENFOLD_DB_USER (default: penfold)
-//   - PENFOLD_DB_PASSWORD (required, or uses SSL cert auth)
-//   - PENFOLD_DB_NAME (default: penfold_test)
-//
-// NOTE: For integration tests that require recent schema changes (like SetSeniority),
-// run with: PENFOLD_DB_NAME=penfold go test
-func setupTestDB(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-
-	host := getEnvOrDefault("PENFOLD_DB_HOST", "dev02.brown.chat")
-	port := getEnvOrDefault("PENFOLD_DB_PORT", "5432")
-	user := getEnvOrDefault("PENFOLD_DB_USER", "penfold")
-	dbName := getEnvOrDefault("PENFOLD_DB_NAME", "penfold")
-
-	// Build connection string with SSL verify-full (standard for dev02)
-	connString := fmt.Sprintf(
-		"host=%s port=%s user=%s dbname=%s sslmode=verify-full",
-		host, port, user, dbName,
-	)
-
-	pool, err := pgxpool.New(context.Background(), connString)
-	if err != nil {
-		t.Skipf("Could not connect to test database: %v", err)
-		return nil
-	}
-
-	// Verify connection
-	if err := pool.Ping(context.Background()); err != nil {
-		pool.Close()
-		t.Skipf("Could not ping test database: %v", err)
-		return nil
-	}
-
-	return pool
-}
 
 // cleanupTestPerson removes a test person from the database.
 func cleanupTestPerson(t *testing.T, pool *pgxpool.Pool, personID int64) {
@@ -185,7 +138,7 @@ func cleanupTestPerson(t *testing.T, pool *pgxpool.Pool, personID int64) {
 // The bug: SetSeniority SQL query references column 'title' but people table has 'job_title'.
 // This test will FAIL with the buggy code because the SQL query is incorrect.
 func TestRepository_SetSeniority_Integration(t *testing.T) {
-	pool := setupTestDB(t)
+	pool := testutil.OpenDB(t)
 	if pool == nil {
 		return
 	}
@@ -229,7 +182,7 @@ func TestRepository_SetSeniority_Integration(t *testing.T) {
 // The bug: GetBriefingAssertions SQL query uses 'a.type' instead of 'a.assertion_type'.
 // This test will FAIL with the buggy code because the SQL query references a non-existent column.
 func TestRepository_GetBriefingAssertions_Integration(t *testing.T) {
-	pool := setupTestDB(t)
+	pool := testutil.OpenDB(t)
 	if pool == nil {
 		return
 	}

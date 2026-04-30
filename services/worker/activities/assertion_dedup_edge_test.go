@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,7 +34,7 @@ func TestStoreAssertions_SameDescription_DifferentQuote_BugRepro(t *testing.T) {
 	ctx := context.Background()
 
 	// Setup database connection
-	pool := setupTestDB(t)
+	pool := testutil.OpenDB(t)
 	defer pool.Close()
 
 	tenantID := testRunTenantID
@@ -168,7 +169,7 @@ func TestStoreAssertions_RealWorldScenario_EmPgUz3mLM(t *testing.T) {
 	ctx := context.Background()
 
 	// Setup database connection
-	pool := setupTestDB(t)
+	pool := testutil.OpenDB(t)
 	defer pool.Close()
 
 	tenantID := testRunTenantID

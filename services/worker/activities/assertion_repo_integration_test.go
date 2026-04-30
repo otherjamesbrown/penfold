@@ -4,14 +4,12 @@ package activities
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -38,7 +36,7 @@ func TestStoreAssertions_Duplicates_Integration(t *testing.T) {
 	ctx := context.Background()
 
 	// Setup database connection
-	pool := setupTestDB(t)
+	pool := testutil.OpenDB(t)
 	defer pool.Close()
 
 	tenantID := testRunTenantID
@@ -138,42 +136,6 @@ func TestStoreAssertions_Duplicates_Integration(t *testing.T) {
 	assert.Empty(t, duplicates, "Should have no duplicate assertions")
 }
 
-// setupTestDB creates a connection to the test database.
-func setupTestDB(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-
-	host := getEnvOrDefault("PENFOLD_DB_HOST", "dev02.brown.chat")
-	port := getEnvOrDefault("PENFOLD_DB_PORT", "5432")
-	user := getEnvOrDefault("PENFOLD_DB_USER", "penfold")
-	dbName := getEnvOrDefault("PENFOLD_DB_NAME", "penfold")
-
-	// Build connection string with SSL cert auth
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatalf("failed to get home directory: %v", err)
-	}
-	sslCert := filepath.Join(homeDir, ".postgresql", "postgresql.crt")
-	sslKey := filepath.Join(homeDir, ".postgresql", "postgresql.key")
-	sslRootCert := filepath.Join(homeDir, ".postgresql", "root.crt")
-
-	connStr := fmt.Sprintf(
-		"host=%s port=%s user=%s dbname=%s sslmode=verify-full sslcert=%s sslkey=%s sslrootcert=%s",
-		host, port, user, dbName, sslCert, sslKey, sslRootCert,
-	)
-
-	pool, err := pgxpool.New(context.Background(), connStr)
-	if err != nil {
-		t.Fatalf("failed to connect to database: %v", err)
-	}
-
-	// Verify connection
-	if err := pool.Ping(context.Background()); err != nil {
-		t.Fatalf("failed to ping database: %v", err)
-	}
-
-	return pool
-}
-
 // createTestSource creates a test source record in the database.
 func createTestSource(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenantID string) int64 {
 	t.Helper()
@@ -221,10 +183,3 @@ func cleanupTestSource(t *testing.T, ctx context.Context, pool *pgxpool.Pool, so
 	}
 }
 
-// getEnvOrDefault returns an environment variable value or a default.
-func getEnvOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
