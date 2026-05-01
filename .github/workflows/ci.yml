@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
-    branches: [main]
+    branches: [main, dev]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -159,18 +159,31 @@ jobs:
           cd pkg
           go test -v ./testfixtures/... -run TestYAML
 
-  # Integration tests - requires self-hosted runner with mTLS certs for dev02
+  # Integration tests — run on ubuntu-latest with service containers
   integration-tests:
     name: Integration Tests
-    runs-on: [self-hosted, macos, ARM64]
+    runs-on: ubuntu-latest
     needs: [unit-tests, lint]
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'
+
+    services:
+      postgres:
+        image: timescale/timescaledb-ha:pg16-latest
+        env:
+          POSTGRES_USER: penfold
+          POSTGRES_PASSWORD: penfold
+          POSTGRES_DB: penfold_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U penfold -d penfold_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
 
     env:
-      PENFOLD_DB_HOST: dev02.brown.chat
-      PENFOLD_DB_PORT: 5432
-      PENFOLD_DB_USER: penfold
-      PENFOLD_DB_NAME: penfold
+      PENFOLD_TEST_DATABASE_URL: postgres://penfold:penfold@localhost:5432/penfold_test?sslmode=disable
+      PENF_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
     steps:
       - uses: actions/checkout@v4
@@ -182,7 +195,20 @@ jobs:
           cache: true
           cache-dependency-path: "**/go.sum"
 
-      - name: Run integration tests
+      - name: Run schema migrations
+        run: cd tests && go run ./cmd/migrate ../migrations
+
+      - name: Run pkg repository integration tests
+        run: |
+          cd pkg
+          go test -v -race -timeout 10m ./repository/... ./watchlist/...
+
+      - name: Run worker activities integration tests
+        run: |
+          cd services/worker
+          go test -tags=integration -v -race -timeout 10m ./activities/...
+
+      - name: Run integration test suite
         run: |
           cd tests
           go test -tags=integration -v -race -timeout 10m ./integration/...

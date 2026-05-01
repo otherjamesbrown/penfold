@@ -6,16 +6,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/testutil"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
 
@@ -24,7 +21,7 @@ import (
 // and returns the expected ordered lists seeded by migration 149.
 func TestContextProviders_PipelineDefinitions_Integration(t *testing.T) {
 	ctx := context.Background()
-	pool := setupTestDBForBuildStageContext(t)
+	pool := testutil.OpenDB(t)
 	defer pool.Close()
 
 	tenantID := testRunTenantID
@@ -78,7 +75,7 @@ func TestContextProviders_PipelineDefinitions_Integration(t *testing.T) {
 // and BuildStageContext correctly assembles context from registered providers.
 func TestBuildStageContext_Integration(t *testing.T) {
 	ctx := context.Background()
-	pool := setupTestDBForBuildStageContext(t)
+	pool := testutil.OpenDB(t)
 	defer pool.Close()
 
 	tenantID := testRunTenantID
@@ -102,25 +99,15 @@ func TestBuildStageContext_Integration(t *testing.T) {
 	newsletterRepo := NewPostgresNewsletterContextRepository(pool)
 	contextRepo := NewContextPackageRepo(pool, logger)
 
-	a := &ContextBuilderActivities{
-		logger:               logger.With(logging.F("component", "context_builder_activities")),
-		entityResolver:       &mockEntityResolver{},
-		entityRepo:           &mockEntityLookup{},
-		contextRepo:          contextRepo,
-		pipelineRepo:         pipelineRepo,
-		newsletterContextRepo: newsletterRepo,
-	}
-	RegisterContextProviders(logger, contextRepo, newsletterRepo, nil)
+	a := NewContextBuilderActivities(logger, &mockEntityResolver{}, &mockEntityLookup{}, contextRepo, nil, pipelineRepo, nil).
+		WithNewsletterContextRepo(newsletterRepo)
 
-	result, err := a.BuildStageContext(ctx, BuildStageContextInput{
+	result, err := a.BuildStageContext(ctx, workflows.BuildStageContextInput{
 		TenantID: tenantID,
 		Pipeline: "newsletter",
 		Stage:    "newsletter_extract",
-		ProviderInput: ContextProviderInput{
-			TenantID: tenantID,
-			Content:  "The NLB team confirmed the MTC project is on track for Q4 delivery.",
-			Subject:  "Weekly Update",
-		},
+		Content:  "The NLB team confirmed the MTC project is on track for Q4 delivery.",
+		Subject:  "Weekly Update",
 	})
 	require.NoError(t, err)
 
@@ -134,7 +121,7 @@ func TestBuildStageContext_Integration(t *testing.T) {
 // for the standard/analyze stage, which is seeded with '{glossary,topics}'.
 func TestBuildStageContext_StandardAnalyze_Integration(t *testing.T) {
 	ctx := context.Background()
-	pool := setupTestDBForBuildStageContext(t)
+	pool := testutil.OpenDB(t)
 	defer pool.Close()
 
 	tenantID := testRunTenantID
@@ -159,15 +146,12 @@ func TestBuildStageContext_StandardAnalyze_Integration(t *testing.T) {
 	}
 	RegisterContextProviders(logger, contextRepo, nil, nil)
 
-	result, err := a.BuildStageContext(ctx, BuildStageContextInput{
+	result, err := a.BuildStageContext(ctx, workflows.BuildStageContextInput{
 		TenantID: tenantID,
 		Pipeline: "standard",
 		Stage:    "analyze",
-		ProviderInput: ContextProviderInput{
-			TenantID: tenantID,
-			Content:  "The NLB load balancer configuration was updated by the MTC team.",
-			Subject:  "Infrastructure Update",
-		},
+		Content:  "The NLB load balancer configuration was updated by the MTC team.",
+		Subject:  "Infrastructure Update",
 	})
 	require.NoError(t, err)
 
@@ -184,7 +168,7 @@ func TestBuildStageContext_StandardAnalyze_Integration(t *testing.T) {
 // context_providers returns an empty string without error (not found = empty slice).
 func TestBuildStageContext_UnknownStage_Integration(t *testing.T) {
 	ctx := context.Background()
-	pool := setupTestDBForBuildStageContext(t)
+	pool := testutil.OpenDB(t)
 	defer pool.Close()
 
 	tenantID := testRunTenantID
@@ -199,87 +183,13 @@ func TestBuildStageContext_UnknownStage_Integration(t *testing.T) {
 		pipelineRepo:   pipelineRepo,
 	}
 
-	result, err := a.BuildStageContext(ctx, BuildStageContextInput{
+	result, err := a.BuildStageContext(ctx, workflows.BuildStageContextInput{
 		TenantID: tenantID,
 		Pipeline: "standard",
 		Stage:    "nonexistent_stage_xyz",
-		ProviderInput: ContextProviderInput{
-			TenantID: tenantID,
-		},
 	})
 	require.NoError(t, err)
 	assert.Empty(t, result, "unknown stage must return empty string")
-}
-
-// TestBuildStageContext_Parity_Newsletter_Integration verifies that
-// BuildNewsletterContext (old path) and BuildStageContext (new path) produce
-// the same sections from the same input. Ordering may differ; content must match.
-func TestBuildStageContext_Parity_Newsletter_Integration(t *testing.T) {
-	ctx := context.Background()
-	pool := setupTestDBForBuildStageContext(t)
-	defer pool.Close()
-
-	tenantID := testRunTenantID
-	logger := logging.MustGlobal()
-
-	pipelineRepo := NewPipelineRepository(pool)
-	providers, err := pipelineRepo.GetContextProviders(ctx, tenantID, "newsletter", "newsletter_extract")
-	require.NoError(t, err)
-	if len(providers) == 0 {
-		t.Skip("newsletter_extract context_providers not seeded (migration 149 may not have run)")
-	}
-
-	newsletterRepo := NewPostgresNewsletterContextRepository(pool)
-	contextRepo := NewContextPackageRepo(pool, logger)
-
-	// Both paths share the same repos and input.
-	content := "The NLB team confirmed the MTC project delivery timeline."
-	subject := "Weekly Newsletter Update"
-
-	// Old path: BuildNewsletterContext
-	oldActivities := &ContextBuilderActivities{
-		logger:               logger.With(logging.F("component", "context_builder_activities")),
-		entityResolver:       &mockEntityResolver{},
-		entityRepo:           &mockEntityLookup{},
-		contextRepo:          contextRepo,
-		pipelineRepo:         pipelineRepo,
-		newsletterContextRepo: newsletterRepo,
-	}
-	oldOut, err := oldActivities.BuildNewsletterContext(ctx, workflows.BuildNewsletterContextInput{
-		TenantID: tenantID,
-		Subject:  subject,
-		Content:  content,
-	})
-	require.NoError(t, err, "BuildNewsletterContext must not error")
-
-	// New path: BuildStageContext
-	RegisterContextProviders(logger, contextRepo, newsletterRepo, nil)
-	newOut, err := oldActivities.BuildStageContext(ctx, BuildStageContextInput{
-		TenantID: tenantID,
-		Pipeline: "newsletter",
-		Stage:    "newsletter_extract",
-		ProviderInput: ContextProviderInput{
-			TenantID: tenantID,
-			Content:  content,
-			Subject:  subject,
-		},
-	})
-	require.NoError(t, err, "BuildStageContext must not error")
-
-	if oldOut.BackgroundContext == "" && newOut == "" {
-		t.Log("Both paths produced empty context (no data seeded for test tenant) — parity holds trivially")
-		return
-	}
-
-	// Extract section headers from each output for order-independent comparison.
-	oldSections := extractSectionHeaders(oldOut.BackgroundContext)
-	newSections := extractSectionHeaders(newOut)
-
-	t.Logf("old path sections: %v", oldSections)
-	t.Logf("new path sections: %v", newSections)
-
-	assert.ElementsMatch(t, oldSections, newSections,
-		"BuildStageContext and BuildNewsletterContext must produce the same sections (order-independent)")
 }
 
 // TestBuildStageContext_CustomPipeline_Integration verifies that inserting a
@@ -287,7 +197,7 @@ func TestBuildStageContext_Parity_Newsletter_Integration(t *testing.T) {
 // BuildStageContext to run only those providers.
 func TestBuildStageContext_CustomPipeline_Integration(t *testing.T) {
 	ctx := context.Background()
-	pool := setupTestDBForBuildStageContext(t)
+	pool := testutil.OpenDB(t)
 	defer pool.Close()
 
 	tenantID := testRunTenantID
@@ -328,15 +238,12 @@ func TestBuildStageContext_CustomPipeline_Integration(t *testing.T) {
 	}
 	RegisterContextProviders(logger, contextRepo, nil, nil)
 
-	result, err := a.BuildStageContext(ctx, BuildStageContextInput{
+	result, err := a.BuildStageContext(ctx, workflows.BuildStageContextInput{
 		TenantID: tenantID,
 		Pipeline: testPipeline,
 		Stage:    testStage,
-		ProviderInput: ContextProviderInput{
-			TenantID: tenantID,
-			Content:  "The NLB load balancer handles all traffic.",
-			Subject:  "Infrastructure",
-		},
+		Content:  "The NLB load balancer handles all traffic.",
+		Subject:  "Infrastructure",
 	})
 	require.NoError(t, err, "BuildStageContext must not error for custom pipeline")
 
@@ -362,7 +269,7 @@ func TestBuildStageContext_CustomPipeline_Integration(t *testing.T) {
 // CorrectedExtraction must be populated from the extraction input.
 func TestBuildContextPackage_EntityResolution_Integration(t *testing.T) {
 	ctx := context.Background()
-	pool := setupTestDBForBuildStageContext(t)
+	pool := testutil.OpenDB(t)
 	defer pool.Close()
 
 	tenantID := testRunTenantID
@@ -429,7 +336,7 @@ func TestBuildContextPackage_EntityResolution_Integration(t *testing.T) {
 // asserts that BuildStageContext returns without error and glossary still runs.
 func TestBuildStageContext_ProviderFailure_NonBlocking_Integration(t *testing.T) {
 	ctx := context.Background()
-	pool := setupTestDBForBuildStageContext(t)
+	pool := testutil.OpenDB(t)
 	defer pool.Close()
 
 	tenantID := testRunTenantID
@@ -471,15 +378,12 @@ func TestBuildStageContext_ProviderFailure_NonBlocking_Integration(t *testing.T)
 	}
 
 	// BuildStageContext must not return an error even though the first provider fails.
-	result, err := a.BuildStageContext(ctx, BuildStageContextInput{
+	result, err := a.BuildStageContext(ctx, workflows.BuildStageContextInput{
 		TenantID: tenantID,
 		Pipeline: testPipeline,
 		Stage:    testStage,
-		ProviderInput: ContextProviderInput{
-			TenantID: tenantID,
-			Content:  "The NLB system handles traffic for MTC.",
-			Subject:  "System Update",
-		},
+		Content:  "The NLB system handles traffic for MTC.",
+		Subject:  "System Update",
 	})
 	require.NoError(t, err, "BuildStageContext must not error when a provider fails")
 
@@ -502,49 +406,3 @@ func (p *alwaysFailingProvider) Build(_ context.Context, _ ContextProviderInput)
 	return "", errors.New("injected failure for non-blocking test")
 }
 
-// extractSectionHeaders returns the markdown section header lines (### ...) from s.
-// Used for order-independent section comparison in parity tests.
-func extractSectionHeaders(s string) []string {
-	var headers []string
-	for _, line := range strings.Split(s, "\n") {
-		if strings.HasPrefix(line, "###") {
-			headers = append(headers, strings.TrimSpace(line))
-		}
-	}
-	return headers
-}
-
-// setupTestDBForBuildStageContext creates a DB connection for BuildStageContext integration tests.
-func setupTestDBForBuildStageContext(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-
-	host := getEnvOrDefault("PENFOLD_DB_HOST", "dev02.brown.chat")
-	port := getEnvOrDefault("PENFOLD_DB_PORT", "5432")
-	user := getEnvOrDefault("PENFOLD_DB_USER", "penfold")
-	dbName := getEnvOrDefault("PENFOLD_DB_NAME", "penfold")
-
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatalf("failed to get home directory: %v", err)
-	}
-	sslCert := filepath.Join(homeDir, ".postgresql", "postgresql.crt")
-	sslKey := filepath.Join(homeDir, ".postgresql", "postgresql.key")
-	sslRootCert := filepath.Join(homeDir, ".postgresql", "root.crt")
-
-	connStr := fmt.Sprintf(
-		"host=%s port=%s user=%s dbname=%s sslmode=verify-full sslcert=%s sslkey=%s sslrootcert=%s",
-		host, port, user, dbName, sslCert, sslKey, sslRootCert,
-	)
-
-	pool, err := pgxpool.New(context.Background(), connStr)
-	if err != nil {
-		t.Fatalf("failed to connect to database: %v", err)
-	}
-
-	if err := pool.Ping(context.Background()); err != nil {
-		pool.Close()
-		t.Fatalf("failed to ping database: %v", err)
-	}
-
-	return pool
-}

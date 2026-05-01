@@ -5,13 +5,11 @@ package activities
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/testutil"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -53,7 +51,7 @@ func TestUpdateSourceStatus_SourceSystemNotPersisted_Integration(t *testing.T) {
 	ctx := context.Background()
 
 	// Setup database connection
-	pool := setupTestDBForSourceSystem(t)
+	pool := testutil.OpenDB(t)
 	defer pool.Close()
 
 	tenantID := testRunTenantID
@@ -122,7 +120,7 @@ func TestUpdateSourceStatus_SourceSystemWithOtherFields_Integration(t *testing.T
 	ctx := context.Background()
 
 	// Setup database connection
-	pool := setupTestDBForSourceSystem(t)
+	pool := testutil.OpenDB(t)
 	defer pool.Close()
 
 	tenantID := testRunTenantID
@@ -184,42 +182,6 @@ func TestUpdateSourceStatus_SourceSystemWithOtherFields_Integration(t *testing.T
 
 	require.Contains(t, ingestionMetadata, "source_system", "source_system should be in ingestion_metadata")
 	assert.Equal(t, "human_email", ingestionMetadata["source_system"], "source_system should be 'human_email'")
-}
-
-// setupTestDBForSourceSystem creates a connection to the test database.
-func setupTestDBForSourceSystem(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-
-	host := getEnvOrDefault("PENFOLD_DB_HOST", "dev02.brown.chat")
-	port := getEnvOrDefault("PENFOLD_DB_PORT", "5432")
-	user := getEnvOrDefault("PENFOLD_DB_USER", "penfold")
-	dbName := getEnvOrDefault("PENFOLD_DB_NAME", "penfold")
-
-	// Build connection string with SSL cert auth
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatalf("failed to get home directory: %v", err)
-	}
-	sslCert := filepath.Join(homeDir, ".postgresql", "postgresql.crt")
-	sslKey := filepath.Join(homeDir, ".postgresql", "postgresql.key")
-	sslRootCert := filepath.Join(homeDir, ".postgresql", "root.crt")
-
-	connStr := fmt.Sprintf(
-		"host=%s port=%s user=%s dbname=%s sslmode=verify-full sslcert=%s sslkey=%s sslrootcert=%s",
-		host, port, user, dbName, sslCert, sslKey, sslRootCert,
-	)
-
-	pool, err := pgxpool.New(context.Background(), connStr)
-	if err != nil {
-		t.Fatalf("failed to connect to database: %v", err)
-	}
-
-	// Verify connection
-	if err := pool.Ping(context.Background()); err != nil {
-		t.Fatalf("failed to ping database: %v", err)
-	}
-
-	return pool
 }
 
 // createTestSourceForSourceSystem creates a test source record in the database.

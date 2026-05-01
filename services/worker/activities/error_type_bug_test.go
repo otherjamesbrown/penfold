@@ -5,63 +5,16 @@ package activities
 import (
 	"context"
 	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.temporal.io/sdk/temporal"
 
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/testutil"
 	"github.com/otherjamesbrown/penfold/services/worker/workflows"
 )
-
-// setupTestDBForBugReproduction creates a connection to the test database.
-func setupTestDBForBugReproduction(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-
-	host := getEnvOrDefaultBug(t, "PENFOLD_DB_HOST", "dev02.brown.chat")
-	port := getEnvOrDefaultBug(t, "PENFOLD_DB_PORT", "5432")
-	user := getEnvOrDefaultBug(t, "PENFOLD_DB_USER", "penfold")
-	dbName := getEnvOrDefaultBug(t, "PENFOLD_DB_NAME", "penfold")
-
-	// Build connection string with SSL cert auth
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatalf("failed to get home directory: %v", err)
-	}
-	sslCert := filepath.Join(homeDir, ".postgresql", "postgresql.crt")
-	sslKey := filepath.Join(homeDir, ".postgresql", "postgresql.key")
-	sslRootCert := filepath.Join(homeDir, ".postgresql", "root.crt")
-
-	connStr := fmt.Sprintf(
-		"host=%s port=%s user=%s dbname=%s sslmode=verify-full sslcert=%s sslkey=%s sslrootcert=%s",
-		host, port, user, dbName, sslCert, sslKey, sslRootCert,
-	)
-
-	pool, err := pgxpool.New(context.Background(), connStr)
-	if err != nil {
-		t.Fatalf("failed to connect to database: %v", err)
-	}
-
-	// Verify connection
-	if err := pool.Ping(context.Background()); err != nil {
-		t.Fatalf("failed to ping database: %v", err)
-	}
-
-	return pool
-}
-
-func getEnvOrDefaultBug(t *testing.T, key, defaultValue string) string {
-	t.Helper()
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
 
 // TestFetchSource_NotFound_ReturnsNotFoundError verifies that FetchSource returns
 // a temporal.ApplicationError with type "NotFoundError" when the source doesn't exist.
@@ -69,7 +22,7 @@ func getEnvOrDefaultBug(t *testing.T, key, defaultValue string) string {
 // BUG: Currently FAILS because FetchSource wraps pgx.ErrNoRows with plain fmt.Errorf
 // instead of using NewNotFoundError.
 func TestFetchSource_NotFound_ReturnsNotFoundError(t *testing.T) {
-	pool := setupTestDBForBugReproduction(t)
+	pool := testutil.OpenDB(t)
 	defer pool.Close()
 
 	// Create activity with real DB
@@ -112,7 +65,7 @@ func TestFetchSource_NotFound_ReturnsNotFoundError(t *testing.T) {
 // BUG: Currently FAILS because UpdateSourceStatus returns plain fmt.Errorf("source not found: %d")
 // instead of using NewNotFoundError.
 func TestUpdateSourceStatus_NotFound_ReturnsNotFoundError(t *testing.T) {
-	pool := setupTestDBForBugReproduction(t)
+	pool := testutil.OpenDB(t)
 	defer pool.Close()
 
 	// Create activity with real DB
