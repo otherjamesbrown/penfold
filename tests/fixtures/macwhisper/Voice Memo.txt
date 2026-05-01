@@ -1,0 +1,23 @@
+JAMES: Hiya, how are you?
+
+ROB: I'm good, thank you. Sorry I'm a minute late.
+
+JAMES: That's alright. So, tell me about where you are on the project.
+
+ROB: Sure. We finished the discovery phase last week. The main finding is that the current data pipeline has significant latency issues — we're seeing 30-second delays on average.
+
+JAMES: That's worse than I expected. What's driving it?
+
+ROB: Two things. First, the batch processing runs every 15 minutes instead of streaming. Second, there's no indexing on the source_id column, so every lookup is a full table scan.
+
+JAMES: Right. So what's the fix?
+
+ROB: We've drafted a plan. Switch to event-driven streaming using the existing message queue, and add the index. We estimate that gets us under two seconds end-to-end.
+
+JAMES: Good. What do you need from me?
+
+ROB: Sign-off on the infrastructure change and about a week of engineering time.
+
+JAMES: You've got it. Let's sync again on Friday to check progress.
+
+ROB: Perfect. Thanks James.
