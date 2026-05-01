@@ -276,6 +276,16 @@ func createMeetingFromFileWithMode(filePath string, lenient bool) *Meeting {
 
 	meetingInfo := ExtractMeetingInfo(filename)
 
+	// Requirement #3 (pf-f5a141): if neither the filename nor the caller's --date
+	// flag provides a date, fall back to the file's modification time. The CLI
+	// applies its --date override after this returns; we only set mtime as the
+	// default when the filename couldn't supply one.
+	if meetingInfo.Date.IsZero() {
+		if info, err := os.Stat(filePath); err == nil {
+			meetingInfo.Date = info.ModTime().UTC()
+		}
+	}
+
 	m := &Meeting{
 		Title:    meetingInfo.Title,
 		Date:     meetingInfo.Date,

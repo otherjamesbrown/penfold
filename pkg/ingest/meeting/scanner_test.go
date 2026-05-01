@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -205,6 +206,57 @@ func TestScanMeetingFilesWithOptions_LocalPlatform(t *testing.T) {
 	meetings, err := ScanMeetingFilesWithOptions(filePath, ScanOptions{Platform: "local"})
 	require.NoError(t, err)
 	assert.Len(t, meetings, 1)
+}
+
+// TestScanMeetingFilesWithOptions_MtimeFallback verifies requirement #3 of pf-f5a141:
+// when neither the filename nor the caller's --date flag provides a date, the meeting's
+// Date defaults to the file's modification time. The CLI applies its --date override
+// after scanning; we only set mtime as the default when the filename couldn't supply one.
+func TestScanMeetingFilesWithOptions_MtimeFallback(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "Voice Memo.txt")
+	err := os.WriteFile(filePath, []byte("JAMES: Hello.\n"), 0644)
+	require.NoError(t, err)
+
+	// Set the file's mtime to a known fixed value so the assertion is deterministic.
+	wantMtime := time.Date(2026, 4, 28, 9, 53, 0, 0, time.UTC)
+	require.NoError(t, os.Chtimes(filePath, wantMtime, wantMtime))
+
+	meetings, err := ScanMeetingFilesWithOptions(filePath, ScanOptions{Platform: "macwhisper"})
+	require.NoError(t, err)
+	require.Len(t, meetings, 1)
+
+	gotDate := meetings[0].Date
+	assert.False(t, gotDate.IsZero(),
+		"Date must not be zero when filename has no date — should fall back to file mtime")
+	assert.True(t, gotDate.Equal(wantMtime),
+		"Date must equal file mtime when no other source supplies it (got %s, want %s)",
+		gotDate, wantMtime)
+}
+
+// TestScanMeetingFilesWithOptions_FilenameDateOverridesMtime verifies that mtime fallback
+// only kicks in when the filename has no date — when the filename does encode a date, that
+// date wins (mtime is irrelevant).
+func TestScanMeetingFilesWithOptions_FilenameDateOverridesMtime(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Filename has an embedded date: 2025-09-09 (per Webex transcript pattern).
+	filePath := filepath.Join(tmpDir, "Transcript_demo_20250909.txt")
+	err := os.WriteFile(filePath, []byte("ALICE: Hello.\n"), 0644)
+	require.NoError(t, err)
+
+	// Set mtime to a different date — the filename's date should still win.
+	mtime := time.Date(2026, 4, 28, 9, 53, 0, 0, time.UTC)
+	require.NoError(t, os.Chtimes(filePath, mtime, mtime))
+
+	meetings, err := ScanMeetingFiles(filePath)
+	require.NoError(t, err)
+	require.Len(t, meetings, 1)
+
+	gotDate := meetings[0].Date
+	wantDate := time.Date(2025, 9, 9, 0, 0, 0, 0, time.UTC)
+	assert.True(t, gotDate.Equal(wantDate),
+		"filename-encoded date must take precedence over file mtime (got %s, want %s)",
+		gotDate, wantDate)
 }
 
 func TestDetectFileType(t *testing.T) {
