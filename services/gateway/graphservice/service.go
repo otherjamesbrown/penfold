@@ -473,6 +473,75 @@ func (s *Service) InitiateGraphAuth(ctx context.Context, req *graphpb.InitiateGr
 	}, nil
 }
 
+// InitGraphIntegration creates (or overwrites) the microsoft_graph row in
+// tenant_integrations so that subsequent auth calls can proceed.
+func (s *Service) InitGraphIntegration(ctx context.Context, req *graphpb.InitGraphIntegrationRequest) (*graphpb.InitGraphIntegrationResponse, error) {
+	if req.TenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	if req.ClientId == "" {
+		return nil, status.Error(codes.InvalidArgument, "client_id is required")
+	}
+	if req.AzureTenantId == "" {
+		return nil, status.Error(codes.InvalidArgument, "azure_tenant_id is required")
+	}
+
+	name := req.Name
+	if name == "" {
+		name = "default"
+	}
+
+	cfgJSON, err := json.Marshal(map[string]string{
+		"client_id": req.ClientId,
+		"tenant_id": req.AzureTenantId,
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "encoding config: %v", err)
+	}
+
+	if req.Force {
+		_, err = s.pool.Exec(ctx, `
+			INSERT INTO tenant_integrations (tenant_id, integration_type, name, config, enabled, sync_status)
+			VALUES ($1, 'microsoft_graph', $2, $3::jsonb, true, 'never_synced')
+			ON CONFLICT (tenant_id, integration_type, name) DO UPDATE
+			  SET config = EXCLUDED.config, updated_at = NOW()
+		`, req.TenantId, name, string(cfgJSON))
+	} else {
+		_, err = s.pool.Exec(ctx, `
+			INSERT INTO tenant_integrations (tenant_id, integration_type, name, config, enabled, sync_status)
+			VALUES ($1, 'microsoft_graph', $2, $3::jsonb, true, 'never_synced')
+		`, req.TenantId, name, string(cfgJSON))
+	}
+
+	if err != nil {
+		if isUniqueViolation(err) {
+			return nil, status.Errorf(codes.AlreadyExists,
+				"microsoft_graph integration already exists for tenant %s (use --force to overwrite)", req.TenantId)
+		}
+		return nil, status.Errorf(codes.Internal, "inserting integration: %v", err)
+	}
+
+	s.logger.Info("InitGraphIntegration created integration row",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("name", name),
+	)
+
+	return &graphpb.InitGraphIntegrationResponse{
+		Message: fmt.Sprintf("microsoft_graph integration created for tenant %s — run 'penf source graph auth' to authenticate", req.TenantId),
+	}, nil
+}
+
+// isUniqueViolation returns true when err is a PostgreSQL unique-constraint
+// violation (SQLSTATE 23505).
+func isUniqueViolation(err error) bool {
+	const uniqueViolation = "23505"
+	type pgError interface{ SQLState() string }
+	if pge, ok := err.(pgError); ok {
+		return pge.SQLState() == uniqueViolation
+	}
+	return false
+}
+
 // resolveTeamIDs returns configured team IDs if non-empty, otherwise extracts
 // IDs from the discovered joined teams. Returns nil when both inputs are empty
 // or nil, which is safe to range over.

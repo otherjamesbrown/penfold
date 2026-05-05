@@ -27,6 +27,10 @@ service GraphConnectorService {
 
   // InitiateGraphAuth starts the Microsoft device code authorization flow.
   rpc InitiateGraphAuth(InitiateGraphAuthRequest) returns (InitiateGraphAuthResponse);
+
+  // InitGraphIntegration creates the microsoft_graph tenant_integrations row
+  // required before auth can proceed. Idempotent when force is true.
+  rpc InitGraphIntegration(InitGraphIntegrationRequest) returns (InitGraphIntegrationResponse);
 }
 
 // =============================================================================
@@ -157,4 +161,34 @@ message InitiateGraphAuthResponse {
 
   // Number of seconds until the device code expires
   int32 expires_in = 4;
+}
+
+// =============================================================================
+// InitGraphIntegration
+// =============================================================================
+
+// InitGraphIntegrationRequest bootstraps the tenant_integrations row needed
+// before graph auth can proceed.
+message InitGraphIntegrationRequest {
+  // Penfold tenant identifier (UUID or slug)
+  string tenant_id = 1;
+
+  // Azure application (client) ID for the registered app
+  string client_id = 2;
+
+  // Azure directory (tenant) ID
+  string azure_tenant_id = 3;
+
+  // Optional friendly name for the integration record (default: "default")
+  string name = 4;
+
+  // When true, overwrite an existing integration row
+  bool force = 5;
+}
+
+// InitGraphIntegrationResponse is returned after successfully bootstrapping
+// the integration row.
+message InitGraphIntegrationResponse {
+  // Human-readable confirmation message
+  string message = 1;
 }
