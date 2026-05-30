@@ -1,10 +1,10 @@
 # Penfold Backend
 
-## CoBuild
+## How work gets done
 
-This project uses [CoBuild](https://github.com/otherjamesbrown/cobuild) for pipeline automation — designs flow through structured phases (design → decompose → implement → review → done) with quality gates.
+CoBuild is **retired** (2026-05) — there is no decompose/dispatch/gate pipeline. Work is tracked in **Linear** (`linear.app/james-brown`, team `PEN`) and done in Claude Code sessions against the repo, then PR'd to GitHub. Keep scope to the issue; file a new Linear issue for adjacent work.
 
-**Read `AGENTS.md` for full pipeline instructions, commands, and task completion protocol.**
+**Read `AGENTS.md` for the full workflow and session-completion protocol.**
 
 ## Go toolchain — DO NOT FREESTYLE
 
@@ -53,16 +53,10 @@ penf deploy --status    # Check all services
 | System | Server | Config |
 |--------|--------|--------|
 | Penfold | dev02.brown.chat:50051 | ~/.penf/config.yaml |
-| Context Palace | dev02.brown.chat:5432 | ~/.cobuild/config.yaml |
+| Context Palace (KB only) | dev02.brown.chat:5432 | ~/.cobuild/config.yaml |
 
 ```bash
 penf status / penf health / penf update
-cobuild wi list --type task
 ./scripts/deploy.sh status
+cxp recall / cxp kb        # Context Palace is knowledge-only now (not work tracking)
 ```
-
-
-## CoBuild Dispatch Context
-
-You are a dispatched CoBuild agent. Your task prompt was passed as the initial message.
-Additional context is in `.cobuild/dispatch-context.md` — read it if you need architecture, design context, or project anatomy.

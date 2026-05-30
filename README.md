@@ -13,8 +13,10 @@ Penfold is one of four **operator instruments** James is building to support a s
 - **M-Intel** -- topic research and hypothesis generation with evidence grading
 
 **Infrastructure:**
-- **[Context Palace](https://github.com/otherjamesbrown/context-palace)** -- work tracking + KB for AI agents (`cxp` CLI)
-- **[CoBuild](https://github.com/otherjamesbrown/cobuild)** -- design → decompose → implement → review → deploy automation
+- **[Linear](https://linear.app/james-brown)** -- work tracking (initiatives → projects → issues), team `PEN`. Where agents pick up and track work.
+- **[Context Palace](https://github.com/otherjamesbrown/context-palace)** -- knowledge base + semantic recall for agent context (`cxp recall`, `cxp kb`). No longer used for work tracking.
+
+> **CoBuild is retired (2026-05).** The former design → decompose → implement → review → deploy pipeline is gone. Work is now done in Claude Code sessions against Linear issues and PR'd to GitHub.
 
 **Client:**
 - **[penf-cli](https://github.com/otherjamesbrown/penf-cli)** -- command-line interface for this repo's gRPC services. Shares the `pf-` Context Palace namespace.
@@ -63,17 +65,7 @@ specs/          Design and historical implementation specs
 
 ## Development
 
-This project uses `bd` for issue tracking.
-
-Useful commands:
-
-```bash
-bd ready
-bd show <id>
-bd update <id> --status in_progress
-bd close <id>
-bd sync
-```
+Work is tracked in **Linear** (team `PEN`, identifiers `PEN-<n>`); pick up an issue, do the work in a Claude Code session, and PR to GitHub. Reference the `PEN-<n>` identifier in the commit/PR so Linear links it. See `AGENTS.md` for the full workflow and session-completion protocol.
 
 ## KB and Architecture
 
