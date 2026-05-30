@@ -175,7 +175,7 @@ fi
 Also check the worker log timestamp directly:
 ```bash
 # Get last log entry timestamp from worker
-LAST_LOG=$(ssh dev01 "tail -1 ~/penfold-worker.log 2>/dev/null" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z' | head -1)
+LAST_LOG=$(ssh dev01 "tail -1 /var/log/penfold/worker.log 2>/dev/null" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z' | head -1)
 if [ -n "$LAST_LOG" ]; then
   echo "   Last worker log: $LAST_LOG"
 fi
