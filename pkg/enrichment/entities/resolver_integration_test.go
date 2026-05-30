@@ -178,13 +178,7 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-// getEnvOrDefault returns the environment variable value or a default.
-func getEnvOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
+// getEnvOrDefault is defined in repository_message_counts_test.go.
 
 // TestResolveOrCreate_CanonicalNameUpdate_Integration is an integration test that reproduces
 // bug pf-38e4a9: ResolveOrCreate does not update canonical_name when a better display name
