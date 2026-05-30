@@ -40,6 +40,9 @@ func (s *Service) resolveTenantID(ctx context.Context, tenantRef string) (string
 	if tenantRef == "" {
 		return "", status.Error(codes.InvalidArgument, "tenant_id is required")
 	}
+	if s.tenantRepo == nil {
+		return "", status.Error(codes.Internal, "tenant repository is not initialized")
+	}
 	t, err := s.tenantRepo.GetByRef(ctx, tenantRef)
 	if err != nil {
 		s.logger.Error("Error resolving tenant", logging.Err(err), logging.F("tenant_ref", tenantRef))
