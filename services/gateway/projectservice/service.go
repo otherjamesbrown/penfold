@@ -15,6 +15,7 @@ import (
 	pferrors "github.com/otherjamesbrown/penfold/pkg/errors"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/projects"
+	"github.com/otherjamesbrown/penfold/pkg/tenant"
 )
 
 // Service implements the ProjectService gRPC server.
@@ -22,16 +23,34 @@ type Service struct {
 	projectv1.UnimplementedProjectServiceServer
 	repo         *projects.Repository
 	entitiesRepo *entities.Repository
+	tenantRepo   *tenant.Repository
 	logger       logging.Logger
 }
 
 // NewService creates a new project service.
-func NewService(repo *projects.Repository, entitiesRepo *entities.Repository, logger logging.Logger) *Service {
+func NewService(repo *projects.Repository, entitiesRepo *entities.Repository, tenantRepo *tenant.Repository, logger logging.Logger) *Service {
 	return &Service{
 		repo:         repo,
 		entitiesRepo: entitiesRepo,
+		tenantRepo:   tenantRepo,
 		logger:       logger,
 	}
+}
+
+// resolveTenantID resolves a tenant reference (UUID or slug) to a UUID.
+func (s *Service) resolveTenantID(ctx context.Context, tenantRef string) (string, error) {
+	if tenantRef == "" {
+		return "", status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	t, err := s.tenantRepo.GetByRef(ctx, tenantRef)
+	if err != nil {
+		s.logger.Error("Error resolving tenant", logging.Err(err), logging.F("tenant_ref", tenantRef))
+		return "", status.Errorf(codes.Internal, "failed to resolve tenant: %v", err)
+	}
+	if t == nil {
+		return "", status.Errorf(codes.NotFound, "tenant not found: %s", tenantRef)
+	}
+	return t.ID, nil
 }
 
 // CreateProject creates a new project.
@@ -45,8 +64,13 @@ func (s *Service) CreateProject(ctx context.Context, req *projectv1.CreateProjec
 		return nil, status.Error(codes.InvalidArgument, "project name is required")
 	}
 
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
 	project := &projects.Project{
-		TenantID:     req.TenantId,
+		TenantID:     tenantID,
 		Name:         req.Input.Name,
 		Description:  nullIfEmpty(req.Input.Description),
 		Keywords:     req.Input.Keywords,
@@ -77,7 +101,12 @@ func (s *Service) GetProject(ctx context.Context, req *projectv1.GetProjectReque
 		return nil, status.Error(codes.InvalidArgument, "identifier is required")
 	}
 
-	project, err := s.repo.Resolve(ctx, req.TenantId, req.Identifier)
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	project, err := s.repo.Resolve(ctx, tenantID, req.Identifier)
 	if err != nil {
 		if errors.Is(err, pferrors.ErrNotFound) {
 			return nil, status.Errorf(codes.NotFound, "project not found: %s", req.Identifier)
@@ -173,8 +202,13 @@ func (s *Service) ListProjects(ctx context.Context, req *projectv1.ListProjectsR
 		return nil, status.Error(codes.InvalidArgument, "tenant_id is required in filter")
 	}
 
+	tenantID, err := s.resolveTenantID(ctx, req.Filter.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
 	filter := projects.ProjectFilter{
-		TenantID:          req.Filter.TenantId,
+		TenantID:          tenantID,
 		NameSearch:        req.Filter.NameSearch,
 		Keyword:           req.Filter.Keyword,
 		JiraProject:       req.Filter.JiraProject,
@@ -213,7 +247,12 @@ func (s *Service) GetProjectContext(ctx context.Context, req *projectv1.GetProje
 		return nil, status.Error(codes.InvalidArgument, "name is required")
 	}
 
-	projectContext, err := s.repo.GetProjectContext(ctx, req.TenantId, req.Name)
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	projectContext, err := s.repo.GetProjectContext(ctx, tenantID, req.Name)
 	if err != nil {
 		if errors.Is(err, pferrors.ErrNotFound) {
 			return nil, status.Errorf(codes.NotFound, "project not found: %s", req.Name)
@@ -250,8 +289,13 @@ func (s *Service) ListProjectMembers(ctx context.Context, req *projectv1.ListPro
 		return nil, status.Error(codes.InvalidArgument, "project_identifier is required")
 	}
 
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
 	// Resolve project
-	project, err := s.repo.Resolve(ctx, req.TenantId, req.ProjectIdentifier)
+	project, err := s.repo.Resolve(ctx, tenantID, req.ProjectIdentifier)
 	if err != nil {
 		if errors.Is(err, pferrors.ErrNotFound) {
 			return nil, status.Errorf(codes.NotFound, "project not found: %s", req.ProjectIdentifier)
@@ -292,8 +336,13 @@ func (s *Service) AddProjectMember(ctx context.Context, req *projectv1.AddProjec
 		return nil, status.Error(codes.InvalidArgument, "either person_identifier or team_identifier is required")
 	}
 
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
 	// Resolve project
-	project, err := s.repo.Resolve(ctx, req.TenantId, req.ProjectIdentifier)
+	project, err := s.repo.Resolve(ctx, tenantID, req.ProjectIdentifier)
 	if err != nil {
 		if errors.Is(err, pferrors.ErrNotFound) {
 			return nil, status.Errorf(codes.NotFound, "project not found: %s", req.ProjectIdentifier)
@@ -309,7 +358,7 @@ func (s *Service) AddProjectMember(ctx context.Context, req *projectv1.AddProjec
 
 	// Resolve person or team
 	if req.PersonIdentifier != "" {
-		person, err := s.resolvePerson(ctx, req.TenantId, req.PersonIdentifier)
+		person, err := s.resolvePerson(ctx, tenantID, req.PersonIdentifier)
 		if err != nil {
 			return nil, err
 		}
@@ -317,7 +366,7 @@ func (s *Service) AddProjectMember(ctx context.Context, req *projectv1.AddProjec
 		member.PersonName = person.CanonicalName
 		member.PersonEmail = person.PrimaryEmail
 	} else {
-		team, err := s.resolveTeam(ctx, req.TenantId, req.TeamIdentifier)
+		team, err := s.resolveTeam(ctx, tenantID, req.TeamIdentifier)
 		if err != nil {
 			return nil, err
 		}

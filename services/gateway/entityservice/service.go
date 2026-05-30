@@ -15,6 +15,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/products"
+	"github.com/otherjamesbrown/penfold/pkg/tenant"
 )
 
 const (
@@ -27,18 +28,36 @@ type Service struct {
 	entityv1.UnimplementedEntityServiceServer
 	entityRepo   *entities.Repository
 	productRepo  *products.Repository
+	tenantRepo   *tenant.Repository
 	logger       logging.Logger
 	maxBatchSize int
 }
 
 // NewService creates a new entity service.
-func NewService(entityRepo *entities.Repository, productRepo *products.Repository, logger logging.Logger) *Service {
+func NewService(entityRepo *entities.Repository, productRepo *products.Repository, tenantRepo *tenant.Repository, logger logging.Logger) *Service {
 	return &Service{
 		entityRepo:   entityRepo,
 		productRepo:  productRepo,
+		tenantRepo:   tenantRepo,
 		logger:       logger,
 		maxBatchSize: DefaultMaxBatchSize,
 	}
+}
+
+// resolveTenantID resolves a tenant reference (UUID or slug) to a UUID.
+func (s *Service) resolveTenantID(ctx context.Context, tenantRef string) (string, error) {
+	if tenantRef == "" {
+		return "", status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	t, err := s.tenantRepo.GetByRef(ctx, tenantRef)
+	if err != nil {
+		s.logger.Error("Error resolving tenant", logging.Err(err), logging.F("tenant_ref", tenantRef))
+		return "", status.Errorf(codes.Internal, "failed to resolve tenant: %v", err)
+	}
+	if t == nil {
+		return "", status.Errorf(codes.NotFound, "tenant not found: %s", tenantRef)
+	}
+	return t.ID, nil
 }
 
 // WithMaxBatchSize sets a custom maximum batch size.
@@ -67,6 +86,11 @@ func (s *Service) BulkCreatePeople(ctx context.Context, req *entityv1.BulkCreate
 			fmt.Sprintf("batch size %d exceeds maximum of %d; split into smaller batches", len(req.People), s.maxBatchSize))
 	}
 
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := &entityv1.BulkCreatePeopleResponse{
 		TotalRequested: int32(len(req.People)),
 	}
@@ -93,7 +117,7 @@ func (s *Service) BulkCreatePeople(ctx context.Context, req *entityv1.BulkCreate
 		}
 
 		// Check for existing person by email
-		existing, err := s.entityRepo.GetPersonByEmail(ctx, req.TenantId, input.Email)
+		existing, err := s.entityRepo.GetPersonByEmail(ctx, tenantID, input.Email)
 		if err != nil {
 			s.logger.Error("Error checking existing person", logging.Err(err))
 			resp.Errors = append(resp.Errors, &entityv1.EntityError{
@@ -126,7 +150,7 @@ func (s *Service) BulkCreatePeople(ctx context.Context, req *entityv1.BulkCreate
 
 		// Create the person
 		person := &entities.Person{
-			TenantID:      req.TenantId,
+			TenantID:      tenantID,
 			CanonicalName: input.Name,
 			PrimaryEmail:  input.Email,
 			Title:         input.Title,
@@ -401,6 +425,11 @@ func (s *Service) BulkCreateProjects(ctx context.Context, req *entityv1.BulkCrea
 			fmt.Sprintf("batch size %d exceeds maximum of %d; split into smaller batches", len(req.Projects), s.maxBatchSize))
 	}
 
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
 	resp := &entityv1.BulkCreateProjectsResponse{
 		TotalRequested: int32(len(req.Projects)),
 	}
@@ -418,7 +447,7 @@ func (s *Service) BulkCreateProjects(ctx context.Context, req *entityv1.BulkCrea
 		}
 
 		// Check for existing project by name
-		existing, err := s.entityRepo.GetProjectByName(ctx, req.TenantId, input.Name)
+		existing, err := s.entityRepo.GetProjectByName(ctx, tenantID, input.Name)
 		if err != nil {
 			s.logger.Error("Error checking existing project", logging.Err(err))
 			resp.Errors = append(resp.Errors, &entityv1.EntityError{
@@ -451,7 +480,7 @@ func (s *Service) BulkCreateProjects(ctx context.Context, req *entityv1.BulkCrea
 
 		// Create the project
 		project := &entities.Project{
-			TenantID:     req.TenantId,
+			TenantID:     tenantID,
 			Name:         input.Name,
 			Description:  input.Description,
 			Keywords:     input.Keywords,

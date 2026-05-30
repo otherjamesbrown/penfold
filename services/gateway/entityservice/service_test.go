@@ -151,32 +151,32 @@ func TestNewService(t *testing.T) {
 	logger := testLogger()
 
 	t.Run("creates service with nil repos", func(t *testing.T) {
-		svc := NewService(nil, nil, logger)
+		svc := NewService(nil, nil, nil, logger)
 		require.NotNil(t, svc)
 		assert.Nil(t, svc.entityRepo)
 		assert.Nil(t, svc.productRepo)
 	})
 
 	t.Run("creates service with nil logger", func(t *testing.T) {
-		svc := NewService(nil, nil, nil)
+		svc := NewService(nil, nil, nil, nil)
 		require.NotNil(t, svc)
 	})
 
 	t.Run("default max batch size", func(t *testing.T) {
-		svc := NewService(nil, nil, logger)
+		svc := NewService(nil, nil, nil, logger)
 		assert.Equal(t, DefaultMaxBatchSize, svc.maxBatchSize)
 	})
 
 	t.Run("WithMaxBatchSize sets custom size", func(t *testing.T) {
-		svc := NewService(nil, nil, logger).WithMaxBatchSize(100)
+		svc := NewService(nil, nil, nil, logger).WithMaxBatchSize(100)
 		assert.Equal(t, 100, svc.maxBatchSize)
 	})
 
 	t.Run("WithMaxBatchSize ignores zero or negative", func(t *testing.T) {
-		svc := NewService(nil, nil, logger).WithMaxBatchSize(0)
+		svc := NewService(nil, nil, nil, logger).WithMaxBatchSize(0)
 		assert.Equal(t, DefaultMaxBatchSize, svc.maxBatchSize)
 
-		svc = NewService(nil, nil, logger).WithMaxBatchSize(-1)
+		svc = NewService(nil, nil, nil, logger).WithMaxBatchSize(-1)
 		assert.Equal(t, DefaultMaxBatchSize, svc.maxBatchSize)
 	})
 }
@@ -185,7 +185,7 @@ func TestBatchSizeLimits(t *testing.T) {
 	logger := testLogger()
 
 	t.Run("BulkCreatePeople exceeds batch size", func(t *testing.T) {
-		svc := NewService(nil, nil, logger).WithMaxBatchSize(2)
+		svc := NewService(nil, nil, nil, logger).WithMaxBatchSize(2)
 
 		people := make([]*entityv1.PersonInput, 3)
 		for i := range people {
@@ -208,7 +208,7 @@ func TestBatchSizeLimits(t *testing.T) {
 	})
 
 	t.Run("BulkCreateProducts exceeds batch size", func(t *testing.T) {
-		svc := NewService(nil, nil, logger).WithMaxBatchSize(2)
+		svc := NewService(nil, nil, nil, logger).WithMaxBatchSize(2)
 
 		products := make([]*entityv1.ProductInput, 3)
 		for i := range products {
@@ -231,7 +231,7 @@ func TestBatchSizeLimits(t *testing.T) {
 	})
 
 	t.Run("BulkCreateProjects exceeds batch size", func(t *testing.T) {
-		svc := NewService(nil, nil, logger).WithMaxBatchSize(2)
+		svc := NewService(nil, nil, nil, logger).WithMaxBatchSize(2)
 
 		projects := make([]*entityv1.ProjectInput, 3)
 		for i := range projects {
@@ -275,7 +275,7 @@ func TestBatchSizeLimits(t *testing.T) {
 
 func TestBulkCreatePeople_Validation(t *testing.T) {
 	logger := testLogger()
-	svc := NewService(nil, nil, logger)
+	svc := NewService(nil, nil, nil, logger)
 
 	t.Run("empty tenant_id returns InvalidArgument", func(t *testing.T) {
 		req := &entityv1.BulkCreatePeopleRequest{
@@ -537,7 +537,7 @@ func TestBulkCreatePeople_Success(t *testing.T) {
 
 func TestBulkCreateProducts_Validation(t *testing.T) {
 	logger := testLogger()
-	svc := NewService(nil, nil, logger)
+	svc := NewService(nil, nil, nil, logger)
 
 	t.Run("empty tenant_id returns InvalidArgument", func(t *testing.T) {
 		req := &entityv1.BulkCreateProductsRequest{
@@ -791,7 +791,7 @@ func TestBulkCreateProducts_ParentResolution(t *testing.T) {
 
 func TestBulkCreateProjects_Validation(t *testing.T) {
 	logger := testLogger()
-	svc := NewService(nil, nil, logger)
+	svc := NewService(nil, nil, nil, logger)
 
 	t.Run("empty tenant_id returns InvalidArgument", func(t *testing.T) {
 		req := &entityv1.BulkCreateProjectsRequest{
