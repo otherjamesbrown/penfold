@@ -268,6 +268,7 @@ func (r *Repository) GetPersonByAlias(ctx context.Context, tenantID, aliasValue 
 			p.rejected_at, p.rejected_reason, p.rejected_by,
 			p.potential_duplicates,
 			p.sent_count, p.received_count,
+			p.communication_patterns, p.expertise_areas, p.org_position,
 			p.created_at, p.updated_at
 		FROM people p
 		JOIN person_aliases a ON a.person_id = p.id
@@ -293,6 +294,7 @@ func (r *Repository) SearchPeopleByName(ctx context.Context, tenantID, name stri
 			rejected_at, rejected_reason, rejected_by,
 			potential_duplicates,
 			sent_count, received_count,
+			communication_patterns, expertise_areas, org_position,
 			created_at, updated_at
 		FROM people
 		WHERE tenant_id = $1 AND canonical_name ILIKE '%' || $2 || '%'
@@ -319,6 +321,7 @@ func (r *Repository) GetPeopleByDomain(ctx context.Context, tenantID, domain str
 			rejected_at, rejected_reason, rejected_by,
 			potential_duplicates,
 			sent_count, received_count,
+			communication_patterns, expertise_areas, org_position,
 			created_at, updated_at
 		FROM people
 		WHERE tenant_id = $1 AND primary_email LIKE '%@' || $2
@@ -349,6 +352,7 @@ func (r *Repository) ListPeopleNeedingReview(ctx context.Context, tenantID strin
 			rejected_at, rejected_reason, rejected_by,
 			potential_duplicates,
 			sent_count, received_count,
+			communication_patterns, expertise_areas, org_position,
 			created_at, updated_at
 		FROM people
 		WHERE tenant_id = $1 AND needs_review = TRUE
@@ -1610,6 +1614,7 @@ func (r *Repository) SearchEntities(ctx context.Context, tenantID, query, field 
 				rejected_at, rejected_reason, rejected_by,
 				potential_duplicates,
 				sent_count, received_count,
+				communication_patterns, expertise_areas, org_position,
 				created_at, updated_at
 			FROM people
 			WHERE tenant_id = $1 AND primary_email ILIKE '%' || $2 || '%'
@@ -1627,6 +1632,7 @@ func (r *Repository) SearchEntities(ctx context.Context, tenantID, query, field 
 				rejected_at, rejected_reason, rejected_by,
 				potential_duplicates,
 				sent_count, received_count,
+				communication_patterns, expertise_areas, org_position,
 				created_at, updated_at
 			FROM people
 			WHERE tenant_id = $1 AND canonical_name ILIKE '%' || $2 || '%'
@@ -1645,6 +1651,7 @@ func (r *Repository) SearchEntities(ctx context.Context, tenantID, query, field 
 				rejected_at, rejected_reason, rejected_by,
 				potential_duplicates,
 				sent_count, received_count,
+				communication_patterns, expertise_areas, org_position,
 				created_at, updated_at
 			FROM people
 			WHERE tenant_id = $1
