@@ -361,6 +361,10 @@ func (s *Service) IngestAttachment(ctx context.Context, req *ingestv1.IngestAtta
 // CreateIngestJob (which only records a job), this is the real persist+process path
 // for ad-hoc file/URL ingestion.
 func (s *Service) IngestDocument(ctx context.Context, req *ingestv1.IngestDocumentRequest) (*ingestv1.IngestDocumentResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+
 	s.logger.Debug("IngestDocument called",
 		logging.F("tenant_id", req.TenantId),
 		logging.F("filename", req.Filename),
