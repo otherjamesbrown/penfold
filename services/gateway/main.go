@@ -373,13 +373,13 @@ func main() {
 	reviewv1.RegisterReviewServiceServer(grpcServer, reviewSvc)
 	logger.Info("Registered ReviewService")
 	productRepo := products.NewRepository(dbPool, logger)
-	entitySvc := entityservice.NewService(entityRepo, productRepo, logger)
+	entitySvc := entityservice.NewService(entityRepo, productRepo, tenantRepo, logger)
 	entityv1.RegisterEntityServiceServer(grpcServer, entitySvc)
 	logger.Info("Registered EntityService")
 
 	// Register EntityManagementService for entity lifecycle management (reject, restore, filter, stats, search).
 	configRepo := enrichmentconfig.NewConfigRepository(dbPool)
-	entityMgmtSvc := entitymanagementservice.NewService(entityRepo, configRepo, logger)
+	entityMgmtSvc := entitymanagementservice.NewService(entityRepo, configRepo, tenantRepo, logger)
 	entityv1.RegisterEntityManagementServiceServer(grpcServer, entityMgmtSvc)
 	logger.Info("Registered EntityManagementService")
 
@@ -413,7 +413,7 @@ func main() {
 	// Register ProjectService for project CRUD and member management.
 	// Uses tenantRepo (created above for EntityService) for tenant slug-to-UUID resolution.
 	projectRepo := projects.NewRepository(dbPool, logger)
-	projectSvc := projectservice.NewService(projectRepo, entityRepo, logger)
+	projectSvc := projectservice.NewService(projectRepo, entityRepo, tenantRepo, logger)
 	projectv1.RegisterProjectServiceServer(grpcServer, projectSvc)
 	logger.Info("Registered ProjectService")
 
