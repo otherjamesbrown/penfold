@@ -7,10 +7,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -22,6 +24,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/logging"
 	"github.com/otherjamesbrown/penfold/pkg/parse"
 	"github.com/otherjamesbrown/penfold/pkg/repository"
+	pkgtemporal "github.com/otherjamesbrown/penfold/pkg/temporal"
 	"github.com/otherjamesbrown/penfold/services/gateway/router"
 )
 
@@ -347,6 +350,165 @@ func (s *Service) IngestAttachment(ctx context.Context, req *ingestv1.IngestAtta
 		Status:       ingestv1.ProcessingStatus_PROCESSING_STATUS_PENDING,
 		ContentId:    createdSource.ContentID,
 	}, nil
+}
+
+// IngestDocument ingests a single standalone document (markdown, text, PDF, etc.),
+// persisting it as a source and enqueueing it for SLM pipeline processing. Unlike
+// CreateIngestJob (which only records a job), this is the real persist+process path
+// for ad-hoc file/URL ingestion.
+func (s *Service) IngestDocument(ctx context.Context, req *ingestv1.IngestDocumentRequest) (*ingestv1.IngestDocumentResponse, error) {
+	s.logger.Debug("IngestDocument called",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("filename", req.Filename),
+		logging.F("content_type", req.ContentType),
+		logging.F("content_size", len(req.Content)),
+	)
+
+	// Validate required fields
+	if len(req.Content) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "content is required")
+	}
+
+	// Resolve tenant reference to UUID
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	rawContent := string(req.Content)
+	contentType := req.ContentType
+	if contentType == "" {
+		contentType = "text/plain"
+	}
+
+	// Content hash for deduplication.
+	sum := sha256.Sum256(req.Content)
+	contentHash := hex.EncodeToString(sum[:])
+
+	// Check for duplicates by content hash.
+	isDuplicate, existingID, _, err := s.repo.CheckDuplicate(ctx, tenantID, "", contentHash)
+	if err != nil {
+		s.logger.Error("Error checking document duplicate",
+			logging.Err(err),
+			logging.F("tenant_id", req.TenantId),
+			logging.F("filename", req.Filename),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to check duplicate: %v", err)
+	}
+	if isDuplicate {
+		s.logger.Debug("Duplicate document detected",
+			logging.F("tenant_id", req.TenantId),
+			logging.F("filename", req.Filename),
+			logging.F("existing_id", existingID),
+		)
+		return &ingestv1.IngestDocumentResponse{
+			WasDuplicate:     true,
+			ExistingSourceId: fmt.Sprintf("%d", existingID),
+			Status:           ingestv1.ProcessingStatus_PROCESSING_STATUS_SKIPPED,
+		}, nil
+	}
+
+	// Determine the source timestamp.
+	sourceTimestamp := time.Now()
+	if req.SourceTimestamp != nil {
+		sourceTimestamp = req.SourceTimestamp.AsTime()
+	}
+
+	// Build metadata.
+	metadata := map[string]interface{}{}
+	if req.Filename != "" {
+		metadata["filename"] = req.Filename
+	}
+	if req.Category != "" {
+		metadata["category"] = req.Category
+	}
+	if len(req.Tags) > 0 {
+		metadata["tags"] = req.Tags
+	}
+	if req.SourceUri != "" {
+		metadata["source_uri"] = req.SourceUri
+	}
+
+	externalID := req.Filename
+	if externalID == "" {
+		externalID = fmt.Sprintf("document-%s", contentHash[:12])
+	}
+
+	contentID := contentid.New(contentid.TypeDocument)
+
+	source := &storage.EmailSource{
+		TenantID:        tenantID,
+		SourceSystem:    storage.SourceSystemManualDocument,
+		ExternalID:      externalID,
+		ContentHash:     contentHash,
+		RawContent:      rawContent,
+		ContentType:     contentType,
+		ContentSize:     int32(len(rawContent)),
+		Metadata:        metadata,
+		SourceTimestamp: sourceTimestamp,
+		ContentID:       contentID,
+	}
+
+	createdSource, err := s.repo.CreateSource(ctx, source)
+	if err != nil {
+		s.logger.Error("Error creating document source",
+			logging.Err(err),
+			logging.F("tenant_id", req.TenantId),
+			logging.F("filename", req.Filename),
+		)
+		return nil, status.Errorf(codes.Internal, "failed to create source: %v", err)
+	}
+
+	resp := &ingestv1.IngestDocumentResponse{
+		SourceId:  fmt.Sprintf("%d", createdSource.ID),
+		ContentId: createdSource.ContentID,
+		Status:    ingestv1.ProcessingStatus_PROCESSING_STATUS_PENDING,
+	}
+
+	// Enqueue the SLM pipeline for this source. Mirrors the per-source kick used by
+	// the Gmail connector and the content reprocess path.
+	if s.temporalClient == nil {
+		// Persisted but not enqueued — report honestly rather than faking success.
+		s.logger.Warn("Temporal client not configured; document persisted but not enqueued for processing",
+			logging.F("source_id", createdSource.ID),
+		)
+		return resp, nil
+	}
+
+	workflowID := pkgtemporal.GenerateIngestWorkflowID(tenantID, source.SourceSystem, strconv.FormatInt(createdSource.ID, 10))
+	input := pkgtemporal.SLMPipelineInput{
+		TenantID:    tenantID,
+		SourceID:    createdSource.ID,
+		ContentID:   createdSource.ContentID,
+		ContentHash: contentHash,
+		JobID:       workflowID,
+	}
+	opts := client.StartWorkflowOptions{
+		ID:                       workflowID,
+		TaskQueue:                "penfold-main",
+		WorkflowIDReusePolicy:    enums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
+		WorkflowIDConflictPolicy: enums.WORKFLOW_ID_CONFLICT_POLICY_TERMINATE_EXISTING,
+	}
+	workflowRun, wfErr := s.temporalClient.ExecuteWorkflow(ctx, opts, "SLMPipelineWorkflow", input)
+	if wfErr != nil {
+		s.logger.Error("Failed to enqueue document for processing",
+			logging.F("source_id", createdSource.ID),
+			logging.F("workflow_id", workflowID),
+			logging.Err(wfErr),
+		)
+		return nil, status.Errorf(codes.Internal,
+			"document persisted (source %d) but failed to enqueue processing: %v", createdSource.ID, wfErr)
+	}
+	resp.JobId = workflowRun.GetID()
+
+	s.logger.Info("Document ingested and enqueued for processing",
+		logging.F("tenant_id", req.TenantId),
+		logging.F("source_id", createdSource.ID),
+		logging.F("content_id", createdSource.ContentID),
+		logging.F("workflow_id", workflowID),
+	)
+
+	return resp, nil
 }
 
 // IngestMeeting ingests a meeting with its associated transcript and chat.

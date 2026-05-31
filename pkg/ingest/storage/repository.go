@@ -17,6 +17,7 @@ import (
 // SourceSystem identifies the origin system for ingested content.
 const (
 	SourceSystemManualEML        = "manual_eml"
+	SourceSystemManualDocument   = "manual_document"
 	SourceSystemGmail            = "gmail"
 	SourceSystemTeamsChannel     = "teams_channel"
 	SourceSystemOutlookMail      = "outlook_mail"
