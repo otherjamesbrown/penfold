@@ -17,6 +17,7 @@ import (
 // SourceSystem identifies the origin system for ingested content.
 const (
 	SourceSystemManualEML        = "manual_eml"
+	SourceSystemManualDocument   = "manual_document"
 	SourceSystemGmail            = "gmail"
 	SourceSystemTeamsChannel     = "teams_channel"
 	SourceSystemOutlookMail      = "outlook_mail"
@@ -259,17 +260,22 @@ func (r *Repository) ExistsByContentHash(ctx context.Context, tenantID, contentH
 // CheckDuplicate checks if an email is a duplicate by message ID or content hash.
 // Returns (isDuplicate, existingID, duplicateReason, error)
 func (r *Repository) CheckDuplicate(ctx context.Context, tenantID, messageID, contentHash string) (bool, int64, string, error) {
-	// First check by message ID (exact duplicate)
-	exists, id, err := r.ExistsByExternalID(ctx, tenantID, messageID)
-	if err != nil {
-		return false, 0, "", err
-	}
-	if exists {
-		return true, id, "message_id", nil
+	// First check by message ID (exact duplicate). Skip when no external ID is
+	// provided (e.g. attachments, standalone documents) — an empty messageID would
+	// otherwise match any pre-existing source with an empty external_id and produce
+	// a false duplicate.
+	if messageID != "" {
+		exists, id, err := r.ExistsByExternalID(ctx, tenantID, messageID)
+		if err != nil {
+			return false, 0, "", err
+		}
+		if exists {
+			return true, id, "message_id", nil
+		}
 	}
 
 	// Then check by content hash (content duplicate)
-	exists, id, err = r.ExistsByContentHash(ctx, tenantID, contentHash)
+	exists, id, err := r.ExistsByContentHash(ctx, tenantID, contentHash)
 	if err != nil {
 		return false, 0, "", err
 	}

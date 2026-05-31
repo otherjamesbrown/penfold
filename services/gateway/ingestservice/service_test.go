@@ -1560,3 +1560,100 @@ On Tue, Feb 11, 2026, Emma Watson <emma@example.com> wrote:
 			len(expectedParticipants), len(actualParticipants))
 	})
 }
+
+// ============ IngestDocument Tests ============
+
+func TestIngestDocument(t *testing.T) {
+	t.Run("persists document and reports pending", func(t *testing.T) {
+		svc, repo := newTestService()
+
+		req := &ingestv1.IngestDocumentRequest{
+			TenantId:    "cybersentriq",
+			Filename:    "note.md",
+			ContentType: "text/markdown",
+			Content:     []byte("# Heading\n\nSome document body."),
+			Category:    "notes",
+			Tags:        []string{"source:test"},
+			SourceUri:   "/tmp/note.md",
+		}
+
+		resp, err := svc.IngestDocument(context.Background(), req)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+
+		// Source was persisted with the document source system and MIME type.
+		require.NotNil(t, repo.lastSource)
+		assert.Equal(t, storage.SourceSystemManualDocument, repo.lastSource.SourceSystem)
+		assert.Equal(t, "text/markdown", repo.lastSource.ContentType)
+		assert.Equal(t, "note.md", repo.lastSource.ExternalID)
+		assert.NotEmpty(t, repo.lastSource.ContentHash)
+		assert.Equal(t, string(req.Content), repo.lastSource.RawContent)
+		// Subject is set to the filename so downstream stages have topic context.
+		assert.Equal(t, "note.md", repo.lastSource.Metadata["subject"])
+
+		// A document content_id was minted and echoed back.
+		assert.True(t, contentid.IsValid(resp.ContentId))
+		assert.Equal(t, repo.lastSource.ContentID, resp.ContentId)
+
+		// Without a Temporal client wired the source is persisted but not enqueued,
+		// and the status is reported honestly as pending (never a fake "completed").
+		assert.Equal(t, "1", resp.SourceId)
+		assert.False(t, resp.WasDuplicate)
+		assert.Equal(t, ingestv1.ProcessingStatus_PROCESSING_STATUS_PENDING, resp.Status)
+	})
+
+	t.Run("empty content is rejected", func(t *testing.T) {
+		svc, _ := newTestService()
+
+		_, err := svc.IngestDocument(context.Background(), &ingestv1.IngestDocumentRequest{
+			TenantId: "cybersentriq",
+			Filename: "empty.md",
+			Content:  nil,
+		})
+		require.Error(t, err)
+		assert.Equal(t, codes.InvalidArgument, status.Code(err))
+	})
+
+	t.Run("non-UTF-8 binary content is rejected", func(t *testing.T) {
+		svc, _ := newTestService()
+
+		_, err := svc.IngestDocument(context.Background(), &ingestv1.IngestDocumentRequest{
+			TenantId:    "cybersentriq",
+			Filename:    "scan.pdf",
+			ContentType: "application/pdf",
+			Content:     []byte{0x25, 0x50, 0x44, 0x46, 0xff, 0xfe, 0x00, 0x80}, // invalid UTF-8
+		})
+		require.Error(t, err)
+		assert.Equal(t, codes.InvalidArgument, status.Code(err))
+	})
+
+	t.Run("defaults content type when unset", func(t *testing.T) {
+		svc, repo := newTestService()
+
+		_, err := svc.IngestDocument(context.Background(), &ingestv1.IngestDocumentRequest{
+			TenantId: "cybersentriq",
+			Filename: "raw",
+			Content:  []byte("plain content"),
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "text/plain", repo.lastSource.ContentType)
+	})
+
+	t.Run("duplicate is reported as skipped", func(t *testing.T) {
+		svc, repo := newTestService()
+		repo.checkDuplicateFn = func(ctx context.Context, tenantID, messageID, contentHash string) (bool, int64, string, error) {
+			return true, 42, "content_hash", nil
+		}
+
+		resp, err := svc.IngestDocument(context.Background(), &ingestv1.IngestDocumentRequest{
+			TenantId: "cybersentriq",
+			Filename: "dup.md",
+			Content:  []byte("already ingested"),
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		assert.True(t, resp.WasDuplicate)
+		assert.Equal(t, "42", resp.ExistingSourceId)
+		assert.Equal(t, ingestv1.ProcessingStatus_PROCESSING_STATUS_SKIPPED, resp.Status)
+	})
+}

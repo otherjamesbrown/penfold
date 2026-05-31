@@ -240,6 +240,8 @@ func mapSourceSystemToContentType(sourceSystem string) string {
 		return "email"
 	case "meeting_transcript", "zoom", "google_meet", "teams", "teams_transcript":
 		return "meeting"
+	case "manual_document":
+		return "document"
 	default:
 		return sourceSystem
 	}

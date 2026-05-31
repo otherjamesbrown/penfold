@@ -363,6 +363,7 @@ func TestMapSourceSystemToContentType(t *testing.T) {
 		{"google_meet", "meeting"},
 		{"teams", "meeting"},
 		{"teams_transcript", "meeting"},
+		{"manual_document", "document"},
 		{"unknown_system", "unknown_system"}, // passthrough for unrecognized
 	}
 
