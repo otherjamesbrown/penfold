@@ -425,8 +425,17 @@ func (s *Service) IngestDocument(ctx context.Context, req *ingestv1.IngestDocume
 		sourceTimestamp = req.SourceTimestamp.AsTime()
 	}
 
-	// Build metadata.
-	metadata := map[string]interface{}{}
+	externalID := req.Filename
+	if externalID == "" {
+		externalID = fmt.Sprintf("document-%s", contentHash[:12])
+	}
+
+	// Build metadata. Set "subject" to the filename (or generated ID) so FetchSource
+	// populates the pipeline Subject field — triage/analyze use it for topic framing,
+	// and documents have no native subject.
+	metadata := map[string]interface{}{
+		"subject": externalID,
+	}
 	if req.Filename != "" {
 		metadata["filename"] = req.Filename
 	}
@@ -438,11 +447,6 @@ func (s *Service) IngestDocument(ctx context.Context, req *ingestv1.IngestDocume
 	}
 	if req.SourceUri != "" {
 		metadata["source_uri"] = req.SourceUri
-	}
-
-	externalID := req.Filename
-	if externalID == "" {
-		externalID = fmt.Sprintf("document-%s", contentHash[:12])
 	}
 
 	contentID := contentid.New(contentid.TypeDocument)

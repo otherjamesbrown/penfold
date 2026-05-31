@@ -1588,6 +1588,8 @@ func TestIngestDocument(t *testing.T) {
 		assert.Equal(t, "note.md", repo.lastSource.ExternalID)
 		assert.NotEmpty(t, repo.lastSource.ContentHash)
 		assert.Equal(t, string(req.Content), repo.lastSource.RawContent)
+		// Subject is set to the filename so downstream stages have topic context.
+		assert.Equal(t, "note.md", repo.lastSource.Metadata["subject"])
 
 		// A document content_id was minted and echoed back.
 		assert.True(t, contentid.IsValid(resp.ContentId))
