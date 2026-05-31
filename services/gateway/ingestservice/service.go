@@ -116,7 +116,7 @@ func (s *Service) resolveTenantID(ctx context.Context, tenantRef string) (string
 		return "", status.Error(codes.InvalidArgument, "tenant_id is required")
 	}
 	if s.tenantRepo == nil {
-		return "", status.Error(codes.Internal, "tenant repository not configured")
+		return "", status.Error(codes.Internal, "tenant repository is not initialized")
 	}
 
 	// Try to resolve via tenant repository

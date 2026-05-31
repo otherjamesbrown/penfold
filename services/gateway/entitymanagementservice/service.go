@@ -13,6 +13,7 @@ import (
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/config"
 	"github.com/otherjamesbrown/penfold/pkg/enrichment/entities"
 	"github.com/otherjamesbrown/penfold/pkg/logging"
+	"github.com/otherjamesbrown/penfold/pkg/tenant"
 )
 
 // Service implements the EntityManagementService gRPC server.
@@ -20,16 +21,37 @@ type Service struct {
 	entityv1.UnimplementedEntityManagementServiceServer
 	entityRepo *entities.Repository
 	configRepo *config.ConfigRepositoryImpl
+	tenantRepo *tenant.Repository
 	logger     logging.Logger
 }
 
 // NewService creates a new entity management service.
-func NewService(entityRepo *entities.Repository, configRepo *config.ConfigRepositoryImpl, logger logging.Logger) *Service {
+func NewService(entityRepo *entities.Repository, configRepo *config.ConfigRepositoryImpl, tenantRepo *tenant.Repository, logger logging.Logger) *Service {
 	return &Service{
 		entityRepo: entityRepo,
 		configRepo: configRepo,
+		tenantRepo: tenantRepo,
 		logger:     logger,
 	}
+}
+
+// resolveTenantID resolves a tenant reference (UUID or slug) to a UUID.
+func (s *Service) resolveTenantID(ctx context.Context, tenantRef string) (string, error) {
+	if tenantRef == "" {
+		return "", status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	if s.tenantRepo == nil {
+		return "", status.Error(codes.Internal, "tenant repository is not initialized")
+	}
+	t, err := s.tenantRepo.GetByRef(ctx, tenantRef)
+	if err != nil {
+		s.logger.Error("Error resolving tenant", logging.Err(err), logging.F("tenant_ref", tenantRef))
+		return "", status.Errorf(codes.Internal, "failed to resolve tenant: %v", err)
+	}
+	if t == nil {
+		return "", status.Errorf(codes.NotFound, "tenant not found: %s", tenantRef)
+	}
+	return t.ID, nil
 }
 
 // RejectEntity soft-deletes an entity.
@@ -49,7 +71,12 @@ func (s *Service) RejectEntity(ctx context.Context, req *entityv1.RejectEntityRe
 		return nil, status.Error(codes.InvalidArgument, "reason is required")
 	}
 
-	err := s.entityRepo.RejectPerson(ctx, req.TenantId, req.EntityId, req.Reason, req.RejectedBy)
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.entityRepo.RejectPerson(ctx, tenantID, req.EntityId, req.Reason, req.RejectedBy)
 	if err != nil {
 		s.logger.Error("Failed to reject entity", logging.Err(err))
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to reject entity: %v", err))
@@ -75,7 +102,12 @@ func (s *Service) RestoreEntity(ctx context.Context, req *entityv1.RestoreEntity
 		return nil, status.Error(codes.InvalidArgument, "entity_id is required")
 	}
 
-	err := s.entityRepo.RestorePerson(ctx, req.TenantId, req.EntityId)
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.entityRepo.RestorePerson(ctx, tenantID, req.EntityId)
 	if err != nil {
 		s.logger.Error("Failed to restore entity", logging.Err(err))
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to restore entity: %v", err))
@@ -104,7 +136,12 @@ func (s *Service) BulkRejectEntities(ctx context.Context, req *entityv1.BulkReje
 		return nil, status.Error(codes.InvalidArgument, "reason is required")
 	}
 
-	count, err := s.entityRepo.BulkRejectByPattern(ctx, req.TenantId, req.EmailPattern, req.NamePattern, req.Reason, req.RejectedBy)
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	count, err := s.entityRepo.BulkRejectByPattern(ctx, tenantID, req.EmailPattern, req.NamePattern, req.Reason, req.RejectedBy)
 	if err != nil {
 		s.logger.Error("Failed to bulk reject entities", logging.Err(err))
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to bulk reject entities: %v", err))
@@ -133,8 +170,13 @@ func (s *Service) CreateFilterRule(ctx context.Context, req *entityv1.CreateFilt
 		return nil, status.Error(codes.InvalidArgument, "reason is required")
 	}
 
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
 	rule := &entities.EntityFilterRule{
-		TenantID:     req.TenantId,
+		TenantID:     tenantID,
 		EmailPattern: req.EmailPattern,
 		NamePattern:  req.NamePattern,
 		EntityType:   req.EntityType,
@@ -142,7 +184,7 @@ func (s *Service) CreateFilterRule(ctx context.Context, req *entityv1.CreateFilt
 		CreatedBy:    req.CreatedBy,
 	}
 
-	err := s.entityRepo.CreateFilterRule(ctx, rule)
+	err = s.entityRepo.CreateFilterRule(ctx, rule)
 	if err != nil {
 		s.logger.Error("Failed to create filter rule", logging.Err(err))
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to create filter rule: %v", err))
@@ -172,7 +214,12 @@ func (s *Service) ListFilterRules(ctx context.Context, req *entityv1.ListFilterR
 		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
 	}
 
-	rules, err := s.entityRepo.ListFilterRules(ctx, req.TenantId)
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	rules, err := s.entityRepo.ListFilterRules(ctx, tenantID)
 	if err != nil {
 		s.logger.Error("Failed to list filter rules", logging.Err(err))
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to list filter rules: %v", err))
@@ -211,7 +258,12 @@ func (s *Service) DeleteFilterRule(ctx context.Context, req *entityv1.DeleteFilt
 		return nil, status.Error(codes.InvalidArgument, "rule_id is required")
 	}
 
-	err := s.entityRepo.DeleteFilterRule(ctx, req.TenantId, req.RuleId)
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.entityRepo.DeleteFilterRule(ctx, tenantID, req.RuleId)
 	if err != nil {
 		s.logger.Error("Failed to delete filter rule", logging.Err(err))
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to delete filter rule: %v", err))
@@ -234,7 +286,12 @@ func (s *Service) TestFilterRule(ctx context.Context, req *entityv1.TestFilterRu
 		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
 	}
 
-	matchingRules, err := s.entityRepo.TestFilterRule(ctx, req.TenantId, req.Email, req.Name)
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	matchingRules, err := s.entityRepo.TestFilterRule(ctx, tenantID, req.Email, req.Name)
 	if err != nil {
 		s.logger.Error("Failed to test filter rules", logging.Err(err))
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to test filter rules: %v", err))
@@ -270,7 +327,12 @@ func (s *Service) GetEntityStats(ctx context.Context, req *entityv1.GetEntitySta
 		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
 	}
 
-	stats, err := s.entityRepo.GetEntityStats(ctx, req.TenantId)
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	stats, err := s.entityRepo.GetEntityStats(ctx, tenantID)
 	if err != nil {
 		s.logger.Error("Failed to get entity stats", logging.Err(err))
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get entity stats: %v", err))
@@ -309,12 +371,17 @@ func (s *Service) SearchEntities(ctx context.Context, req *entityv1.SearchEntiti
 		return nil, status.Error(codes.InvalidArgument, "query is required")
 	}
 
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
 	limit := int(req.Limit)
 	if limit == 0 {
 		limit = 100
 	}
 
-	people, err := s.entityRepo.SearchEntities(ctx, req.TenantId, req.Query, req.Field, limit)
+	people, err := s.entityRepo.SearchEntities(ctx, tenantID, req.Query, req.Field, limit)
 	if err != nil {
 		s.logger.Error("Failed to search entities", logging.Err(err))
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to search entities: %v", err))
@@ -359,16 +426,21 @@ func (s *Service) CreateEmailPattern(ctx context.Context, req *entityv1.CreateEm
 
 	// Validate pattern_type
 	validTypes := map[string]bool{
-		"bot":          true,
-		"distribution": true,
-		"role":         true,
+		"bot":             true,
+		"distribution":    true,
+		"role":            true,
 		"external_domain": true,
 	}
 	if !validTypes[req.PatternType] {
 		return nil, status.Error(codes.InvalidArgument, "pattern_type must be one of: bot, distribution, role, external_domain")
 	}
 
-	pattern, err := s.configRepo.CreateEmailPattern(ctx, req.TenantId, req.Pattern, req.PatternType, req.Notes)
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	pattern, err := s.configRepo.CreateEmailPattern(ctx, tenantID, req.Pattern, req.PatternType, req.Notes)
 	if err != nil {
 		s.logger.Error("Failed to create email pattern", logging.Err(err))
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to create email pattern: %v", err))
@@ -396,7 +468,12 @@ func (s *Service) ListEmailPatterns(ctx context.Context, req *entityv1.ListEmail
 		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
 	}
 
-	patterns, err := s.configRepo.ListEmailPatterns(ctx, req.TenantId)
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	patterns, err := s.configRepo.ListEmailPatterns(ctx, tenantID)
 	if err != nil {
 		s.logger.Error("Failed to list email patterns", logging.Err(err))
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to list email patterns: %v", err))
@@ -433,7 +510,12 @@ func (s *Service) DeleteEmailPattern(ctx context.Context, req *entityv1.DeleteEm
 		return nil, status.Error(codes.InvalidArgument, "pattern_id is required")
 	}
 
-	err := s.configRepo.DeleteEmailPattern(ctx, req.TenantId, req.PatternId)
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.configRepo.DeleteEmailPattern(ctx, tenantID, req.PatternId)
 	if err != nil {
 		s.logger.Error("Failed to delete email pattern", logging.Err(err))
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to delete email pattern: %v", err))
@@ -463,6 +545,11 @@ func (s *Service) UpdateEntity(ctx context.Context, req *entityv1.UpdateEntityRe
 		return nil, status.Error(codes.InvalidArgument, "at least one field (name, account_type, metadata, title, or company) must be specified")
 	}
 
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
 	// Validate account_type if provided
 	var accountType *entities.AccountType
 	if req.AccountType != nil {
@@ -483,7 +570,7 @@ func (s *Service) UpdateEntity(ctx context.Context, req *entityv1.UpdateEntityRe
 		accountType = &at
 	}
 
-	err := s.entityRepo.UpdateEntityFields(ctx, req.TenantId, req.EntityId, req.Name, accountType, req.Metadata, req.Title, req.Company)
+	err = s.entityRepo.UpdateEntityFields(ctx, tenantID, req.EntityId, req.Name, accountType, req.Metadata, req.Title, req.Company)
 	if err != nil {
 		s.logger.Error("Failed to update entity", logging.Err(err))
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to update entity: %v", err))
@@ -509,7 +596,12 @@ func (s *Service) DeleteEntity(ctx context.Context, req *entityv1.DeleteEntityRe
 		return nil, status.Error(codes.InvalidArgument, "entity_id is required")
 	}
 
-	err := s.entityRepo.DeleteEntity(ctx, req.TenantId, req.EntityId)
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.entityRepo.DeleteEntity(ctx, tenantID, req.EntityId)
 	if err != nil {
 		s.logger.Error("Failed to delete entity", logging.Err(err))
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to delete entity: %v", err))
@@ -539,7 +631,12 @@ func (s *Service) AddGroupMember(ctx context.Context, req *entityv1.AddGroupMemb
 		return nil, status.Error(codes.InvalidArgument, "member_entity_id is required")
 	}
 
-	id, err := s.entityRepo.AddGroupMember(ctx, req.TenantId, req.GroupEntityId, req.MemberEntityId, req.Source)
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	id, err := s.entityRepo.AddGroupMember(ctx, tenantID, req.GroupEntityId, req.MemberEntityId, req.Source)
 	if err != nil {
 		s.logger.Error("Failed to add group member", logging.Err(err))
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to add group member: %v", err))
@@ -568,7 +665,12 @@ func (s *Service) RemoveGroupMember(ctx context.Context, req *entityv1.RemoveGro
 		return nil, status.Error(codes.InvalidArgument, "member_entity_id is required")
 	}
 
-	removed, err := s.entityRepo.RemoveGroupMember(ctx, req.TenantId, req.GroupEntityId, req.MemberEntityId)
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	removed, err := s.entityRepo.RemoveGroupMember(ctx, tenantID, req.GroupEntityId, req.MemberEntityId)
 	if err != nil {
 		s.logger.Error("Failed to remove group member", logging.Err(err))
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to remove group member: %v", err))
@@ -593,7 +695,12 @@ func (s *Service) ListGroupMembers(ctx context.Context, req *entityv1.ListGroupM
 		return nil, status.Error(codes.InvalidArgument, "group_entity_id is required")
 	}
 
-	members, err := s.entityRepo.ListGroupMembers(ctx, req.TenantId, req.GroupEntityId, req.IncludeRemoved)
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	members, err := s.entityRepo.ListGroupMembers(ctx, tenantID, req.GroupEntityId, req.IncludeRemoved)
 	if err != nil {
 		s.logger.Error("Failed to list group members", logging.Err(err))
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to list group members: %v", err))
@@ -635,7 +742,12 @@ func (s *Service) GetEntityGroups(ctx context.Context, req *entityv1.GetEntityGr
 		return nil, status.Error(codes.InvalidArgument, "member_entity_id is required")
 	}
 
-	memberships, err := s.entityRepo.GetEntityGroups(ctx, req.TenantId, req.MemberEntityId, req.IncludeRemoved)
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	memberships, err := s.entityRepo.GetEntityGroups(ctx, tenantID, req.MemberEntityId, req.IncludeRemoved)
 	if err != nil {
 		s.logger.Error("Failed to get entity groups", logging.Err(err))
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get entity groups: %v", err))
@@ -679,7 +791,12 @@ func (s *Service) BulkEnrichEntities(ctx context.Context, req *entityv1.BulkEnri
 		return nil, status.Error(codes.InvalidArgument, "domain is required")
 	}
 
-	count, err := s.entityRepo.BulkEnrichByDomain(ctx, req.TenantId, req.Domain, req.Company, req.IsInternal)
+	tenantID, err := s.resolveTenantID(ctx, req.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	count, err := s.entityRepo.BulkEnrichByDomain(ctx, tenantID, req.Domain, req.Company, req.IsInternal)
 	if err != nil {
 		s.logger.Error("Failed to bulk enrich entities", logging.Err(err))
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to bulk enrich entities: %v", err))
