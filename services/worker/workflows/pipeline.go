@@ -1361,6 +1361,20 @@ func SLMPipelineWorkflow(ctx workflow.Context, input PipelineInput) (*PipelineRe
 			"speaker_count", len(parseOutput.Speakers),
 		)
 
+	case "document":
+		// Standalone documents (markdown, text, PDF text, etc.) ingested via
+		// IngestDocument carry their already-extracted text in BodyText. There is
+		// no email/transcript structure to parse, so pass the raw content through.
+		parsedContent = input.BodyText
+		logger.Info("pipeline stage completed",
+			"source_id", input.SourceID,
+			"stage", parseStage.Name,
+			"stage_number", parseStage.Number,
+			"duration_ms", workflow.Now(ctx).Sub(parseStart).Milliseconds(),
+			"status", "completed",
+			"content_length", len(parsedContent),
+		)
+
 	default:
 		state.result.Status = "failed"
 		state.result.Error = fmt.Sprintf("unsupported content_type: %s", input.ContentType)
