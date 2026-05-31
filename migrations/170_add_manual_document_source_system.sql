@@ -18,7 +18,10 @@ ALTER TABLE sources ADD CONSTRAINT ck_sources_source_system_valid CHECK (
 
 -- +goose Down
 
+-- Reassign any documents ingested under the new source system to a valid existing
+-- value before tightening the constraint, otherwise the rollback would fail on them.
 ALTER TABLE sources DROP CONSTRAINT IF EXISTS ck_sources_source_system_valid;
+UPDATE sources SET source_system = 'manual_eml' WHERE source_system = 'manual_document';
 ALTER TABLE sources ADD CONSTRAINT ck_sources_source_system_valid CHECK (
   source_system::text = ANY (ARRAY[
     'gmail', 'slack', 'zoom', 'calendar', 'drive', 'confluence', 'jira',

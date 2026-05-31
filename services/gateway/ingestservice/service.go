@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"go.temporal.io/api/enums/v1"
@@ -113,6 +114,9 @@ func (s *Service) SetGmailRouter(r *router.Router) {
 func (s *Service) resolveTenantID(ctx context.Context, tenantRef string) (string, error) {
 	if tenantRef == "" {
 		return "", status.Error(codes.InvalidArgument, "tenant_id is required")
+	}
+	if s.tenantRepo == nil {
+		return "", status.Error(codes.Internal, "tenant repository not configured")
 	}
 
 	// Try to resolve via tenant repository
@@ -367,6 +371,13 @@ func (s *Service) IngestDocument(ctx context.Context, req *ingestv1.IngestDocume
 	// Validate required fields
 	if len(req.Content) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "content is required")
+	}
+	// The pipeline treats document content as UTF-8 text (the parse stage passes it
+	// through without extraction). Reject binary payloads (PDF, DOCX, images) rather
+	// than persisting corrupted text — server-side extraction is not yet implemented.
+	if !utf8.Valid(req.Content) {
+		return nil, status.Error(codes.InvalidArgument,
+			"content must be UTF-8 text; binary document formats (e.g. PDF, DOCX) are not yet supported")
 	}
 
 	// Resolve tenant reference to UUID

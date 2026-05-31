@@ -1612,6 +1612,19 @@ func TestIngestDocument(t *testing.T) {
 		assert.Equal(t, codes.InvalidArgument, status.Code(err))
 	})
 
+	t.Run("non-UTF-8 binary content is rejected", func(t *testing.T) {
+		svc, _ := newTestService()
+
+		_, err := svc.IngestDocument(context.Background(), &ingestv1.IngestDocumentRequest{
+			TenantId:    "cybersentriq",
+			Filename:    "scan.pdf",
+			ContentType: "application/pdf",
+			Content:     []byte{0x25, 0x50, 0x44, 0x46, 0xff, 0xfe, 0x00, 0x80}, // invalid UTF-8
+		})
+		require.Error(t, err)
+		assert.Equal(t, codes.InvalidArgument, status.Code(err))
+	})
+
 	t.Run("defaults content type when unset", func(t *testing.T) {
 		svc, repo := newTestService()
 
